@@ -18,7 +18,8 @@
 		{
 			"binding": "daylines_db",
 			"database_name": "daylines-db",
-			"database_id": "bdc7fd73-699a-4885-aaa9-1a5df9024b07"
+			"database_id": "bdc7fd73-699a-4885-aaa9-1a5df9024b07",
+			"migrations_dir": "migrations"
 		}
 	]
 	/**
