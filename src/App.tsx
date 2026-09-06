@@ -41,7 +41,7 @@ function App() {
 
   return (
     <div style={{ maxWidth: 600, margin: "40px auto", fontFamily: "sans-serif" }}>
-      <h1>Notes</h1>
+      <h1>Daylines</h1>
 
       <form onSubmit={addNote} style={{ marginBottom: 24 }}>
         <input
