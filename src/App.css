@@ -1,18 +1,24 @@
 .app {
+  position: fixed;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  width: 100%;
+  width: auto;
+  height: auto;
   max-width: 100%;
-  height: 100%;
-  min-height: 100dvh;
-  max-height: 100dvh;
+  min-width: 0;
+  min-height: 0;
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+  contain: paint;
 }
 
 .app-main {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 12px var(--space) 16px;
@@ -59,11 +65,13 @@
 
 
 .app-composer {
-  position: sticky;
-  bottom: 0;
+  position: relative;
   z-index: 10;
   display: flex;
   align-items: flex-end;
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
   gap: 10px;
   padding: 12px var(--space) calc(12px + var(--safe-bottom));
   background: var(--bg);
@@ -129,10 +137,13 @@
 }
 
 .app-tray-measure {
-  position: absolute;
+  position: fixed;
+  left: -200vw;
+  top: 0;
+  width: max-content;
+  height: auto;
   visibility: hidden;
   pointer-events: none;
-  height: 0;
   overflow: hidden;
 }
 
