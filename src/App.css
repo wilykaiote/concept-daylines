@@ -93,6 +93,9 @@
 }
 
 .app-tray-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 36px;
   min-width: 36px;
   padding: 0 12px;
@@ -101,6 +104,13 @@
   background: transparent;
   color: var(--text-h);
   white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.app-tray-tab svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .app-tray-tab.is-active {
@@ -179,12 +189,39 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  width: calc(100% - var(--tap) - 10px);
+  width: 100%;
   padding: 2px 2px 6px;
   border: 1px solid var(--border);
   border-radius: 22px;
   background: var(--bg-raised);
   overflow: visible;
+}
+
+.app-composer-collapse {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.app-composer-collapse svg {
+  width: 14px;
+  height: 14px;
+}
+
+.app-composer-collapse:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .app-composer.is-collapsed .app-composer-field {
@@ -209,7 +246,7 @@
   flex: 1;
   min-width: 0;
   height: 40px;
-  padding: 0 8px;
+  padding: 0 28px 0 12px;
   border: 0;
   background: transparent;
   color: var(--text-h);
@@ -221,15 +258,132 @@
 }
 
 .app-composer-tools {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 40px;
+  padding: 0 6px 2px 2px;
+}
+
+.app-composer-tools-left {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  z-index: 2;
+}
+
+.app-composer-attach {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.app-composer-tools-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 6px 2px;
+  transform: translate(-50%, -50%);
 }
 
-.app-composer-tools-spacer {
-  flex: 1;
-  min-width: 0;
+.app-compose-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  z-index: 2;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  gap: 0;
+}
+
+.app-compose-kind-menu {
+  left: auto;
+  right: 0;
+  min-width: 140px;
+}
+
+.app-compose-kind-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  flex-shrink: 0;
+  font-size: 1.1rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.app-compose-kind-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-h);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.app-compose-kind-button svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.app-compose-kind-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.app-compose-action .app-composer-mic {
+  width: 36px;
+  height: 36px;
+}
+
+.app-attach-menu-item.is-selected {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.app-composer-ai {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.app-composer-ai.is-on {
+  color: var(--text-h);
+}
+
+.app-composer-ai .app-attach-ai-dot {
+  margin: 0;
+}
+
+.app-composer-ai.is-on .app-attach-ai-dot {
+  background: var(--accent);
+}
+
+.app-composer-ai:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .app-composer-tool {

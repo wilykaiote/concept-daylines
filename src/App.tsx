@@ -2,12 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { createTaskDraft, type TaskDraft } from "./task";
 
-function MenuIcon() {
+function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="6" cy="12" r="1.8" fill="currentColor" />
-      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
-      <circle cx="18" cy="12" r="1.8" fill="currentColor" />
+      <path
+        d="M7 7l10 10M17 7 7 17"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -158,7 +162,61 @@ function NotesIcon() {
   );
 }
 
-const TABS = ["Tab 1", "Tab 2", "Tab 3"] as const;
+function TasksListIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M9 7h11M9 12h11M9 17h11"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="m4 7 1.2 1.2L7.5 6M4 12l1.2 1.2L7.5 11M4 17l1.2 1.2L7.5 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MenuBarsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M5 7h14M5 12h14M5 17h14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+const COMPOSE_KINDS = [
+  { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
+  {
+    id: "project",
+    label: "Project",
+    placeholder: "Describe the outcome of this project...",
+    Icon: MenuBarsIcon,
+  },
+  { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
+] as const;
+
+type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
+
+const TABS = [
+  { id: "dayline", label: "Dayline", Icon: CalendarIcon },
+  { id: "tasks", label: "Tasks", Icon: TasksListIcon },
+  { id: "projects", label: "Projects", Icon: MenuBarsIcon },
+  { id: "notes", label: "Notes", Icon: NotesIcon },
+] as const;
 
 function formatDuration(estDuration: number | null): string {
   return estDuration == null ? "—" : `${estDuration}m`;
@@ -168,17 +226,50 @@ function App() {
   const [content, setContent] = useState("");
   const [collapsed, setCollapsed] = useState(true);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [composeKindMenuOpen, setComposeKindMenuOpen] = useState(false);
+  const [composeKind, setComposeKind] = useState<ComposeKind>("task");
   const [aiEnabled, setAiEnabled] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
   const [tasks, setTasks] = useState<TaskDraft[]>([]);
+  const composerRef = useRef<HTMLFormElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
+  const composeKindMenuRef = useRef<HTMLDivElement>(null);
+  const composeKindButtonRef = useRef<HTMLButtonElement>(null);
   const hasText = content.length > 0;
+  const selectedComposeKind =
+    COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
+  const SelectedComposeIcon = selectedComposeKind.Icon;
 
   const closeComposer = () => {
     setCollapsed(true);
     setAttachMenuOpen(false);
+    setComposeKindMenuOpen(false);
   };
+
+  useEffect(() => {
+    if (collapsed) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (composerRef.current?.contains(target)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (attachMenuOpen || composeKindMenuOpen) {
+        setAttachMenuOpen(false);
+        setComposeKindMenuOpen(false);
+        return;
+      }
+
+      closeComposer();
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [collapsed, attachMenuOpen, composeKindMenuOpen]);
 
   useEffect(() => {
     if (!attachMenuOpen) return;
@@ -194,6 +285,21 @@ function App() {
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [attachMenuOpen]);
+
+  useEffect(() => {
+    if (!composeKindMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (composeKindMenuRef.current?.contains(target)) return;
+      if (composeKindButtonRef.current?.contains(target)) return;
+      setComposeKindMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [composeKindMenuOpen]);
 
   return (
     <div className="app">
@@ -216,6 +322,7 @@ function App() {
       </main>
 
       <form
+        ref={composerRef}
         className={`app-composer${collapsed ? " is-collapsed" : ""}${attachMenuOpen ? " is-attach-open" : ""}`}
         onSubmit={(e) => {
           e.preventDefault();
@@ -228,102 +335,166 @@ function App() {
       >
         <div className="app-tray">
           <div className="app-tray-tabs" aria-hidden={!collapsed}>
-            {TABS.map((label, index) => (
+            {TABS.map(({ id, label, Icon }, index) => (
               <button
-                key={label}
+                key={id}
                 type="button"
                 className={`app-tray-tab${activeTab === index ? " is-active" : ""}`}
                 onClick={() => setActiveTab(index)}
                 tabIndex={collapsed ? 0 : -1}
               >
-                {label}
+                <Icon />
+                <span>{label}</span>
               </button>
             ))}
           </div>
         </div>
 
         <div className="app-composer-dock">
-          <button
-            type="button"
-            className={`app-composer-fab app-composer-fab--toggle${collapsed ? "" : " is-menu"}`}
-            onClick={() => {
-              if (collapsed) {
-                setCollapsed(false);
-              } else {
-                closeComposer();
-              }
-            }}
-            aria-label={collapsed ? "Add" : "Collapse input"}
-          >
-            {collapsed ? <PlusIcon /> : <MenuIcon />}
-          </button>
-
-          {!collapsed && attachMenuOpen && (
-            <div ref={attachMenuRef} className="app-attach-menu" role="menu" aria-label="Add options">
-              <button type="button" className="app-attach-menu-item" role="menuitem">
-                <CameraIcon />
-                <span>Take a picture</span>
-              </button>
-              <button type="button" className="app-attach-menu-item" role="menuitem">
-                <PhotoIcon />
-                <span>Add a photo</span>
-              </button>
-              <button
-                type="button"
-                className="app-attach-menu-item"
-                role="menuitem"
-                aria-pressed={aiEnabled}
-                onClick={() => setAiEnabled((on) => !on)}
-              >
-                <span className={`app-attach-ai-dot${aiEnabled ? " is-on" : ""}`} aria-hidden="true" />
-                <span>{aiEnabled ? "AI on" : "AI off"}</span>
-              </button>
-            </div>
+          {collapsed && (
+            <button
+              type="button"
+              className="app-composer-fab app-composer-fab--toggle"
+              onClick={() => setCollapsed(false)}
+              aria-label="Add"
+            >
+              <PlusIcon />
+            </button>
           )}
 
           <div className="app-composer-field" aria-hidden={collapsed}>
+            <button
+              type="button"
+              className="app-composer-collapse"
+              onClick={closeComposer}
+              aria-label="Collapse input"
+              tabIndex={collapsed ? -1 : 0}
+            >
+              <CloseIcon />
+            </button>
             <div className="app-composer-field-row">
-              <button
-                ref={attachButtonRef}
-                type="button"
-                className="app-composer-icon"
-                onClick={() => setAttachMenuOpen((open) => !open)}
-                aria-label={attachMenuOpen ? "Close add menu" : "Open add menu"}
-                aria-expanded={attachMenuOpen}
-                tabIndex={collapsed ? -1 : 0}
-              >
-                <PlusIcon />
-              </button>
               <input
                 type="text"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="Describe your task(s)..."
+                placeholder={selectedComposeKind.placeholder}
                 enterKeyHint="send"
                 autoComplete="off"
                 tabIndex={collapsed ? -1 : 0}
               />
             </div>
             <div className="app-composer-tools">
-              <button type="button" className="app-composer-tool" aria-label="Time" tabIndex={collapsed ? -1 : 0}>
-                <ClockIcon />
-              </button>
-              <button type="button" className="app-composer-tool" aria-label="Calendar" tabIndex={collapsed ? -1 : 0}>
-                <CalendarIcon />
-              </button>
-              <button type="button" className="app-composer-tool" aria-label="Notes" tabIndex={collapsed ? -1 : 0}>
-                <NotesIcon />
-              </button>
-              <div className="app-composer-tools-spacer" />
-              {hasText ? (
-                <button type="submit" className="app-composer-icon app-composer-mic" aria-label="Send" tabIndex={collapsed ? -1 : 0}>
-                  <SendIcon />
+              <div className="app-composer-tools-left">
+                <div className="app-composer-attach">
+                  {attachMenuOpen && (
+                    <div ref={attachMenuRef} className="app-attach-menu" role="menu" aria-label="Add options">
+                      <button type="button" className="app-attach-menu-item" role="menuitem">
+                        <CameraIcon />
+                        <span>Take a picture</span>
+                      </button>
+                      <button type="button" className="app-attach-menu-item" role="menuitem">
+                        <PhotoIcon />
+                        <span>Add a photo</span>
+                      </button>
+                    </div>
+                  )}
+                  <button
+                    ref={attachButtonRef}
+                    type="button"
+                    className="app-composer-icon"
+                    onClick={() => {
+                      setComposeKindMenuOpen(false);
+                      setAttachMenuOpen((open) => !open);
+                    }}
+                    aria-label={attachMenuOpen ? "Close add menu" : "Open add menu"}
+                    aria-expanded={attachMenuOpen}
+                    tabIndex={collapsed ? -1 : 0}
+                  >
+                    <PlusIcon />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className={`app-composer-ai${aiEnabled ? " is-on" : ""}`}
+                  aria-label={aiEnabled ? "AI on" : "AI off"}
+                  aria-pressed={aiEnabled}
+                  onClick={() => setAiEnabled((on) => !on)}
+                  tabIndex={collapsed ? -1 : 0}
+                >
+                  <span className="app-attach-ai-dot" aria-hidden="true" />
+                  <span>{aiEnabled ? "AI on" : "AI off"}</span>
                 </button>
-              ) : (
-                <button type="button" className="app-composer-icon app-composer-mic" aria-label="Voice input" tabIndex={collapsed ? -1 : 0}>
-                  <MicIcon />
+              </div>
+              <div className="app-composer-tools-center">
+                {composeKind === "task" && (
+                  <button type="button" className="app-composer-tool" aria-label="Time" tabIndex={collapsed ? -1 : 0}>
+                    <ClockIcon />
+                  </button>
+                )}
+                {(composeKind === "task" || composeKind === "project") && (
+                  <button type="button" className="app-composer-tool" aria-label="Calendar" tabIndex={collapsed ? -1 : 0}>
+                    <CalendarIcon />
+                  </button>
+                )}
+                {(composeKind === "task" || composeKind === "note") && (
+                  <button type="button" className="app-composer-tool" aria-label="Notes" tabIndex={collapsed ? -1 : 0}>
+                    <NotesIcon />
+                  </button>
+                )}
+              </div>
+              <div className="app-compose-action">
+                {composeKindMenuOpen && (
+                  <div
+                    ref={composeKindMenuRef}
+                    className="app-attach-menu app-compose-kind-menu"
+                    role="menu"
+                    aria-label="Compose type"
+                  >
+                    {COMPOSE_KINDS.map(({ id, label, Icon }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
+                        role="menuitem"
+                        onClick={() => {
+                          setComposeKind(id);
+                          setComposeKindMenuOpen(false);
+                        }}
+                      >
+                        <span className="app-compose-kind-plus" aria-hidden="true">
+                          +
+                        </span>
+                        <Icon />
+                        <span>{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <button
+                  ref={composeKindButtonRef}
+                  type="button"
+                  className="app-compose-kind-button"
+                  aria-label="Choose compose type"
+                  aria-expanded={composeKindMenuOpen}
+                  onClick={() => {
+                    setAttachMenuOpen(false);
+                    setComposeKindMenuOpen((open) => !open);
+                  }}
+                  tabIndex={collapsed ? -1 : 0}
+                >
+                  <SelectedComposeIcon />
+                  <span>{selectedComposeKind.label}</span>
                 </button>
-              )}
+                {hasText ? (
+                  <button type="submit" className="app-composer-icon app-composer-mic" aria-label="Send" tabIndex={collapsed ? -1 : 0}>
+                    <SendIcon />
+                  </button>
+                ) : (
+                  <button type="button" className="app-composer-icon app-composer-mic" aria-label="Voice input" tabIndex={collapsed ? -1 : 0}>
+                    <MicIcon />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
