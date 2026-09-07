@@ -498,7 +498,9 @@ function App() {
   const [aiEnabled, setAiEnabled] = useState(false);
   const [activeView, setActiveView] = useState<ActiveView>("dayline");
   const [morePinId, setMorePinId] = useState<MorePinId>("tasks");
-  const [overflowableVisibleCount, setOverflowableVisibleCount] = useState(OVERFLOWABLE_TABS.length);
+  const [overflowableVisibleCount, setOverflowableVisibleCount] = useState<number>(
+    OVERFLOWABLE_TABS.length,
+  );
   const [trayCompact, setTrayCompact] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
