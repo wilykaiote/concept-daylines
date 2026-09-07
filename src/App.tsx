@@ -338,6 +338,31 @@ function RecipeIcon() {
   );
 }
 
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="6" r="1.7" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+      <circle cx="12" cy="18" r="1.7" fill="currentColor" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1.1H3a2 2 0 0 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1.1-1.5V3a2 2 0 0 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1.1H21a2 2 0 0 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1.1Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 const COMPOSE_KINDS = [
   { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
   {
@@ -363,6 +388,7 @@ const MORE_OPTIONS = [
   { id: "routines", label: "Routines", Icon: CycleIcon },
   { id: "groceries", label: "Groceries", Icon: FoodIcon },
   { id: "recipes", label: "Recipes", Icon: RecipeIcon },
+  { id: "settings", label: "Settings", Icon: SettingsIcon },
 ] as const;
 
 const NAV_ITEMS = [DAYLINE_TAB, ...OVERFLOWABLE_TABS, ...MORE_OPTIONS] as const;
@@ -378,6 +404,7 @@ const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   routines: "task",
   groceries: "task",
   recipes: "task",
+  settings: "task",
 };
 
 const NAV_BY_ID = Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item])) as Record<
@@ -829,7 +856,7 @@ function App() {
                   className={`app-tray-more-button${compact ? " is-compact" : ""}`}
                 >
                   <span className="app-tray-more-divider" aria-hidden="true" />
-                  <span>More...</span>
+                  <MoreIcon />
                 </button>
               </div>
             ))}
@@ -885,7 +912,10 @@ function App() {
                     type="button"
                     className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
                     role="menuitem"
-                    onClick={() => selectView(id)}
+                    onClick={() => {
+                      setActiveView(id);
+                      setMorePinId(id);
+                    }}
                   >
                     <Icon />
                     <span>{label}</span>
@@ -902,7 +932,7 @@ function App() {
                 tabIndex={collapsed && !searchOpen ? 0 : -1}
               >
                 <span className="app-tray-more-divider" aria-hidden="true" />
-                <span>More...</span>
+                <MoreIcon />
               </button>
             </div>
           </div>
