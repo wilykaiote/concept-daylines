@@ -42,6 +42,28 @@ function SearchIcon() {
   );
 }
 
+function PremiumIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M5 16h14l-1.2 4.5H6.2L5 16Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m5 16 2.5-8 4.5 4 4.5-4 2.5 8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function CameraIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -483,7 +505,7 @@ function App() {
   const [composeKindMenuOpen, setComposeKindMenuOpen] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
-  const [aiEnabled, setAiEnabled] = useState(true);
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [activeView, setActiveView] = useState<ActiveView>("dayline");
   const [morePinId, setMorePinId] = useState<MorePinId>("tasks");
   const [overflowableVisibleCount, setOverflowableVisibleCount] = useState(OVERFLOWABLE_TABS.length);
@@ -885,14 +907,58 @@ function App() {
                     menuRef={attachMenuRef}
                     aria-label="Add options"
                   >
-                    <button type="button" className="app-attach-menu-item" role="menuitem">
+                    <button
+                      type="button"
+                      className={`app-attach-menu-item${aiEnabled ? "" : " is-disabled"}`}
+                      role="menuitem"
+                      aria-disabled={!aiEnabled}
+                      disabled={!aiEnabled}
+                    >
                       <CameraIcon />
-                      <span>Take a picture</span>
+                      <span className="app-attach-menu-label">Take a picture</span>
+                      {!aiEnabled && (
+                        <span className="app-attach-premium" aria-label="Premium feature">
+                          <PremiumIcon />
+                        </span>
+                      )}
                     </button>
-                    <button type="button" className="app-attach-menu-item" role="menuitem">
+                    <button
+                      type="button"
+                      className={`app-attach-menu-item${aiEnabled ? "" : " is-disabled"}`}
+                      role="menuitem"
+                      aria-disabled={!aiEnabled}
+                      disabled={!aiEnabled}
+                    >
                       <PhotoIcon />
-                      <span>Add a photo</span>
+                      <span className="app-attach-menu-label">Add a photo</span>
+                      {!aiEnabled && (
+                        <span className="app-attach-premium" aria-label="Premium feature">
+                          <PremiumIcon />
+                        </span>
+                      )}
                     </button>
+                    <button
+                      type="button"
+                      className={`app-attach-menu-item app-attach-menu-ai${aiEnabled ? " is-on" : " is-disabled"}`}
+                      role="menuitemcheckbox"
+                      aria-checked={aiEnabled}
+                      aria-label={aiEnabled ? "AI Assistant - on" : "AI Assistant - off"}
+                      onClick={() => setAiEnabled((on) => !on)}
+                    >
+                      <span className={`app-attach-ai-dot${aiEnabled ? " is-on" : ""}`} aria-hidden="true" />
+                      <span className="app-attach-menu-label">
+                        {aiEnabled ? "AI Assistant - on" : "AI Assistant - off"}
+                      </span>
+                      <span className="app-attach-premium" aria-label="Premium feature">
+                        <PremiumIcon />
+                      </span>
+                    </button>
+                    <div className="app-attach-menu-footer">
+                      <button type="button" className="app-attach-trial-button">
+                        Try These Features!
+                      </button>
+                      <p className="app-attach-trial-note">free for 7 days</p>
+                    </div>
                   </ComposerOverlayMenu>
                   <button
                     ref={attachButtonRef}
@@ -909,17 +975,6 @@ function App() {
                     <PlusIcon />
                   </button>
                 </div>
-                <button
-                  type="button"
-                  className={`app-composer-ai${aiEnabled ? " is-on" : ""}`}
-                  aria-label={aiEnabled ? "AI on" : "AI off"}
-                  aria-pressed={aiEnabled}
-                  onClick={() => setAiEnabled((on) => !on)}
-                  tabIndex={collapsed ? -1 : 0}
-                >
-                  <span className="app-attach-ai-dot" aria-hidden="true" />
-                  <span>{aiEnabled ? "AI on" : "AI off"}</span>
-                </button>
               </div>
               <div className="app-composer-tools-center">
                 {composeKind === "task" && (

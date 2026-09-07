@@ -202,7 +202,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 190px;
+  min-width: 220px;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -235,10 +235,118 @@
   background: var(--bg-raised);
 }
 
+.app-attach-menu-item:disabled,
+.app-attach-menu-item.is-disabled {
+  color: color-mix(in srgb, var(--text-h) 38%, transparent);
+  pointer-events: none;
+}
+
+.app-attach-menu-item.app-attach-menu-ai.is-disabled {
+  pointer-events: auto;
+}
+
+.app-attach-menu-item:disabled:hover,
+.app-attach-menu-item.is-disabled:hover,
+.app-attach-menu-item:disabled:focus-visible,
+.app-attach-menu-item.is-disabled:focus-visible {
+  background: transparent;
+}
+
+.app-attach-menu-item.app-attach-menu-ai.is-disabled:hover,
+.app-attach-menu-item.app-attach-menu-ai.is-disabled:focus-visible {
+  background: var(--bg-raised);
+}
+
 .app-attach-menu-item svg {
   width: 20px;
   height: 20px;
   flex-shrink: 0;
+}
+
+.app-attach-menu-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.app-attach-premium {
+  display: grid;
+  place-items: center;
+  margin-left: 8px;
+  color: #c9a227;
+  flex-shrink: 0;
+}
+
+.app-attach-menu-item.is-disabled .app-attach-premium,
+.app-attach-menu-item:disabled .app-attach-premium {
+  color: #c9a227;
+  opacity: 1;
+}
+
+.app-attach-premium svg {
+  width: 16px;
+  height: 16px;
+}
+
+.app-attach-menu-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 10px 6px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.app-attach-trial-button {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, #c9a227 18%, var(--bg-raised));
+  color: #8a7010;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.app-attach-trial-button:hover,
+.app-attach-trial-button:focus-visible {
+  background: color-mix(in srgb, #c9a227 28%, var(--bg-raised));
+}
+
+.app-attach-trial-button:focus-visible {
+  outline: 2px solid #c9a227;
+  outline-offset: 2px;
+}
+
+.app-attach-trial-note {
+  margin: 0;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  .app-attach-premium,
+  .app-attach-menu-item.is-disabled .app-attach-premium,
+  .app-attach-menu-item:disabled .app-attach-premium {
+    color: #e0c35a;
+  }
+
+  .app-attach-trial-button {
+    background: color-mix(in srgb, #e0c35a 20%, var(--bg-raised));
+    color: #e0c35a;
+  }
+
+  .app-attach-trial-button:hover,
+  .app-attach-trial-button:focus-visible {
+    background: color-mix(in srgb, #e0c35a 30%, var(--bg-raised));
+  }
+}
+
+.app-attach-menu-ai .app-attach-ai-dot {
+  margin: 0 5px;
 }
 
 .app-attach-ai-dot {
@@ -422,37 +530,6 @@
 .app-attach-menu-item.is-selected {
   background: var(--accent-bg);
   color: var(--accent);
-}
-
-.app-composer-ai {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text);
-  font-size: 0.8rem;
-  white-space: nowrap;
-}
-
-.app-composer-ai.is-on {
-  color: var(--text-h);
-}
-
-.app-composer-ai .app-attach-ai-dot {
-  margin: 0;
-}
-
-.app-composer-ai.is-on .app-attach-ai-dot {
-  background: var(--accent);
-}
-
-.app-composer-ai:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 
 .app-composer-tool {
