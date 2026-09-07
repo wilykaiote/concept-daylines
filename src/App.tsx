@@ -500,10 +500,15 @@ function App() {
   const [morePinId, setMorePinId] = useState<MorePinId>("tasks");
   const [overflowableVisibleCount, setOverflowableVisibleCount] = useState(OVERFLOWABLE_TABS.length);
   const [trayCompact, setTrayCompact] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [tasks, setTasks] = useState<TaskDraft[]>([]);
   const composerRef = useRef<HTMLFormElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
+  const searchFieldRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const composeKindMenuRef = useRef<HTMLDivElement>(null);
@@ -538,6 +543,16 @@ function App() {
     setMoreMenuOpen(false);
   };
 
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  };
+
+  const openSearch = () => {
+    setMoreMenuOpen(false);
+    setSearchOpen(true);
+  };
+
   const closeComposer = () => {
     setCollapsed(true);
     setAttachMenuOpen(false);
@@ -549,11 +564,13 @@ function App() {
       setComposeKind(COMPOSE_KIND_BY_VIEW[activeView]);
     }
     setMoreMenuOpen(false);
+    setSearchOpen(false);
+    setSearchQuery("");
     setCollapsed(false);
   };
 
   useLayoutEffect(() => {
-    if (!collapsed) return;
+    if (!collapsed || searchOpen) return;
 
     const tray = trayRef.current;
     const measure = measureRef.current;
@@ -634,7 +651,29 @@ function App() {
       window.removeEventListener("resize", update);
       window.visualViewport?.removeEventListener("resize", update);
     };
-  }, [collapsed, morePinId]);
+  }, [collapsed, morePinId, searchOpen]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+
+    const frame = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (searchFieldRef.current?.contains(target)) return;
+      if (searchButtonRef.current?.contains(target)) return;
+      closeSearch();
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [searchOpen]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -729,9 +768,10 @@ function App() {
 
       <form
         ref={composerRef}
-        className={`app-composer${collapsed ? " is-collapsed" : ""}${attachMenuOpen ? " is-attach-open" : ""}`}
+        className={`app-composer${collapsed ? " is-collapsed" : ""}${attachMenuOpen ? " is-attach-open" : ""}${searchOpen ? " is-search-open" : ""}`}
         onSubmit={(e) => {
           e.preventDefault();
+          if (searchOpen) return;
           const text = content.trim();
           if (!text) return;
           const task = createTaskDraft(text);
@@ -773,12 +813,12 @@ function App() {
               </div>
             ))}
           </div>
-          <div className="app-tray-tabs" aria-hidden={!collapsed}>
+          <div className="app-tray-tabs" aria-hidden={!collapsed || searchOpen}>
             <button
               type="button"
               className={`app-tray-tab${trayCompact ? " is-compact" : ""}${activeView === "dayline" ? " is-active" : ""}`}
               onClick={() => selectView("dayline")}
-              tabIndex={collapsed ? 0 : -1}
+              tabIndex={collapsed && !searchOpen ? 0 : -1}
               aria-label="Dayline"
             >
               <DaylineIcon />
@@ -789,7 +829,7 @@ function App() {
                 type="button"
                 className={`app-tray-tab${trayCompact ? " is-compact" : ""}${activeView === pinTab.id ? " is-active" : ""}`}
                 onClick={() => selectView(pinTab.id)}
-                tabIndex={collapsed ? 0 : -1}
+                tabIndex={collapsed && !searchOpen ? 0 : -1}
                 aria-label={pinTab.label}
               >
                 <PinIcon />
@@ -802,7 +842,7 @@ function App() {
                   type="button"
                   className={`app-tray-tab${trayCompact ? " is-compact" : ""}${activeView === id ? " is-active" : ""}`}
                   onClick={() => selectView(id)}
-                  tabIndex={collapsed ? 0 : -1}
+                  tabIndex={collapsed && !searchOpen ? 0 : -1}
                   aria-label={label}
                 >
                   <Icon />
@@ -812,7 +852,7 @@ function App() {
             )}
             <div className="app-tray-more">
               <ComposerOverlayMenu
-                open={moreMenuOpen}
+                open={moreMenuOpen && !searchOpen}
                 anchorRef={moreButtonRef}
                 menuRef={moreMenuRef}
                 align="end"
@@ -838,34 +878,59 @@ function App() {
                 onClick={() => setMoreMenuOpen((open) => !open)}
                 aria-label="More..."
                 aria-expanded={moreMenuOpen}
-                tabIndex={collapsed ? 0 : -1}
+                tabIndex={collapsed && !searchOpen ? 0 : -1}
               >
                 <span className="app-tray-more-divider" aria-hidden="true" />
                 <span>More...</span>
               </button>
             </div>
           </div>
+          <div
+            ref={searchFieldRef}
+            className="app-tray-search-field"
+            aria-hidden={!searchOpen}
+          >
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search..."
+              autoComplete="off"
+              enterKeyHint="search"
+              tabIndex={searchOpen ? 0 : -1}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") closeSearch();
+              }}
+            />
+          </div>
           <button
+            ref={searchButtonRef}
             type="button"
             className="app-tray-search"
-            aria-label="Search"
+            aria-label={searchOpen ? "Close search" : "Search"}
+            aria-expanded={searchOpen}
             tabIndex={collapsed ? 0 : -1}
+            onClick={() => {
+              if (searchOpen) closeSearch();
+              else openSearch();
+            }}
           >
             <SearchIcon />
           </button>
         </div>
 
         <div className="app-composer-dock">
-          {collapsed && (
-            <button
-              type="button"
-              className="app-composer-fab app-composer-fab--toggle"
-              onClick={openComposer}
-              aria-label="Add"
-            >
-              <PlusIcon />
-            </button>
-          )}
+          <button
+            type="button"
+            className={`app-composer-fab app-composer-fab--toggle${collapsed ? "" : " is-hidden"}`}
+            onClick={openComposer}
+            aria-label="Add"
+            aria-hidden={!collapsed}
+            tabIndex={collapsed ? 0 : -1}
+          >
+            <PlusIcon />
+          </button>
 
           <div className="app-composer-field" aria-hidden={collapsed}>
             <button

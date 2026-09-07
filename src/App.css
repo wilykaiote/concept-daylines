@@ -77,10 +77,26 @@
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    right 0.28s ease,
+    opacity 0.25s ease 0.1s,
+    transform 0.28s ease 0.1s,
+    visibility 0.25s ease 0.1s;
+}
+
+.app-composer.is-search-open .app-tray {
+  right: var(--space);
 }
 
 .app-composer:not(.is-collapsed) .app-tray {
-  display: none;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(10px);
+  transition-delay: 0s;
 }
 
 .app-tray-measure {
@@ -112,10 +128,115 @@
   background: var(--bg-raised);
   box-sizing: border-box;
   overflow: hidden;
+  transform-origin: left center;
+  transition:
+    opacity 0.22s ease,
+    transform 0.28s ease,
+    max-width 0.28s ease,
+    padding 0.28s ease,
+    border-color 0.2s ease,
+    margin 0.28s ease;
 }
 
-.app-composer:not(.is-collapsed) .app-tray-tabs {
-  display: none;
+.app-composer.is-search-open .app-tray-tabs {
+  max-width: 0;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  border-color: transparent;
+  transform: translateX(-12px);
+  pointer-events: none;
+}
+
+.app-tray-search-field {
+  flex: 1;
+  min-width: 0;
+  max-width: 0;
+  height: var(--tap);
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateX(-16px);
+  transition:
+    max-width 0.28s ease,
+    opacity 0.22s ease,
+    transform 0.28s ease;
+}
+
+.app-composer.is-search-open .app-tray-search-field {
+  max-width: 100%;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.app-tray-search-field input {
+  width: 100%;
+  height: var(--tap);
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-h);
+  font-size: 1rem;
+}
+
+.app-tray-search-field input:focus {
+  outline: none;
+}
+
+.app-tray-search {
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-h) 32%, var(--bg-raised));
+  color: var(--text-h);
+  flex-shrink: 0;
+  transition: transform 0.28s ease;
+}
+
+.app-composer.is-search-open .app-tray-search {
+  /* Sits where the + FAB was after tray expands */
+  transform: translateX(0);
+}
+
+.app-tray-search svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.app-tray-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.app-composer-dock {
+  position: relative;
+  flex: 1;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  transition:
+    opacity 0.2s ease,
+    min-height 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-composer.is-search-open .app-composer-dock {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.app-composer.is-collapsed .app-composer-dock {
+  height: var(--tap);
+  min-height: var(--tap);
+}
+
+.app-composer:not(.is-collapsed) .app-composer-dock {
+  min-height: 5.75rem;
 }
 
 .app-tray-tab {
@@ -197,45 +318,10 @@
   outline-offset: -2px;
 }
 
-.app-tray-search {
-  display: grid;
-  place-items: center;
-  width: var(--tap);
-  height: var(--tap);
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--text-h) 32%, var(--bg-raised));
-  color: var(--text-h);
-  flex-shrink: 0;
-}
-
-.app-tray-search svg {
-  width: 20px;
-  height: 20px;
-  display: block;
-}
-
-.app-tray-search:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 @media (prefers-color-scheme: dark) {
   .app-tray-search {
     background: var(--bg);
   }
-}
-
-.app-composer-dock {
-  position: relative;
-  flex: 1;
-  min-width: var(--tap);
-  min-height: var(--tap);
-}
-
-.app-composer.is-collapsed .app-composer-dock {
-  height: var(--tap);
 }
 
 .app-attach-menu {
@@ -403,17 +489,30 @@
 }
 
 .app-composer-field {
-  position: relative;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  width: 100%;
+  width: auto;
   padding: 2px 2px 6px;
   border: 1px solid var(--border);
   border-radius: 22px;
   background: var(--bg-raised);
-  overflow: visible;
+  overflow: hidden;
+  opacity: 1;
+  transform: scale(1);
+  transform-origin: 100% 100%;
+  transition:
+    opacity 0.3s ease,
+    transform 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    left 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 0.3s ease,
+    padding 0.3s ease;
 }
 
 .app-composer-collapse {
@@ -431,6 +530,14 @@
   background: var(--bg);
   color: var(--text);
   box-shadow: var(--shadow);
+  opacity: 1;
+  transition: opacity 0.2s ease 0.12s;
+}
+
+.app-composer.is-collapsed .app-composer-collapse {
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0s;
 }
 
 .app-composer-collapse svg {
@@ -444,15 +551,18 @@
 }
 
 .app-composer.is-collapsed .app-composer-field {
-  position: absolute;
   top: 0;
-  right: 0;
-  bottom: 0;
   left: calc(100% - var(--tap));
-  width: auto;
+  padding: 0;
+  border-radius: 50%;
   opacity: 0;
   pointer-events: none;
-  overflow: hidden;
+  transform: scale(0.72);
+}
+
+.app-composer:not(.is-collapsed) .app-composer-field {
+  top: auto;
+  overflow: visible;
 }
 
 .app-composer-field-row {
@@ -633,6 +743,21 @@
   z-index: 2;
   background: #1c1c22;
   color: #f3f4f6;
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1);
+  transition:
+    opacity 0.22s ease 0.12s,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1) 0.12s,
+    visibility 0.22s ease 0.12s;
+}
+
+.app-composer-fab.app-composer-fab--toggle.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(0.65);
+  transition-delay: 0s;
 }
 
 @media (prefers-color-scheme: dark) {
