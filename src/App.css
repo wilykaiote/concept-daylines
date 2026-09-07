@@ -68,24 +68,49 @@
 
 .app-tray {
   position: absolute;
+  left: var(--space);
   right: calc(var(--space) + var(--tap) + 10px);
   height: var(--tap);
   z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
 }
 
 .app-composer:not(.is-collapsed) .app-tray {
   display: none;
 }
 
+.app-tray-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  height: 0;
+  overflow: hidden;
+}
+
+.app-tray-measure-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  width: max-content;
+}
+
 .app-tray-tabs {
   display: flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
+  min-width: 0;
   height: var(--tap);
   padding: 4px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-raised);
+  box-sizing: border-box;
 }
 
 .app-composer:not(.is-collapsed) .app-tray-tabs {
@@ -105,6 +130,14 @@
   color: var(--text-h);
   white-space: nowrap;
   font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.app-tray-tab.is-compact {
+  gap: 0;
+  padding: 0;
+  width: 36px;
+  justify-content: center;
 }
 
 .app-tray-tab svg {
@@ -121,6 +154,37 @@
 .app-tray-more {
   position: relative;
   display: inline-flex;
+  flex-shrink: 0;
+}
+
+.app-tray-search {
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-h) 32%, var(--bg-raised));
+  color: var(--text-h);
+  flex-shrink: 0;
+}
+
+.app-tray-search svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.app-tray-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .app-tray-search {
+    background: var(--bg);
+  }
 }
 
 .app-composer-dock {

@@ -27,6 +27,21 @@ function MoreVertIcon() {
   );
 }
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="m16 16 4 4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function CameraIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -324,8 +339,9 @@ const COMPOSE_KINDS = [
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
 
-const PRIMARY_TABS = [
-  { id: "dayline", label: "Dayline", Icon: CalendarIcon },
+const DAYLINE_TAB = { id: "dayline", label: "Dayline", Icon: CalendarIcon } as const;
+
+const OVERFLOWABLE_TABS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
   { id: "notes", label: "Notes", Icon: NotesIcon },
 ] as const;
@@ -337,9 +353,10 @@ const MORE_OPTIONS = [
   { id: "recipes", label: "Recipes", Icon: RecipeIcon },
 ] as const;
 
-type PrimaryTabId = (typeof PRIMARY_TABS)[number]["id"];
-type MoreOptionId = (typeof MORE_OPTIONS)[number]["id"];
-type ActiveView = PrimaryTabId | MoreOptionId;
+const NAV_ITEMS = [DAYLINE_TAB, ...OVERFLOWABLE_TABS, ...MORE_OPTIONS] as const;
+
+type ActiveView = (typeof NAV_ITEMS)[number]["id"];
+type MorePinId = Exclude<ActiveView, "dayline">;
 
 const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   dayline: "task",
@@ -351,7 +368,14 @@ const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   recipes: "task",
 };
 
-const MORE_OPTION_IDS: ReadonlySet<string> = new Set(MORE_OPTIONS.map((option) => option.id));
+const NAV_BY_ID = Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item])) as Record<
+  ActiveView,
+  (typeof NAV_ITEMS)[number]
+>;
+
+const TRAY_GAP = 4;
+const TRAY_PAD = 8;
+const TRAY_BORDER = 2;
 
 function formatDuration(estDuration: number | null): string {
   return estDuration == null ? "—" : `${estDuration}m`;
@@ -461,8 +485,13 @@ function App() {
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
   const [aiEnabled, setAiEnabled] = useState(true);
   const [activeView, setActiveView] = useState<ActiveView>("dayline");
+  const [morePinId, setMorePinId] = useState<MorePinId>("tasks");
+  const [overflowableVisibleCount, setOverflowableVisibleCount] = useState(OVERFLOWABLE_TABS.length);
+  const [trayCompact, setTrayCompact] = useState(false);
   const [tasks, setTasks] = useState<TaskDraft[]>([]);
   const composerRef = useRef<HTMLFormElement>(null);
+  const trayRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const composeKindMenuRef = useRef<HTMLDivElement>(null);
@@ -470,10 +499,32 @@ function App() {
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const hasText = content.length > 0;
-  const moreViewActive = MORE_OPTION_IDS.has(activeView);
   const selectedComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
   const SelectedComposeIcon = selectedComposeKind.Icon;
+
+  const visibleOverflowableTabs = OVERFLOWABLE_TABS.slice(0, overflowableVisibleCount);
+  const overflowedTabs = OVERFLOWABLE_TABS.slice(overflowableVisibleCount);
+  const pinTab = overflowableVisibleCount === 0 ? NAV_BY_ID[morePinId] : null;
+  const DaylineIcon = DAYLINE_TAB.Icon;
+  const PinIcon = pinTab?.Icon;
+  const moreMenuItems = [
+    ...overflowedTabs.filter((tab) => tab.id !== pinTab?.id),
+    ...MORE_OPTIONS,
+  ];
+  const visibleTabIds = new Set<ActiveView>([
+    "dayline",
+    ...visibleOverflowableTabs.map((tab) => tab.id),
+    ...(pinTab ? [pinTab.id as ActiveView] : []),
+  ]);
+  const moreButtonActive =
+    moreMenuOpen || (activeView !== "dayline" && !visibleTabIds.has(activeView));
+
+  const selectView = (id: ActiveView) => {
+    setActiveView(id);
+    if (id !== "dayline") setMorePinId(id);
+    setMoreMenuOpen(false);
+  };
 
   const closeComposer = () => {
     setCollapsed(true);
@@ -488,6 +539,90 @@ function App() {
     setMoreMenuOpen(false);
     setCollapsed(false);
   };
+
+  useLayoutEffect(() => {
+    if (!collapsed) return;
+
+    const tray = trayRef.current;
+    const measure = measureRef.current;
+    if (!tray || !measure) return;
+
+    const measureWidth = (id: string, compact: boolean) => {
+      const el = measure.querySelector<HTMLElement>(`[data-measure-id="${id}"][data-compact="${compact}"]`);
+      return el?.offsetWidth ?? 0;
+    };
+
+    const update = () => {
+      const searchEl = tray.querySelector<HTMLElement>(".app-tray-search");
+      const searchGap = 8;
+      const available = tray.clientWidth - (searchEl?.offsetWidth ?? 40) - searchGap;
+      if (available <= 0) return;
+
+      const fit = (count: number, compact: boolean, pinId: MorePinId) => {
+        const dayline = measureWidth("dayline", compact);
+        const more = measureWidth("more", compact);
+        let total = TRAY_PAD + dayline + more;
+        let itemCount = 2;
+
+        if (count === 0) {
+          total += measureWidth(pinId, compact);
+          itemCount += 1;
+        } else {
+          for (let i = 0; i < count; i += 1) {
+            total += measureWidth(OVERFLOWABLE_TABS[i].id, compact);
+            itemCount += 1;
+          }
+        }
+
+        return total + (itemCount - 1) * TRAY_GAP + TRAY_BORDER <= available;
+      };
+
+      if (fit(OVERFLOWABLE_TABS.length, false, morePinId)) {
+        setOverflowableVisibleCount(OVERFLOWABLE_TABS.length);
+        setTrayCompact(false);
+        return;
+      }
+
+      if (fit(1, false, morePinId)) {
+        setOverflowableVisibleCount(1);
+        setTrayCompact(false);
+        return;
+      }
+
+      if (fit(0, false, morePinId)) {
+        setOverflowableVisibleCount(0);
+        setTrayCompact(false);
+        return;
+      }
+
+      if (fit(OVERFLOWABLE_TABS.length, true, morePinId)) {
+        setOverflowableVisibleCount(OVERFLOWABLE_TABS.length);
+        setTrayCompact(true);
+        return;
+      }
+
+      if (fit(1, true, morePinId)) {
+        setOverflowableVisibleCount(1);
+        setTrayCompact(true);
+        return;
+      }
+
+      setOverflowableVisibleCount(0);
+      setTrayCompact(true);
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(tray);
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+    };
+  }, [collapsed, morePinId]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -592,23 +727,77 @@ function App() {
           setContent("");
         }}
       >
-        <div className="app-tray">
-          <div className="app-tray-tabs" aria-hidden={!collapsed}>
-            {PRIMARY_TABS.map(({ id, label, Icon }) => (
-              <button
-                key={id}
-                type="button"
-                className={`app-tray-tab${activeView === id ? " is-active" : ""}`}
-                onClick={() => {
-                  setMoreMenuOpen(false);
-                  setActiveView(id);
-                }}
-                tabIndex={collapsed ? 0 : -1}
-              >
-                <Icon />
-                <span>{label}</span>
-              </button>
+        <div className="app-tray" ref={trayRef}>
+          <div
+            ref={measureRef}
+            className="app-tray-measure"
+            aria-hidden="true"
+          >
+            {[false, true].map((compact) => (
+              <div key={String(compact)} className="app-tray-measure-row">
+                {NAV_ITEMS.map(({ id, label, Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    tabIndex={-1}
+                    data-measure-id={id}
+                    data-compact={String(compact)}
+                    className={`app-tray-tab${compact ? " is-compact" : ""}`}
+                  >
+                    <Icon />
+                    {!compact && <span>{label}</span>}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  data-measure-id="more"
+                  data-compact={String(compact)}
+                  className={`app-tray-tab${compact ? " is-compact" : ""}`}
+                >
+                  <MoreVertIcon />
+                  {!compact && <span>More</span>}
+                </button>
+              </div>
             ))}
+          </div>
+          <div className="app-tray-tabs" aria-hidden={!collapsed}>
+            <button
+              type="button"
+              className={`app-tray-tab${trayCompact ? " is-compact" : ""}${activeView === "dayline" ? " is-active" : ""}`}
+              onClick={() => selectView("dayline")}
+              tabIndex={collapsed ? 0 : -1}
+              aria-label="Dayline"
+            >
+              <DaylineIcon />
+              {!trayCompact && <span>{DAYLINE_TAB.label}</span>}
+            </button>
+            {pinTab && PinIcon ? (
+              <button
+                type="button"
+                className={`app-tray-tab${trayCompact ? " is-compact" : ""}${activeView === pinTab.id ? " is-active" : ""}`}
+                onClick={() => selectView(pinTab.id)}
+                tabIndex={collapsed ? 0 : -1}
+                aria-label={pinTab.label}
+              >
+                <PinIcon />
+                {!trayCompact && <span>{pinTab.label}</span>}
+              </button>
+            ) : (
+              visibleOverflowableTabs.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`app-tray-tab${trayCompact ? " is-compact" : ""}${activeView === id ? " is-active" : ""}`}
+                  onClick={() => selectView(id)}
+                  tabIndex={collapsed ? 0 : -1}
+                  aria-label={label}
+                >
+                  <Icon />
+                  {!trayCompact && <span>{label}</span>}
+                </button>
+              ))
+            )}
             <div className="app-tray-more">
               <ComposerOverlayMenu
                 open={moreMenuOpen}
@@ -617,16 +806,13 @@ function App() {
                 align="end"
                 aria-label="More"
               >
-                {MORE_OPTIONS.map(({ id, label, Icon }) => (
+                {moreMenuItems.map(({ id, label, Icon }) => (
                   <button
                     key={id}
                     type="button"
                     className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
                     role="menuitem"
-                    onClick={() => {
-                      setActiveView(id);
-                      setMoreMenuOpen(false);
-                    }}
+                    onClick={() => selectView(id)}
                   >
                     <Icon />
                     <span>{label}</span>
@@ -636,17 +822,25 @@ function App() {
               <button
                 ref={moreButtonRef}
                 type="button"
-                className={`app-tray-tab${moreViewActive || moreMenuOpen ? " is-active" : ""}`}
+                className={`app-tray-tab${trayCompact ? " is-compact" : ""}${moreButtonActive ? " is-active" : ""}`}
                 onClick={() => setMoreMenuOpen((open) => !open)}
                 aria-label="More"
                 aria-expanded={moreMenuOpen}
                 tabIndex={collapsed ? 0 : -1}
               >
                 <MoreVertIcon />
-                <span>More</span>
+                {!trayCompact && <span>More</span>}
               </button>
             </div>
           </div>
+          <button
+            type="button"
+            className="app-tray-search"
+            aria-label="Search"
+            tabIndex={collapsed ? 0 : -1}
+          >
+            <SearchIcon />
+          </button>
         </div>
 
         <div className="app-composer-dock">
