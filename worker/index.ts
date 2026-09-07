@@ -9,9 +9,11 @@ export default {
     try {
       if (url.pathname === "/api/notes") {
         if (request.method === "GET") {
-          const { results } = await env.daylines_db.prepare(
-            "SELECT id, content, created_at FROM notes ORDER BY created_at DESC"
-          ).all();
+          const { results } = await env.daylines_db
+            .prepare(
+              "SELECT id, content, created_at FROM notes ORDER BY created_at DESC"
+            )
+            .all();
 
           return Response.json(results);
         }
@@ -23,9 +25,8 @@ export default {
             return new Response("Content is required", { status: 400 });
           }
 
-          await env.daylines_db.prepare(
-            "INSERT INTO notes (content) VALUES (?)"
-          )
+          await env.daylines_db
+            .prepare("INSERT INTO notes (content) VALUES (?)")
             .bind(body.content.trim())
             .run();
 
@@ -35,7 +36,6 @@ export default {
 
       return new Response(null, { status: 404 });
     } catch (err: any) {
-      // This will show us the real error
       return new Response(
         JSON.stringify({
           error: err.message,

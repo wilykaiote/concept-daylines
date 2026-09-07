@@ -21,7 +21,18 @@
 			"database_id": "bdc7fd73-699a-4885-aaa9-1a5df9024b07",
 			"migrations_dir": "migrations"
 		}
-	]
+	],
+	"vars": {
+		"DEV_USER_EMAIL": "dev@localhost"
+	},
+	"access": {
+		"dev": {
+			"aud": "local-dev",
+			"identity": {
+				"email": "dev@localhost"
+			}
+		}
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
