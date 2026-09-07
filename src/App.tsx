@@ -515,6 +515,8 @@ function App() {
   const composeKindButtonRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const fabRef = useRef<HTMLButtonElement>(null);
+  const composeInputRef = useRef<HTMLInputElement>(null);
   const hasText = content.length > 0;
   const selectedComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
@@ -554,6 +556,9 @@ function App() {
   };
 
   const closeComposer = () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setCollapsed(true);
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
@@ -566,15 +571,28 @@ function App() {
     setMoreMenuOpen(false);
     setSearchOpen(false);
     setSearchQuery("");
+    fabRef.current?.blur();
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setCollapsed(false);
   };
+
+  useEffect(() => {
+    if (collapsed) return;
+    const frame = requestAnimationFrame(() => {
+      composeInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [collapsed]);
 
   useLayoutEffect(() => {
     if (!collapsed || searchOpen) return;
 
     const tray = trayRef.current;
     const measure = measureRef.current;
-    if (!tray || !measure) return;
+    const composer = composerRef.current;
+    if (!tray || !measure || !composer) return;
 
     const measureWidth = (id: string, compact: boolean) => {
       const el = measure.querySelector<HTMLElement>(`[data-measure-id="${id}"][data-compact="${compact}"]`);
@@ -583,8 +601,19 @@ function App() {
 
     const update = () => {
       const searchEl = tray.querySelector<HTMLElement>(".app-tray-search");
+      const dock = composer.querySelector<HTMLElement>(".app-composer-dock");
       const searchGap = 8;
-      const available = tray.clientWidth - (searchEl?.offsetWidth ?? 40) - searchGap;
+      const trayDockGap = 10;
+      const composerStyle = getComputedStyle(composer);
+      const padX =
+        (parseFloat(composerStyle.paddingLeft) || 0) +
+        (parseFloat(composerStyle.paddingRight) || 0);
+      const dockWidth = dock?.getBoundingClientRect().width || 44;
+      const searchWidth = searchEl?.getBoundingClientRect().width || 44;
+      // Use the composer budget, not the tray's content-shrunk width — otherwise
+      // overflowed tabs never come back when the viewport widens.
+      const trayBudget = composer.clientWidth - padX - dockWidth - trayDockGap;
+      const available = trayBudget - searchWidth - searchGap;
       if (available <= 0) return;
 
       const fit = (count: number, compact: boolean, pinId: MorePinId) => {
@@ -606,43 +635,33 @@ function App() {
         return total + (itemCount - 1) * TRAY_GAP + TRAY_BORDER <= available;
       };
 
+      let nextCount = 0;
+      let nextCompact = true;
+
       if (fit(OVERFLOWABLE_TABS.length, false, morePinId)) {
-        setOverflowableVisibleCount(OVERFLOWABLE_TABS.length);
-        setTrayCompact(false);
-        return;
+        nextCount = OVERFLOWABLE_TABS.length;
+        nextCompact = false;
+      } else if (fit(1, false, morePinId)) {
+        nextCount = 1;
+        nextCompact = false;
+      } else if (fit(0, false, morePinId)) {
+        nextCount = 0;
+        nextCompact = false;
+      } else if (fit(OVERFLOWABLE_TABS.length, true, morePinId)) {
+        nextCount = OVERFLOWABLE_TABS.length;
+        nextCompact = true;
+      } else if (fit(1, true, morePinId)) {
+        nextCount = 1;
+        nextCompact = true;
       }
 
-      if (fit(1, false, morePinId)) {
-        setOverflowableVisibleCount(1);
-        setTrayCompact(false);
-        return;
-      }
-
-      if (fit(0, false, morePinId)) {
-        setOverflowableVisibleCount(0);
-        setTrayCompact(false);
-        return;
-      }
-
-      if (fit(OVERFLOWABLE_TABS.length, true, morePinId)) {
-        setOverflowableVisibleCount(OVERFLOWABLE_TABS.length);
-        setTrayCompact(true);
-        return;
-      }
-
-      if (fit(1, true, morePinId)) {
-        setOverflowableVisibleCount(1);
-        setTrayCompact(true);
-        return;
-      }
-
-      setOverflowableVisibleCount(0);
-      setTrayCompact(true);
+      setOverflowableVisibleCount((current) => (current === nextCount ? current : nextCount));
+      setTrayCompact((current) => (current === nextCompact ? current : nextCompact));
     };
 
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(tray);
+    observer.observe(composer);
     window.addEventListener("resize", update);
     window.visualViewport?.addEventListener("resize", update);
 
@@ -922,17 +941,22 @@ function App() {
 
         <div className="app-composer-dock">
           <button
+            ref={fabRef}
             type="button"
             className={`app-composer-fab app-composer-fab--toggle${collapsed ? "" : " is-hidden"}`}
             onClick={openComposer}
             aria-label="Add"
-            aria-hidden={!collapsed}
             tabIndex={collapsed ? 0 : -1}
+            {...(!collapsed ? { inert: true } : {})}
           >
             <PlusIcon />
           </button>
 
-          <div className="app-composer-field" aria-hidden={collapsed}>
+          <div
+            className="app-composer-field"
+            aria-hidden={collapsed}
+            {...(collapsed ? { inert: true } : {})}
+          >
             <button
               type="button"
               className="app-composer-collapse"
@@ -944,6 +968,7 @@ function App() {
             </button>
             <div className="app-composer-field-row">
               <input
+                ref={composeInputRef}
                 type="text"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
