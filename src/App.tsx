@@ -17,16 +17,6 @@ function CloseIcon() {
   );
 }
 
-function MoreVertIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="6" r="1.8" fill="currentColor" />
-      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
-      <circle cx="12" cy="18" r="1.8" fill="currentColor" />
-    </svg>
-  );
-}
-
 function SearchIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -775,10 +765,10 @@ function App() {
                   tabIndex={-1}
                   data-measure-id="more"
                   data-compact={String(compact)}
-                  className={`app-tray-tab${compact ? " is-compact" : ""}`}
+                  className={`app-tray-more-button${compact ? " is-compact" : ""}`}
                 >
-                  <MoreVertIcon />
-                  {!compact && <span>More</span>}
+                  <span className="app-tray-more-divider" aria-hidden="true" />
+                  <span>More...</span>
                 </button>
               </div>
             ))}
@@ -826,7 +816,7 @@ function App() {
                 anchorRef={moreButtonRef}
                 menuRef={moreMenuRef}
                 align="end"
-                aria-label="More"
+                aria-label="More..."
               >
                 {moreMenuItems.map(({ id, label, Icon }) => (
                   <button
@@ -844,14 +834,14 @@ function App() {
               <button
                 ref={moreButtonRef}
                 type="button"
-                className={`app-tray-tab${trayCompact ? " is-compact" : ""}${moreButtonActive ? " is-active" : ""}`}
+                className={`app-tray-more-button${trayCompact ? " is-compact" : ""}${moreButtonActive ? " is-active" : ""}`}
                 onClick={() => setMoreMenuOpen((open) => !open)}
-                aria-label="More"
+                aria-label="More..."
                 aria-expanded={moreMenuOpen}
                 tabIndex={collapsed ? 0 : -1}
               >
-                <MoreVertIcon />
-                {!trayCompact && <span>More</span>}
+                <span className="app-tray-more-divider" aria-hidden="true" />
+                <span>More...</span>
               </button>
             </div>
           </div>
