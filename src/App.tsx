@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
+import { buildComposerDraft, type ComposerDraft } from "./composer";
 
 function CloseIcon() {
   return (
@@ -516,6 +517,7 @@ function App() {
   const [trayCompact, setTrayCompact] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [tasks, setTasks] = useState<ComposerDraft[]>([]);
   const composerRef = useRef<HTMLFormElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -540,6 +542,19 @@ function App() {
   const visibleTabIds = new Set<ActiveView>(["dayline", ...TRAY_TABS.map((tab) => tab.id)]);
   const moreButtonActive =
     moreMenuOpen || (activeView !== "dayline" && !visibleTabIds.has(activeView));
+
+  const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
+    task: (draft) => {
+      setTasks((current) => [draft, ...current]);
+    },
+    project: (_draft) => {},
+    note: (_draft) => {},
+  };
+
+  const completeTask = (id: string | null) => {
+    if (!id) return;
+    setTasks((current) => current.filter((task) => task.id !== id));
+  };
 
   const selectView = (id: ActiveView) => {
     setActiveView(id);
@@ -739,13 +754,59 @@ function App() {
 
   return (
     <div className="app">
-      <main className="app-main" />
+      <main className="app-main">
+        {tasks.length === 0 ? (
+          <p className="task-list-empty">No tasks yet. Add one below.</p>
+        ) : (
+          <ul className="task-list">
+            {tasks.map((task) => {
+              const meta: { key: string; value: string }[] = [];
+              if (task.description) meta.push({ key: "description", value: task.description });
+              if (task.est_duration != null) meta.push({ key: "duration", value: `${task.est_duration}m` });
+              if (task.date_time) meta.push({ key: "date_time", value: task.date_time });
+              if (task.urgency) meta.push({ key: "urgency", value: task.urgency });
+              if (task.impact != null) meta.push({ key: "impact", value: `Impact ${task.impact}` });
+              if (task.recurring) meta.push({ key: "recurring", value: task.recurring });
+              if (task.after) meta.push({ key: "after", value: task.after });
+              if (task.location) meta.push({ key: "location", value: task.location });
+              if (task.tags) meta.push({ key: "tags", value: task.tags });
+              if (task.status) meta.push({ key: "status", value: task.status });
+
+              return (
+                <li key={task.id ?? task.title} className="task-row">
+                  <button
+                    type="button"
+                    className="task-complete"
+                    aria-label="Mark complete"
+                    onClick={() => completeTask(task.id)}
+                  />
+                  <div className="task-row-body">
+                    <p className="task-row-title">{task.title}</p>
+                    {meta.length > 0 && (
+                      <div className="task-row-meta">
+                        {meta.map((item) => (
+                          <span key={item.key}>{item.value}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </main>
 
       <form
         ref={composerRef}
         className={`app-composer${collapsed ? " is-collapsed" : ""}${attachMenuOpen ? " is-attach-open" : ""}${searchOpen ? " is-search-open" : ""}`}
         onSubmit={(e) => {
           e.preventDefault();
+          if (searchOpen) return;
+          const draft = buildComposerDraft({ title: content, type: composeKind });
+          if (!draft) return;
+          submitComposerDraft[composeKind](draft);
+          setContent("");
         }}
       >
         <div className="app-tray" ref={trayRef}>
