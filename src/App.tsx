@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
-import { createTaskDraft, type TaskDraft } from "./task";
 
 function CloseIcon() {
   return (
@@ -410,10 +409,6 @@ const TRAY_GAP = 4;
 const TRAY_PAD = 8;
 const TRAY_BORDER = 2;
 
-function formatDuration(estDuration: number | null): string {
-  return estDuration == null ? "—" : `${estDuration}m`;
-}
-
 type OverlayMenuAlign = "start" | "end";
 
 function ComposerOverlayMenu({
@@ -521,7 +516,6 @@ function App() {
   const [trayCompact, setTrayCompact] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [tasks, setTasks] = useState<TaskDraft[]>([]);
   const composerRef = useRef<HTMLFormElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -745,35 +739,13 @@ function App() {
 
   return (
     <div className="app">
-      <main className="app-main">
-        {tasks.length === 0 ? (
-          <p className="task-list-empty">No tasks yet. Add one below.</p>
-        ) : (
-          <ul className="task-list">
-            {tasks.map((task) => (
-              <li key={task.id} className="task-row">
-                <p className="task-row-title">{task.title}</p>
-                <div className="task-row-meta">
-                  <span>{formatDuration(task.est_duration)}</span>
-                  <span className="task-row-status">{task.status}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </main>
+      <main className="app-main" />
 
       <form
         ref={composerRef}
         className={`app-composer${collapsed ? " is-collapsed" : ""}${attachMenuOpen ? " is-attach-open" : ""}${searchOpen ? " is-search-open" : ""}`}
         onSubmit={(e) => {
           e.preventDefault();
-          if (searchOpen) return;
-          const text = content.trim();
-          if (!text) return;
-          const task = createTaskDraft(text);
-          setTasks((current) => [task, ...current]);
-          setContent("");
         }}
       >
         <div className="app-tray" ref={trayRef}>

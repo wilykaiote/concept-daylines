@@ -24,46 +24,6 @@
   padding: 12px var(--space) 16px;
 }
 
-.task-list-empty {
-  margin: 32px 0;
-  text-align: center;
-  color: var(--text);
-}
-
-.task-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.task-row {
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-}
-
-.task-row-title {
-  color: var(--text-h);
-  overflow-wrap: anywhere;
-}
-
-.task-row-meta {
-  display: flex;
-  gap: 12px;
-  margin-top: 6px;
-  font-size: 0.85rem;
-  color: var(--text);
-}
-
-.task-row-status {
-  text-transform: lowercase;
-}
-
-
 .app-composer {
   position: relative;
   z-index: 10;
