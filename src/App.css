@@ -90,7 +90,8 @@
   position: absolute;
   left: var(--space);
   right: calc(var(--space) + var(--tap) + 10px);
-  height: var(--tap);
+  height: auto;
+  min-height: var(--tap);
   z-index: 1;
   display: flex;
   align-items: center;
@@ -157,12 +158,13 @@
 
 .app-tray-tabs {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 4px;
   max-width: 100%;
   min-width: 0;
-  height: var(--tap);
-  padding: 4px 0 4px 4px;
+  height: auto;
+  min-height: var(--tap);
+  padding: 3px 0 3px 3px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-raised);
@@ -292,30 +294,34 @@
 
 .app-tray-tab {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  min-height: 36px;
-  min-width: 36px;
-  padding: 0 12px;
+  justify-content: center;
+  gap: 2px;
+  min-height: 48px;
+  min-width: 40px;
+  padding: 5px 8px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 14px;
   background: transparent;
   color: var(--text-h);
   white-space: nowrap;
-  font-size: 0.85rem;
+  font-size: 0.62rem;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
   flex-shrink: 0;
 }
 
 .app-tray-tab.is-compact {
   gap: 0;
   padding: 0;
-  width: 36px;
-  justify-content: center;
+  width: 40px;
+  min-width: 40px;
 }
 
 .app-tray-tab svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
 }
 
@@ -329,7 +335,7 @@
   display: inline-flex;
   align-self: stretch;
   flex-shrink: 0;
-  margin: -4px 0;
+  margin: -3px 0;
 }
 
 .app-tray-more-button {
@@ -338,7 +344,7 @@
   justify-content: center;
   gap: 8px;
   height: 100%;
-  min-height: var(--tap);
+  min-height: 0;
   padding: 0 14px 0 10px;
   border: 0;
   border-radius: 0 999px 999px 0;
@@ -361,7 +367,7 @@
 
 .app-tray-more-divider {
   width: 1px;
-  height: 18px;
+  height: 26px;
   background: var(--border);
   flex-shrink: 0;
 }
