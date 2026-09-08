@@ -78,8 +78,8 @@
 }
 
 .app-composer.is-collapsed {
-  justify-content: center;
-  align-items: center;
+  justify-content: stretch;
+  align-items: flex-end;
 }
 
 .app-composer.is-collapsed.is-search-open {
@@ -114,15 +114,14 @@
   position: relative;
   left: auto;
   right: auto;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   max-width: calc(100% - var(--tap) - 10px);
-  justify-content: flex-end;
+  justify-content: stretch;
 }
 
 .app-composer.is-collapsed.is-search-open .app-tray {
   flex: 1;
-  max-width: none;
-  width: 100%;
+  max-width: calc(100% - var(--tap) - 10px);
 }
 
 .app-composer.is-search-open .app-tray {
@@ -160,6 +159,8 @@
   display: flex;
   align-items: stretch;
   gap: 4px;
+  flex: 1 1 auto;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
   height: auto;
@@ -241,9 +242,11 @@
   transition: transform 0.28s ease;
 }
 
-.app-composer.is-search-open .app-tray-search {
-  /* Sits where the + FAB was after tray expands */
-  transform: translateX(0);
+.app-composer:not(.is-collapsed) .app-tray-search {
+  position: absolute;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .app-tray-search svg {
@@ -270,20 +273,31 @@
 }
 
 .app-composer.is-collapsed .app-composer-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   flex: 0 0 var(--tap);
   width: var(--tap);
-  height: var(--tap);
+  height: auto;
   min-height: var(--tap);
 }
 
-.app-composer.is-collapsed.is-search-open .app-composer-dock {
-  flex-basis: 0;
-  width: 0;
-  min-width: 0;
-  overflow: hidden;
+.app-composer.is-collapsed .app-composer-fab.app-composer-fab--toggle {
+  position: relative;
+  bottom: auto;
+  right: auto;
 }
 
-.app-composer.is-search-open .app-composer-dock {
+.app-composer.is-collapsed.is-search-open .app-composer-dock {
+  flex-basis: var(--tap);
+  width: var(--tap);
+  min-width: var(--tap);
+  overflow: visible;
+}
+
+.app-composer.is-search-open .app-composer-field {
   opacity: 0;
   pointer-events: none;
 }
@@ -298,25 +312,23 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
+  flex: 1 1 0;
   min-height: 48px;
-  min-width: 40px;
+  min-width: 0;
   padding: 5px 8px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 999px;
   background: transparent;
   color: var(--text-h);
   white-space: nowrap;
   font-size: 0.62rem;
   line-height: 1.15;
   letter-spacing: 0.01em;
-  flex-shrink: 0;
 }
 
 .app-tray-tab.is-compact {
   gap: 0;
-  padding: 0;
-  width: 40px;
-  min-width: 40px;
+  padding: 5px 0;
 }
 
 .app-tray-tab svg {
@@ -335,7 +347,7 @@
   display: inline-flex;
   align-self: stretch;
   flex-shrink: 0;
-  margin: -3px 0;
+  margin: -3px 0 -3px auto;
 }
 
 .app-tray-more-button {

@@ -379,12 +379,12 @@ type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
 const DAYLINE_TAB = { id: "dayline", label: "Dayline", Icon: CalendarIcon } as const;
 
 const TRAY_TABS = [
-  { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
+  { id: "projects", label: "Projects", Icon: ListIcon },
   { id: "notes", label: "Notes", Icon: NotesIcon },
 ] as const;
 
 const MORE_OPTIONS = [
-  { id: "projects", label: "Projects", Icon: ListIcon },
+  { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
   { id: "routines", label: "Routines", Icon: CycleIcon },
   { id: "groceries", label: "Groceries", Icon: FoodIcon },
   { id: "recipes", label: "Recipes", Icon: RecipeIcon },
@@ -607,20 +607,16 @@ function App() {
     };
 
     const update = () => {
-      const searchEl = tray.querySelector<HTMLElement>(".app-tray-search");
       const dock = composer.querySelector<HTMLElement>(".app-composer-dock");
-      const searchGap = 8;
       const trayDockGap = 10;
       const composerStyle = getComputedStyle(composer);
       const padX =
         (parseFloat(composerStyle.paddingLeft) || 0) +
         (parseFloat(composerStyle.paddingRight) || 0);
       const dockWidth = dock?.getBoundingClientRect().width || 44;
-      const searchWidth = searchEl?.getBoundingClientRect().width || 44;
       // Use the composer budget, not the tray's content-shrunk width — otherwise
       // overflowed tabs never come back when the viewport widens.
-      const trayBudget = composer.clientWidth - padX - dockWidth - trayDockGap;
-      const available = trayBudget - searchWidth - searchGap;
+      const available = composer.clientWidth - padX - dockWidth - trayDockGap;
       if (available <= 0) return;
 
       const fit = (compact: boolean) => {
@@ -895,6 +891,9 @@ function App() {
               }}
             />
           </div>
+        </div>
+
+        <div className="app-composer-dock">
           <button
             ref={searchButtonRef}
             type="button"
@@ -909,9 +908,6 @@ function App() {
           >
             <SearchIcon />
           </button>
-        </div>
-
-        <div className="app-composer-dock">
           <button
             ref={fabRef}
             type="button"
