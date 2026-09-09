@@ -531,6 +531,9 @@ function App() {
   const [collapsed, setCollapsed] = useState(true);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [composeKindMenuOpen, setComposeKindMenuOpen] = useState(false);
+  const [durationMenuOpen, setDurationMenuOpen] = useState(false);
+  const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
+  const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(null);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -550,6 +553,10 @@ function App() {
   const composeKindMenuRef = useRef<HTMLDivElement>(null);
   const composeKindButtonRef = useRef<HTMLButtonElement>(null);
   const composeAddButtonRef = useRef<HTMLButtonElement>(null);
+  const durationMenuRef = useRef<HTMLDivElement>(null);
+  const durationButtonRef = useRef<HTMLButtonElement>(null);
+  const durationWheelRef = useRef<HTMLDivElement>(null);
+  const durationDragRef = useRef<{ y: number; acc: number } | null>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
@@ -607,6 +614,34 @@ function App() {
     setCollapsed(true);
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
+    setDurationMenuOpen(false);
+  };
+
+  const stepDuration = (direction: 1 | -1) => {
+    const step = durationUnit === "hours" ? 6 : 5;
+    setEstDurationMinutes((current) => Math.max(0, (current ?? 0) + direction * step));
+  };
+
+  const nudgeDurationWheel = (direction: 1 | -1) => {
+    const step = durationUnit === "hours" ? 6 : 1;
+    setEstDurationMinutes((current) => Math.max(0, (current ?? 0) + direction * step));
+  };
+
+  const switchDurationUnit = (unit: "minutes" | "hours") => {
+    if (unit === durationUnit) return;
+    setDurationUnit(unit);
+  };
+
+  const durationWheelIndex =
+    durationUnit === "hours"
+      ? Math.round(((estDurationMinutes ?? 0) / 60) * 10)
+      : (estDurationMinutes ?? 0);
+
+  const formatDurationWheelValue = (index: number) => {
+    if (durationUnit === "hours") {
+      return (index / 10).toFixed(1);
+    }
+    return String(index);
   };
 
   const openComposer = () => {
@@ -719,13 +754,15 @@ function App() {
       if (composerRef.current?.contains(target)) return;
       if (attachMenuRef.current?.contains(target)) return;
       if (composeKindMenuRef.current?.contains(target)) return;
+      if (durationMenuRef.current?.contains(target)) return;
 
       event.preventDefault();
       event.stopPropagation();
 
-      if (attachMenuOpen || composeKindMenuOpen) {
+      if (attachMenuOpen || composeKindMenuOpen || durationMenuOpen) {
         setAttachMenuOpen(false);
         setComposeKindMenuOpen(false);
+        setDurationMenuOpen(false);
         return;
       }
 
@@ -734,7 +771,7 @@ function App() {
 
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [collapsed, attachMenuOpen, composeKindMenuOpen]);
+  }, [collapsed, attachMenuOpen, composeKindMenuOpen, durationMenuOpen]);
 
   useEffect(() => {
     if (!attachMenuOpen) return;
@@ -766,6 +803,37 @@ function App() {
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [composeKindMenuOpen]);
+
+  useEffect(() => {
+    if (!durationMenuOpen) return;
+
+    const wheel = durationWheelRef.current;
+    if (!wheel) return;
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      nudgeDurationWheel(event.deltaY > 0 ? 1 : -1);
+    };
+
+    wheel.addEventListener("wheel", onWheel, { passive: false });
+    return () => wheel.removeEventListener("wheel", onWheel);
+  }, [durationMenuOpen, durationUnit]);
+
+  useEffect(() => {
+    if (!durationMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (durationMenuRef.current?.contains(target)) return;
+      if (durationButtonRef.current?.contains(target)) return;
+      setDurationMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [durationMenuOpen]);
 
   useEffect(() => {
     if (!moreMenuOpen) return;
@@ -833,10 +901,17 @@ function App() {
         onSubmit={(e) => {
           e.preventDefault();
           if (searchOpen) return;
-          const draft = buildComposerDraft({ title: content, type: composeKind });
+          const draft = buildComposerDraft({
+            title: content,
+            type: composeKind,
+            est_duration: estDurationMinutes,
+          });
           if (!draft) return;
           submitComposerDraft[composeKind](draft);
           setContent("");
+          setEstDurationMinutes(null);
+          setDurationUnit("minutes");
+          setDurationMenuOpen(false);
         }}
       >
         <div className="app-tray" ref={trayRef}>
@@ -1093,6 +1168,7 @@ function App() {
                     className="app-composer-icon"
                     onClick={() => {
                       setComposeKindMenuOpen(false);
+                      setDurationMenuOpen(false);
                       setAttachMenuOpen((open) => !open);
                     }}
                     aria-label={attachMenuOpen ? "Close add menu" : "Open add menu"}
@@ -1105,9 +1181,131 @@ function App() {
               </div>
               <div className="app-composer-tools-center">
                 {composeKind === "task" && (
-                  <button type="button" className="app-composer-tool" aria-label="Time" tabIndex={collapsed ? -1 : 0}>
-                    <ClockIcon />
-                  </button>
+                  <div className="app-composer-duration">
+                    <ComposerOverlayMenu
+                      open={durationMenuOpen}
+                      anchorRef={durationButtonRef}
+                      menuRef={durationMenuRef}
+                      className="app-duration-menu"
+                      aria-label="Estimated Duration"
+                    >
+                      <p className="app-duration-title">Estimated Duration</p>
+                      <div className="app-duration-divider" aria-hidden="true" />
+                      <div className="app-duration-unit" role="group" aria-label="Duration unit">
+                        <button
+                          type="button"
+                          className={`app-duration-unit-button${durationUnit === "minutes" ? " is-active" : ""}`}
+                          aria-pressed={durationUnit === "minutes"}
+                          onClick={() => switchDurationUnit("minutes")}
+                        >
+                          Minutes
+                        </button>
+                        <button
+                          type="button"
+                          className={`app-duration-unit-button${durationUnit === "hours" ? " is-active" : ""}`}
+                          aria-pressed={durationUnit === "hours"}
+                          onClick={() => switchDurationUnit("hours")}
+                        >
+                          Hours
+                        </button>
+                      </div>
+                      <div className="app-duration-stepper">
+                        <button
+                          type="button"
+                          className="app-duration-step"
+                          aria-label={durationUnit === "hours" ? "Decrease by 0.1 hours" : "Decrease by 5 minutes"}
+                          onClick={() => stepDuration(-1)}
+                        >
+                          −
+                        </button>
+                        <div
+                          ref={durationWheelRef}
+                          className="app-duration-wheel"
+                          tabIndex={0}
+                          role="slider"
+                          aria-label="Estimated duration"
+                          aria-valuemin={0}
+                          aria-valuenow={durationWheelIndex}
+                          aria-valuetext={formatDurationWheelValue(durationWheelIndex)}
+                          onPointerDown={(e) => {
+                            durationDragRef.current = { y: e.clientY, acc: 0 };
+                            e.currentTarget.setPointerCapture(e.pointerId);
+                          }}
+                          onPointerMove={(e) => {
+                            const drag = durationDragRef.current;
+                            if (!drag) return;
+                            const delta = drag.y - e.clientY;
+                            drag.y = e.clientY;
+                            drag.acc += delta;
+                            while (drag.acc >= 18) {
+                              drag.acc -= 18;
+                              nudgeDurationWheel(1);
+                            }
+                            while (drag.acc <= -18) {
+                              drag.acc += 18;
+                              nudgeDurationWheel(-1);
+                            }
+                          }}
+                          onPointerUp={() => {
+                            durationDragRef.current = null;
+                          }}
+                          onPointerCancel={() => {
+                            durationDragRef.current = null;
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "ArrowUp" || e.key === "ArrowRight") {
+                              e.preventDefault();
+                              nudgeDurationWheel(1);
+                            } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
+                              e.preventDefault();
+                              nudgeDurationWheel(-1);
+                            }
+                          }}
+                        >
+                          <div className="app-duration-wheel-window" aria-hidden="true">
+                            {[-2, -1, 0, 1, 2].map((offset) => {
+                              const index = durationWheelIndex + offset;
+                              if (index < 0) {
+                                return <div key={offset} className="app-duration-wheel-item is-empty" />;
+                              }
+                              return (
+                                <div
+                                  key={offset}
+                                  className={`app-duration-wheel-item${offset === 0 ? " is-selected" : ""}`}
+                                >
+                                  {formatDurationWheelValue(index)}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="app-duration-wheel-highlight" aria-hidden="true" />
+                        </div>
+                        <button
+                          type="button"
+                          className="app-duration-step"
+                          aria-label={durationUnit === "hours" ? "Increase by 0.1 hours" : "Increase by 5 minutes"}
+                          onClick={() => stepDuration(1)}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </ComposerOverlayMenu>
+                    <button
+                      ref={durationButtonRef}
+                      type="button"
+                      className={`app-composer-tool${durationMenuOpen || (estDurationMinutes != null && estDurationMinutes > 0) ? " is-active" : ""}`}
+                      aria-label="Time"
+                      aria-expanded={durationMenuOpen}
+                      tabIndex={collapsed ? -1 : 0}
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        setComposeKindMenuOpen(false);
+                        setDurationMenuOpen((open) => !open);
+                      }}
+                    >
+                      <ClockIcon />
+                    </button>
+                  </div>
                 )}
                 {(composeKind === "task" || composeKind === "project") && (
                   <button type="button" className="app-composer-tool" aria-label="Calendar" tabIndex={collapsed ? -1 : 0}>
@@ -1156,6 +1354,7 @@ function App() {
                   aria-expanded={composeKindMenuOpen}
                   onClick={() => {
                     setAttachMenuOpen(false);
+                    setDurationMenuOpen(false);
                     setComposeKindMenuOpen((open) => !open);
                   }}
                   tabIndex={collapsed ? -1 : 0}
@@ -1174,6 +1373,7 @@ function App() {
                       ? undefined
                       : () => {
                           setAttachMenuOpen(false);
+                          setDurationMenuOpen(false);
                           setComposeKindMenuOpen((open) => !open);
                         }
                   }
