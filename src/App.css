@@ -213,10 +213,11 @@
 }
 
 .app-tray-search-field {
+  position: relative;
   flex: 1;
   min-width: 0;
   max-width: 0;
-  height: var(--tap);
+  height: var(--tray-pill);
   opacity: 0;
   overflow: hidden;
   pointer-events: none;
@@ -236,8 +237,8 @@
 
 .app-tray-search-field input {
   width: 100%;
-  height: var(--tap);
-  padding: 0 16px;
+  height: var(--tray-pill);
+  padding: 0 48px 0 16px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-raised);
@@ -249,36 +250,37 @@
   outline: none;
 }
 
-.app-tray-search {
+.app-tray-search-close {
+  position: absolute;
+  top: 50%;
+  right: 8px;
   display: grid;
   place-items: center;
-  width: var(--tap);
-  height: var(--tap);
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--text-h) 32%, var(--bg-raised));
-  color: var(--text-h);
-  flex-shrink: 0;
-  transition: transform 0.28s ease;
+  background: transparent;
+  color: var(--text);
+  transform: translateY(-50%);
 }
 
-.app-composer:not(.is-collapsed) .app-tray-search {
-  position: absolute;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.app-tray-search svg {
-  width: 20px;
-  height: 20px;
+.app-tray-search-close svg {
+  width: 16px;
+  height: 16px;
   display: block;
 }
 
-.app-tray-search:focus-visible {
+.app-tray-search-close:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.app-tray-more-search {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 10px 10px;
 }
 
 .app-composer-dock {
@@ -298,7 +300,6 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
   flex: 0 0 var(--tray-pill);
   width: var(--tray-pill);
   height: auto;
@@ -414,12 +415,6 @@
 .app-tray-more-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .app-tray-search {
-    background: var(--bg);
-  }
 }
 
 .app-attach-menu {
@@ -759,20 +754,94 @@
   white-space: nowrap;
 }
 
-.app-compose-kind-button svg {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-}
-
 .app-compose-kind-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.app-compose-action .app-composer-mic {
+.app-compose-action .app-composer-add {
   width: 36px;
   height: 36px;
+  background: color-mix(in srgb, var(--text-h) 12%, var(--bg-raised));
+  color: var(--text);
+  transition:
+    background 0.18s ease,
+    color 0.18s ease;
+}
+
+.app-compose-action .app-composer-add.is-ready {
+  background: var(--accent);
+  color: #fff;
+}
+
+.app-compose-add-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+}
+
+.app-compose-add-icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.app-compose-add-plus {
+  position: absolute;
+  right: -5px;
+  bottom: -6px;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 0 0 1.5px currentColor;
+}
+
+.app-composer-add .app-compose-add-plus {
+  background: var(--bg);
+  color: var(--text-h);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--text-h) 28%, transparent);
+}
+
+.app-composer-add.is-ready .app-compose-add-plus {
+  background: #fff;
+  color: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+.app-composer-fab .app-compose-add-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.app-composer-fab .app-compose-add-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.app-composer-fab .app-compose-add-plus {
+  right: -6px;
+  bottom: -7px;
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 0 1.5px #1c1c22;
+}
+
+@media (prefers-color-scheme: dark) {
+  .app-composer-fab .app-compose-add-plus {
+    box-shadow: 0 0 0 1.5px #0b0b10;
+  }
 }
 
 .app-attach-menu-item.is-selected {
@@ -818,11 +887,6 @@
   height: 40px;
   border-radius: 50%;
   background: transparent;
-}
-
-.app-composer-mic {
-  background: var(--accent);
-  color: #fff;
 }
 
 .app-composer-fab {

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
@@ -95,16 +95,15 @@ function PhotoIcon() {
   );
 }
 
-function MicIcon() {
+function PlusIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
-        d="M12 15a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0M12 18v3"
+        d="M12 5v14M5 12h14"
         fill="none"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.2"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
     </svg>
   );
@@ -120,20 +119,6 @@ function SendIcon() {
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M12 5v14M5 12h14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -363,13 +348,24 @@ function SettingsIcon() {
   );
 }
 
+function ComposeAddIcon({ Icon }: { Icon: () => ReactElement }) {
+  return (
+    <span className="app-compose-add-icon">
+      <Icon />
+      <span className="app-compose-add-plus" aria-hidden="true">
+        +
+      </span>
+    </span>
+  );
+}
+
 const COMPOSE_KINDS = [
   { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
   {
     id: "project",
     label: "Project",
     placeholder: "Describe the outcome of this project...",
-    Icon: MenuBarsIcon,
+    Icon: ListIcon,
   },
   { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
 ] as const;
@@ -532,10 +528,13 @@ function App() {
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const composeInputRef = useRef<HTMLInputElement>(null);
-  const hasText = content.length > 0;
+  const hasText = content.trim().length > 0;
   const selectedComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
   const SelectedComposeIcon = selectedComposeKind.Icon;
+  const fabComposeKind =
+    COMPOSE_KINDS.find((kind) => kind.id === COMPOSE_KIND_BY_VIEW[activeView]) ?? COMPOSE_KINDS[0];
+  const FabComposeIcon = fabComposeKind.Icon;
 
   const DaylineIcon = DAYLINE_TAB.Icon;
   const moreMenuItems = MORE_OPTIONS;
@@ -558,6 +557,9 @@ function App() {
 
   const selectView = (id: ActiveView) => {
     setActiveView(id);
+    if (!content.trim()) {
+      setComposeKind(COMPOSE_KIND_BY_VIEW[id]);
+    }
     setMoreMenuOpen(false);
   };
 
@@ -884,12 +886,21 @@ function App() {
                     type="button"
                     className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
                     role="menuitem"
-                    onClick={() => setActiveView(id)}
+                    onClick={() => selectView(id)}
                   >
                     <Icon />
                     <span>{label}</span>
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className="app-attach-menu-item app-tray-more-search"
+                  role="menuitem"
+                  onClick={openSearch}
+                >
+                  <SearchIcon />
+                  <span>Search</span>
+                </button>
               </ComposerOverlayMenu>
               <button
                 ref={moreButtonRef}
@@ -923,34 +934,31 @@ function App() {
                 if (e.key === "Escape") closeSearch();
               }}
             />
+            {searchOpen && (
+              <button
+                ref={searchButtonRef}
+                type="button"
+                className="app-tray-search-close"
+                aria-label="Close search"
+                onClick={closeSearch}
+              >
+                <CloseIcon />
+              </button>
+            )}
           </div>
         </div>
 
         <div className="app-composer-dock">
           <button
-            ref={searchButtonRef}
-            type="button"
-            className="app-tray-search"
-            aria-label={searchOpen ? "Close search" : "Search"}
-            aria-expanded={searchOpen}
-            tabIndex={collapsed ? 0 : -1}
-            onClick={() => {
-              if (searchOpen) closeSearch();
-              else openSearch();
-            }}
-          >
-            <SearchIcon />
-          </button>
-          <button
             ref={fabRef}
             type="button"
             className={`app-composer-fab app-composer-fab--toggle${collapsed ? "" : " is-hidden"}`}
             onClick={openComposer}
-            aria-label="Add"
+            aria-label={`Add ${fabComposeKind.label.toLowerCase()}`}
             tabIndex={collapsed ? 0 : -1}
             {...(!collapsed ? { inert: true } : {})}
           >
-            <PlusIcon />
+            <ComposeAddIcon Icon={FabComposeIcon} />
           </button>
 
           <div
@@ -1114,18 +1122,16 @@ function App() {
                   }}
                   tabIndex={collapsed ? -1 : 0}
                 >
-                  <SelectedComposeIcon />
                   <span>{selectedComposeKind.label}</span>
                 </button>
-                {hasText ? (
-                  <button type="submit" className="app-composer-icon app-composer-mic" aria-label="Send" tabIndex={collapsed ? -1 : 0}>
-                    <SendIcon />
-                  </button>
-                ) : (
-                  <button type="button" className="app-composer-icon app-composer-mic" aria-label="Voice input" tabIndex={collapsed ? -1 : 0}>
-                    <MicIcon />
-                  </button>
-                )}
+                <button
+                  type="submit"
+                  className={`app-composer-icon app-composer-add${hasText ? " is-ready" : ""}`}
+                  aria-label={hasText ? "Send" : `Add ${selectedComposeKind.label.toLowerCase()}`}
+                  tabIndex={collapsed ? -1 : 0}
+                >
+                  {hasText ? <SendIcon /> : <ComposeAddIcon Icon={SelectedComposeIcon} />}
+                </button>
               </div>
             </div>
           </div>
