@@ -277,6 +277,46 @@
   outline-offset: 2px;
 }
 
+.app-tray-more-menu {
+  position: fixed;
+  padding-top: 10px;
+}
+
+.app-tray-more-settings {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.app-tray-more-settings svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.app-tray-more-settings:hover,
+.app-tray-more-settings:focus-visible,
+.app-tray-more-settings.is-selected {
+  background: var(--bg-raised);
+  color: var(--accent);
+}
+
+.app-tray-more-settings:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .app-tray-more-search {
   margin-top: 4px;
   border-top: 1px solid var(--border);
@@ -818,20 +858,20 @@
 }
 
 .app-composer-fab .app-compose-add-icon {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
 }
 
 .app-composer-fab .app-compose-add-icon svg {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
 }
 
 .app-composer-fab .app-compose-add-plus {
-  right: -6px;
-  bottom: -7px;
-  width: 16px;
-  height: 16px;
+  right: -2px;
+  bottom: -3px;
+  width: 15px;
+  height: 15px;
   font-size: 12px;
   background: var(--accent);
   color: #fff;

@@ -301,6 +301,27 @@ function FoodIcon() {
   );
 }
 
+function ShoppingBagIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6 8h12l-1 13H7L6 8Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 8V7a3 3 0 0 1 6 0v1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function RecipeIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -360,7 +381,6 @@ function ComposeAddIcon({ Icon }: { Icon: () => ReactElement }) {
 }
 
 const COMPOSE_KINDS = [
-  { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
   {
     id: "project",
     label: "Project",
@@ -368,6 +388,8 @@ const COMPOSE_KINDS = [
     Icon: ListIcon,
   },
   { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
+  { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ShoppingBagIcon },
+  { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
 ] as const;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
@@ -387,6 +409,9 @@ const MORE_OPTIONS = [
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ] as const;
 
+const MORE_MENU_ITEMS = MORE_OPTIONS.filter((item) => item.id !== "settings");
+const SETTINGS_OPTION = MORE_OPTIONS.find((item) => item.id === "settings")!;
+
 const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, ...MORE_OPTIONS] as const;
 
 type ActiveView = (typeof NAV_ITEMS)[number]["id"];
@@ -397,7 +422,7 @@ const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   notes: "note",
   projects: "project",
   routines: "task",
-  groceries: "task",
+  groceries: "item",
   recipes: "task",
   settings: "task",
 };
@@ -524,6 +549,7 @@ function App() {
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const composeKindMenuRef = useRef<HTMLDivElement>(null);
   const composeKindButtonRef = useRef<HTMLButtonElement>(null);
+  const composeAddButtonRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
@@ -537,7 +563,7 @@ function App() {
   const FabComposeIcon = fabComposeKind.Icon;
 
   const DaylineIcon = DAYLINE_TAB.Icon;
-  const moreMenuItems = MORE_OPTIONS;
+  const moreMenuItems = MORE_MENU_ITEMS;
   const visibleTabIds = new Set<ActiveView>(["dayline", ...TRAY_TABS.map((tab) => tab.id)]);
   const moreButtonActive =
     moreMenuOpen || (activeView !== "dayline" && !visibleTabIds.has(activeView));
@@ -548,6 +574,7 @@ function App() {
     },
     project: (_draft) => {},
     note: (_draft) => {},
+    item: (_draft) => {},
   };
 
   const completeTask = (id: string | null) => {
@@ -732,6 +759,7 @@ function App() {
       if (!(target instanceof Node)) return;
       if (composeKindMenuRef.current?.contains(target)) return;
       if (composeKindButtonRef.current?.contains(target)) return;
+      if (composeAddButtonRef.current?.contains(target)) return;
       setComposeKindMenuOpen(false);
     };
 
@@ -878,8 +906,18 @@ function App() {
                 anchorRef={moreButtonRef}
                 menuRef={moreMenuRef}
                 align="end"
+                className="app-tray-more-menu"
                 aria-label="More..."
               >
+                <button
+                  type="button"
+                  className={`app-tray-more-settings${activeView === "settings" ? " is-selected" : ""}`}
+                  role="menuitem"
+                  aria-label={SETTINGS_OPTION.label}
+                  onClick={() => selectView("settings")}
+                >
+                  <SETTINGS_OPTION.Icon />
+                </button>
                 {moreMenuItems.map(({ id, label, Icon }) => (
                   <button
                     key={id}
@@ -1125,10 +1163,20 @@ function App() {
                   <span>{selectedComposeKind.label}</span>
                 </button>
                 <button
-                  type="submit"
+                  ref={composeAddButtonRef}
+                  type={hasText ? "submit" : "button"}
                   className={`app-composer-icon app-composer-add${hasText ? " is-ready" : ""}`}
-                  aria-label={hasText ? "Send" : `Add ${selectedComposeKind.label.toLowerCase()}`}
+                  aria-label={hasText ? "Send" : "Choose compose type"}
+                  aria-expanded={hasText ? undefined : composeKindMenuOpen}
                   tabIndex={collapsed ? -1 : 0}
+                  onClick={
+                    hasText
+                      ? undefined
+                      : () => {
+                          setAttachMenuOpen(false);
+                          setComposeKindMenuOpen((open) => !open);
+                        }
+                  }
                 >
                   {hasText ? <SendIcon /> : <ComposeAddIcon Icon={SelectedComposeIcon} />}
                 </button>
