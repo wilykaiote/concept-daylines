@@ -367,7 +367,7 @@
 }
 
 .app-composer:not(.is-collapsed) .app-composer-dock {
-  min-height: 5.75rem;
+  min-height: 6.5rem;
 }
 
 .app-tray-tab {
@@ -631,9 +631,9 @@
   flex-direction: column;
   align-items: stretch;
   width: auto;
-  padding: 2px 2px 6px;
+  padding: 4px 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 22px;
+  border-radius: 24px;
   background: var(--bg-raised);
   overflow: hidden;
   opacity: 1;
@@ -701,17 +701,18 @@
 .app-composer-field-row {
   display: flex;
   align-items: center;
-  min-height: 40px;
+  min-height: 46px;
 }
 
 .app-composer-field input {
   flex: 1;
   min-width: 0;
-  height: 40px;
-  padding: 0 28px 0 12px;
+  height: 46px;
+  padding: 0 28px 0 14px;
   border: 0;
   background: transparent;
   color: var(--text-h);
+  font-size: 1.05rem;
 }
 
 .app-composer-field input:focus,
@@ -725,8 +726,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 4px;
-  min-height: 40px;
-  padding: 0 6px 2px 2px;
+  min-height: 46px;
+  padding: 0 8px 4px 4px;
 }
 
 .app-composer-tools-left {
@@ -784,13 +785,13 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 36px;
-  padding: 0 12px;
+  min-height: 40px;
+  padding: 0 14px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--text-h);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   white-space: nowrap;
 }
 
@@ -800,8 +801,8 @@
 }
 
 .app-compose-action .app-composer-add {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   background: color-mix(in srgb, var(--text-h) 12%, var(--bg-raised));
   color: var(--text);
   transition:
@@ -818,13 +819,13 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
 
 .app-compose-add-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: block;
 }
 
@@ -834,12 +835,12 @@
   bottom: -6px;
   display: grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: var(--bg);
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   box-shadow: 0 0 0 1.5px currentColor;
@@ -1046,8 +1047,8 @@
 .app-composer-tool {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -1061,8 +1062,8 @@
 }
 
 .app-composer-tool svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   display: block;
 }
 
@@ -1077,8 +1078,8 @@
 }
 
 .app-composer-icon {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   background: transparent;
 }
@@ -1132,7 +1133,7 @@
 }
 
 .app-composer svg {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: block;
 }
