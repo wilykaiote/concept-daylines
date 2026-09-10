@@ -767,7 +767,7 @@
 }
 
 .app-compose-kind-menu {
-  min-width: 140px;
+  min-width: 168px;
 }
 
 .app-compose-kind-plus {
@@ -779,6 +779,15 @@
   font-size: 1.1rem;
   font-weight: 500;
   line-height: 1;
+}
+
+.app-compose-kind-lead-icon {
+  width: 1em;
+}
+
+.app-compose-kind-lead-icon svg {
+  width: 1em;
+  height: 1em;
 }
 
 .app-compose-kind-button {

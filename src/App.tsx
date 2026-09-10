@@ -392,13 +392,43 @@ function SettingsIcon() {
   );
 }
 
-function ComposeAddIcon({ Icon }: { Icon: () => ReactElement }) {
+function IntelligenceIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3.5 13.1 8.4 18 9.5l-4.9 1.1L12 15.5l-1.1-4.9L6 9.5l4.9-1.1L12 3.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m17.5 14.2.7 2.6 2.6.7-2.6.7-.7 2.6-.7-2.6-2.6-.7 2.6-.7.7-2.6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m5.8 13.8.55 2.05 2.05.55-2.05.55-.55 2.05-.55-2.05-2.05-.55 2.05-.55.55-2.05Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ComposeAddIcon({ Icon, showPlus = true }: { Icon: () => ReactElement; showPlus?: boolean }) {
   return (
     <span className="app-compose-add-icon">
       <Icon />
-      <span className="app-compose-add-plus" aria-hidden="true">
-        +
-      </span>
+      {showPlus && (
+        <span className="app-compose-add-plus" aria-hidden="true">
+          +
+        </span>
+      )}
     </span>
   );
 }
@@ -413,6 +443,12 @@ const COMPOSE_KINDS = [
   { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
   { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ShoppingBagIcon },
   { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
+  {
+    id: "assistant",
+    label: "AI Assistant",
+    placeholder: "Ask the AI assistant...",
+    Icon: IntelligenceIcon,
+  },
 ] as const;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
@@ -605,6 +641,7 @@ function App() {
     project: (_draft) => {},
     note: (_draft) => {},
     item: (_draft) => {},
+    assistant: (_draft) => {},
   };
 
   const completeTask = (id: string | null) => {
@@ -1318,10 +1355,18 @@ function App() {
                         setComposeKindMenuOpen(false);
                       }}
                     >
-                      <span className="app-compose-kind-plus" aria-hidden="true">
-                        +
-                      </span>
-                      <Icon />
+                      {id === "assistant" ? (
+                        <span className="app-compose-kind-plus app-compose-kind-lead-icon" aria-hidden="true">
+                          <Icon />
+                        </span>
+                      ) : (
+                        <>
+                          <span className="app-compose-kind-plus" aria-hidden="true">
+                            +
+                          </span>
+                          <Icon />
+                        </>
+                      )}
                       <span>{label}</span>
                     </button>
                   ))}
@@ -1358,7 +1403,11 @@ function App() {
                         }
                   }
                 >
-                  {hasText ? <SendIcon /> : <ComposeAddIcon Icon={SelectedComposeIcon} />}
+                  {hasText ? (
+                    <SendIcon />
+                  ) : (
+                    <ComposeAddIcon Icon={SelectedComposeIcon} showPlus={composeKind !== "assistant"} />
+                  )}
                 </button>
               </div>
             </div>
