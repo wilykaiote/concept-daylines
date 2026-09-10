@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type R
 import { createPortal } from "react-dom";
 import "./App.css";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
+import { loadTasks, saveTasks } from "./taskStorage";
 
 function CloseIcon() {
   return (
@@ -602,7 +603,7 @@ function App() {
   const [trayCompact, setTrayCompact] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [tasks, setTasks] = useState<ComposerDraft[]>([]);
+  const [tasks, setTasks] = useState<ComposerDraft[]>(() => loadTasks());
   const composerRef = useRef<HTMLFormElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -725,6 +726,10 @@ function App() {
     }
     setCollapsed(false);
   };
+
+  useEffect(() => {
+    saveTasks(tasks);
+  }, [tasks]);
 
   useEffect(() => {
     if (collapsed) return;

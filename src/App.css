@@ -21,7 +21,11 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 12px var(--space) 16px;
+  padding: 12px var(--space) calc(var(--tray-pill) + 48px + var(--safe-bottom));
+}
+
+.app:has(.app-composer:not(.is-collapsed)) .app-main {
+  padding-bottom: calc(184px + var(--safe-bottom));
 }
 
 .task-list-empty {
@@ -86,7 +90,9 @@
 }
 
 .app-composer {
-  position: relative;
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
   z-index: 10;
   display: flex;
   align-items: flex-end;
@@ -94,8 +100,26 @@
   min-width: 0;
   max-width: 100%;
   gap: 10px;
-  padding: 12px var(--space) calc(12px + var(--safe-bottom));
-  background: var(--bg);
+  padding: 28px var(--space) calc(12px + var(--safe-bottom));
+  background: transparent;
+}
+
+.app-composer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--bg) 18%, transparent) 42%,
+    color-mix(in srgb, var(--bg) 32%, transparent) 100%
+  );
+  -webkit-backdrop-filter: blur(7px);
+  backdrop-filter: blur(7px);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 38%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 38%);
 }
 
 .app-composer.is-collapsed {
