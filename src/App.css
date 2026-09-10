@@ -847,15 +847,22 @@
 }
 
 .app-composer-add .app-compose-add-plus {
-  background: var(--bg);
+  right: -1px;
+  bottom: -2px;
+  width: 13px;
+  height: 13px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 13px;
+  background: color-mix(in srgb, var(--text-h) 12%, var(--bg-raised));
   color: var(--text-h);
-  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--text-h) 28%, transparent);
+  box-shadow: none;
 }
 
 .app-composer-add.is-ready .app-compose-add-plus {
-  background: #fff;
-  color: var(--accent);
-  box-shadow: 0 0 0 1.5px var(--accent);
+  background: var(--accent);
+  color: #fff;
+  box-shadow: none;
 }
 
 .app-composer-fab .app-compose-add-icon {
@@ -869,19 +876,24 @@
 }
 
 .app-composer-fab .app-compose-add-plus {
+  top: auto;
   right: -2px;
   bottom: -3px;
   width: 15px;
   height: 15px;
-  font-size: 12px;
-  background: var(--accent);
-  color: #fff;
-  box-shadow: 0 0 0 1.5px #1c1c22;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 15px;
+  background: #6f4bb8;
+  color: #f5f0ff;
+  box-shadow: none;
 }
 
 @media (prefers-color-scheme: dark) {
   .app-composer-fab .app-compose-add-plus {
-    box-shadow: 0 0 0 1.5px #0b0b10;
+    background: #7d5cc4;
+    color: #f5f0ff;
+    box-shadow: none;
   }
 }
 
@@ -1098,8 +1110,8 @@
   bottom: 0;
   right: 0;
   z-index: 2;
-  background: #1c1c22;
-  color: #f3f4f6;
+  background: #6f4bb8;
+  color: #f5f0ff;
   opacity: 1;
   visibility: visible;
   transform: scale(1);
@@ -1119,8 +1131,8 @@
 
 @media (prefers-color-scheme: dark) {
   .app-composer-fab.app-composer-fab--toggle {
-    background: #0b0b10;
-    color: #f3f4f6;
+    background: #7d5cc4;
+    color: #f5f0ff;
   }
 }
 
