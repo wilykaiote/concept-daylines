@@ -536,7 +536,7 @@ function App() {
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(null);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
-  const [aiEnabled, setAiEnabled] = useState(false);
+  const aiEnabled = false;
   const [activeView, setActiveView] = useState<ActiveView>("dayline");
   const [trayCompact, setTrayCompact] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1142,10 +1142,10 @@ function App() {
                     <button
                       type="button"
                       className={`app-attach-menu-item app-attach-menu-ai${aiEnabled ? " is-on" : " is-disabled"}`}
-                      role="menuitemcheckbox"
-                      aria-checked={aiEnabled}
+                      role="menuitem"
+                      aria-disabled={!aiEnabled}
+                      disabled={!aiEnabled}
                       aria-label={aiEnabled ? "AI Assistant - on" : "AI Assistant - off"}
-                      onClick={() => setAiEnabled((on) => !on)}
                     >
                       <span className={`app-attach-ai-dot${aiEnabled ? " is-on" : ""}`} aria-hidden="true" />
                       <span className="app-attach-menu-label">
