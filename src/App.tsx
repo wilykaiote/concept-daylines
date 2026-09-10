@@ -164,6 +164,29 @@ function CalendarIcon() {
   );
 }
 
+function TimelineIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M2.5 12H6M18 12h3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M12 9v3.2L14.2 14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function NotesIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -394,7 +417,7 @@ const COMPOSE_KINDS = [
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
 
-const DAYLINE_TAB = { id: "dayline", label: "Dayline", Icon: CalendarIcon } as const;
+const DAYLINE_TAB = { id: "dayline", label: "Twineline", Icon: TimelineIcon } as const;
 
 const TRAY_TABS = [
   { id: "projects", label: "Projects", Icon: ListIcon },
@@ -951,7 +974,7 @@ function App() {
               className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
               onClick={() => selectView("dayline")}
               tabIndex={collapsed && !searchOpen ? 0 : -1}
-              aria-label="Dayline"
+              aria-label="Twineline"
             >
               <DaylineIcon />
               <span>{DAYLINE_TAB.label}</span>
