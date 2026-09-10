@@ -532,8 +532,10 @@ function App() {
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [composeKindMenuOpen, setComposeKindMenuOpen] = useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = useState(false);
+  const [durationActivated, setDurationActivated] = useState(false);
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
-  const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(null);
+  const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
+  const [durationInput, setDurationInput] = useState("15");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
   const aiEnabled = false;
@@ -555,8 +557,6 @@ function App() {
   const composeAddButtonRef = useRef<HTMLButtonElement>(null);
   const durationMenuRef = useRef<HTMLDivElement>(null);
   const durationButtonRef = useRef<HTMLButtonElement>(null);
-  const durationWheelRef = useRef<HTMLDivElement>(null);
-  const durationDragRef = useRef<{ y: number; acc: number } | null>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
@@ -617,31 +617,39 @@ function App() {
     setDurationMenuOpen(false);
   };
 
-  const stepDuration = (direction: 1 | -1) => {
-    const step = durationUnit === "hours" ? 6 : 5;
-    setEstDurationMinutes((current) => Math.max(0, (current ?? 0) + direction * step));
+  const syncDurationInput = (minutes: number | null, unit: "minutes" | "hours" = durationUnit) => {
+    const value = minutes ?? 0;
+    if (unit === "hours") {
+      const hours = value / 60;
+      setDurationInput(Number.isInteger(hours) ? String(hours) : hours.toFixed(1));
+      return;
+    }
+    setDurationInput(String(Math.round(value)));
   };
 
-  const nudgeDurationWheel = (direction: 1 | -1) => {
-    const step = durationUnit === "hours" ? 6 : 1;
-    setEstDurationMinutes((current) => Math.max(0, (current ?? 0) + direction * step));
+  const commitDurationInput = (raw: string, unit: "minutes" | "hours" = durationUnit) => {
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      syncDurationInput(estDurationMinutes, unit);
+      return;
+    }
+    const minutes =
+      unit === "hours" ? Math.round(parsed * 60) : Math.max(0, Math.round(parsed));
+    setEstDurationMinutes(minutes);
+    syncDurationInput(minutes, unit);
+  };
+
+  const stepDuration = (direction: 1 | -1) => {
+    const step = durationUnit === "hours" ? 6 : 5;
+    const next = Math.max(0, (estDurationMinutes ?? 0) + direction * step);
+    setEstDurationMinutes(next);
+    syncDurationInput(next);
   };
 
   const switchDurationUnit = (unit: "minutes" | "hours") => {
     if (unit === durationUnit) return;
     setDurationUnit(unit);
-  };
-
-  const durationWheelIndex =
-    durationUnit === "hours"
-      ? Math.round(((estDurationMinutes ?? 0) / 60) * 10)
-      : (estDurationMinutes ?? 0);
-
-  const formatDurationWheelValue = (index: number) => {
-    if (durationUnit === "hours") {
-      return (index / 10).toFixed(1);
-    }
-    return String(index);
+    syncDurationInput(estDurationMinutes, unit);
   };
 
   const openComposer = () => {
@@ -807,22 +815,6 @@ function App() {
   useEffect(() => {
     if (!durationMenuOpen) return;
 
-    const wheel = durationWheelRef.current;
-    if (!wheel) return;
-
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      nudgeDurationWheel(event.deltaY > 0 ? 1 : -1);
-    };
-
-    wheel.addEventListener("wheel", onWheel, { passive: false });
-    return () => wheel.removeEventListener("wheel", onWheel);
-  }, [durationMenuOpen, durationUnit]);
-
-  useEffect(() => {
-    if (!durationMenuOpen) return;
-
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -909,9 +901,11 @@ function App() {
           if (!draft) return;
           submitComposerDraft[composeKind](draft);
           setContent("");
-          setEstDurationMinutes(null);
+          setEstDurationMinutes(15);
+          setDurationInput("15");
           setDurationUnit("minutes");
           setDurationMenuOpen(false);
+          setDurationActivated(false);
         }}
       >
         <div className="app-tray" ref={trayRef}>
@@ -1180,6 +1174,16 @@ function App() {
                 </div>
               </div>
               <div className="app-composer-tools-center">
+                {(composeKind === "task" || composeKind === "project") && (
+                  <button type="button" className="app-composer-tool" aria-label="Calendar" tabIndex={collapsed ? -1 : 0}>
+                    <CalendarIcon />
+                  </button>
+                )}
+                {(composeKind === "task" || composeKind === "note") && (
+                  <button type="button" className="app-composer-tool" aria-label="Notes" tabIndex={collapsed ? -1 : 0}>
+                    <NotesIcon />
+                  </button>
+                )}
                 {composeKind === "task" && (
                   <div className="app-composer-duration">
                     <ComposerOverlayMenu
@@ -1218,68 +1222,30 @@ function App() {
                         >
                           −
                         </button>
-                        <div
-                          ref={durationWheelRef}
-                          className="app-duration-wheel"
-                          tabIndex={0}
-                          role="slider"
+                        <input
+                          type="text"
+                          inputMode={durationUnit === "hours" ? "decimal" : "numeric"}
+                          pattern={durationUnit === "hours" ? "[0-9]*[.]?[0-9]*" : "[0-9]*"}
+                          className="app-duration-input"
+                          value={durationInput}
                           aria-label="Estimated duration"
-                          aria-valuemin={0}
-                          aria-valuenow={durationWheelIndex}
-                          aria-valuetext={formatDurationWheelValue(durationWheelIndex)}
-                          onPointerDown={(e) => {
-                            durationDragRef.current = { y: e.clientY, acc: 0 };
-                            e.currentTarget.setPointerCapture(e.pointerId);
-                          }}
-                          onPointerMove={(e) => {
-                            const drag = durationDragRef.current;
-                            if (!drag) return;
-                            const delta = drag.y - e.clientY;
-                            drag.y = e.clientY;
-                            drag.acc += delta;
-                            while (drag.acc >= 18) {
-                              drag.acc -= 18;
-                              nudgeDurationWheel(1);
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            if (durationUnit === "hours") {
+                              if (next === "" || /^\d*\.?\d*$/.test(next)) setDurationInput(next);
+                              return;
                             }
-                            while (drag.acc <= -18) {
-                              drag.acc += 18;
-                              nudgeDurationWheel(-1);
-                            }
+                            if (next === "" || /^\d*$/.test(next)) setDurationInput(next);
                           }}
-                          onPointerUp={() => {
-                            durationDragRef.current = null;
-                          }}
-                          onPointerCancel={() => {
-                            durationDragRef.current = null;
-                          }}
+                          onBlur={() => commitDurationInput(durationInput)}
                           onKeyDown={(e) => {
-                            if (e.key === "ArrowUp" || e.key === "ArrowRight") {
+                            if (e.key === "Enter") {
                               e.preventDefault();
-                              nudgeDurationWheel(1);
-                            } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
-                              e.preventDefault();
-                              nudgeDurationWheel(-1);
+                              commitDurationInput(durationInput);
+                              (e.target as HTMLInputElement).blur();
                             }
                           }}
-                        >
-                          <div className="app-duration-wheel-window" aria-hidden="true">
-                            {[-2, -1, 0, 1, 2].map((offset) => {
-                              const index = durationWheelIndex + offset;
-                              if (index < 0) {
-                                return <div key={offset} className="app-duration-wheel-item is-empty" />;
-                              }
-                              return (
-                                <div
-                                  key={offset}
-                                  className={`app-duration-wheel-item${offset === 0 ? " is-selected" : ""}`}
-                                >
-                                  {formatDurationWheelValue(index)}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <div className="app-duration-wheel-highlight" aria-hidden="true" />
-                        </div>
+                        />
                         <button
                           type="button"
                           className="app-duration-step"
@@ -1293,29 +1259,20 @@ function App() {
                     <button
                       ref={durationButtonRef}
                       type="button"
-                      className={`app-composer-tool${durationMenuOpen || (estDurationMinutes != null && estDurationMinutes > 0) ? " is-active" : ""}`}
+                      className={`app-composer-tool app-composer-tool-duration${durationActivated ? " is-activated" : ""}${durationMenuOpen ? " is-open" : ""}`}
                       aria-label="Time"
                       aria-expanded={durationMenuOpen}
                       tabIndex={collapsed ? -1 : 0}
                       onClick={() => {
                         setAttachMenuOpen(false);
                         setComposeKindMenuOpen(false);
+                        setDurationActivated(true);
                         setDurationMenuOpen((open) => !open);
                       }}
                     >
                       <ClockIcon />
                     </button>
                   </div>
-                )}
-                {(composeKind === "task" || composeKind === "project") && (
-                  <button type="button" className="app-composer-tool" aria-label="Calendar" tabIndex={collapsed ? -1 : 0}>
-                    <CalendarIcon />
-                  </button>
-                )}
-                {(composeKind === "task" || composeKind === "note") && (
-                  <button type="button" className="app-composer-tool" aria-label="Notes" tabIndex={collapsed ? -1 : 0}>
-                    <NotesIcon />
-                  </button>
                 )}
               </div>
               <div className="app-compose-action">
