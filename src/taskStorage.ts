@@ -72,10 +72,36 @@ export function formatCountdown(ms: number): string {
 }
 
 export function formatTargetTimeLabel(hhmm: string): string {
-  const [hoursRaw, minutes] = hhmm.split(":").map(Number);
-  const period = hoursRaw >= 12 ? "PM" : "AM";
-  const hours12 = hoursRaw % 12 || 12;
-  return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
+  const parts = parseTargetTimeParts(hhmm);
+  return `${parts.hour}:${String(parts.minute).padStart(2, "0")} ${parts.period}`;
+}
+
+export type TargetTimePeriod = "AM" | "PM";
+
+export type TargetTimeParts = {
+  hour: number;
+  minute: number;
+  period: TargetTimePeriod;
+};
+
+export function parseTargetTimeParts(hhmm: string): TargetTimeParts {
+  const [hoursRaw, minutesRaw] = hhmm.split(":").map(Number);
+  const hours = Number.isFinite(hoursRaw) ? hoursRaw : 17;
+  const minutes = Number.isFinite(minutesRaw) ? minutesRaw : 0;
+  const period: TargetTimePeriod = hours >= 12 ? "PM" : "AM";
+  return {
+    hour: hours % 12 || 12,
+    minute: Math.min(59, Math.max(0, minutes)),
+    period,
+  };
+}
+
+export function buildTargetTime({ hour, minute, period }: TargetTimeParts): string {
+  const clampedHour = Math.min(12, Math.max(1, Math.round(hour)));
+  const clampedMinute = Math.min(59, Math.max(0, Math.round(minute)));
+  let hours24 = clampedHour % 12;
+  if (period === "PM") hours24 += 12;
+  return `${String(hours24).padStart(2, "0")}:${String(clampedMinute).padStart(2, "0")}`;
 }
 
 const MONTH_LABELS = [

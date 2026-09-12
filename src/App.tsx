@@ -4,6 +4,7 @@ import "./App.css";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
   buildMonthCalendarDays,
+  buildTargetTime,
   dateForWeekday,
   formatCountdown,
   formatMonthYearLabel,
@@ -12,6 +13,7 @@ import {
   loadTargetTime,
   loadTasks,
   msUntilTargetTime,
+  parseTargetTimeParts,
   sameCalendarDay,
   saveTargetTime,
   saveTasks,
@@ -19,6 +21,7 @@ import {
   toStartOfDay,
   weekdaysFromToday,
   WEEKDAY_BUTTONS,
+  type TargetTimePeriod,
 } from "./taskStorage";
 import { buildScheduleSegments } from "./schedule";
 
@@ -628,6 +631,9 @@ function App() {
   const [targetTime, setTargetTime] = useState(() => loadTargetTime());
   const [selectedDay, setSelectedDay] = useState(() => toStartOfDay(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [timePickerBaseline, setTimePickerBaseline] = useState<string | null>(null);
+  const [timeSavePromptOpen, setTimeSavePromptOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => toStartOfDay(new Date()));
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const composerRef = useRef<HTMLFormElement>(null);
@@ -652,7 +658,6 @@ function App() {
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const composeInputRef = useRef<HTMLInputElement>(null);
-  const targetTimeInputRef = useRef<HTMLInputElement>(null);
   const hasText = content.trim().length > 0;
   const selectedComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
@@ -669,6 +674,7 @@ function App() {
   const countdownMs = msUntilTargetTime(targetTime, new Date(countdownNow));
   const countdownRemaining = formatCountdown(countdownMs);
   const targetTimeLabel = formatTargetTimeLabel(targetTime);
+  const targetTimeParts = parseTargetTimeParts(targetTime);
   const twinelineDateLabel = formatTwinelineDateLabel(selectedDay, new Date(countdownNow));
   const orderedWeekdays = weekdaysFromToday(new Date(countdownNow));
   const calendarDays = buildMonthCalendarDays(calendarMonth);
@@ -677,6 +683,7 @@ function App() {
   const highlightedTaskId = hoveredTaskId ?? focusedTaskId;
 
   const openCalendar = () => {
+    setTimePickerOpen(false);
     setCalendarMonth(new Date(selectedDay.getFullYear(), selectedDay.getMonth(), 1));
     setCalendarOpen(true);
   };
@@ -688,19 +695,52 @@ function App() {
     setCalendarOpen(false);
   };
 
-  const openTargetTimePicker = () => {
-    const input = targetTimeInputRef.current;
-    if (!input) return;
-    if (typeof input.showPicker === "function") {
-      try {
-        input.showPicker();
-        return;
-      } catch {
-        // Fall through to focus/click for browsers that block showPicker.
-      }
+  const openTimePicker = () => {
+    setCalendarOpen(false);
+    setTimeSavePromptOpen(false);
+    setTimePickerBaseline(targetTime);
+    setTimePickerOpen(true);
+  };
+
+  const finishCloseTimePicker = () => {
+    setTimeSavePromptOpen(false);
+    setTimePickerOpen(false);
+    setTimePickerBaseline(null);
+  };
+
+  const requestCloseTimePicker = () => {
+    if (timePickerBaseline != null && targetTime !== timePickerBaseline) {
+      setTimeSavePromptOpen(true);
+      return;
     }
-    input.focus();
-    input.click();
+    finishCloseTimePicker();
+  };
+
+  const discardTimeChanges = () => {
+    if (timePickerBaseline != null) setTargetTime(timePickerBaseline);
+    finishCloseTimePicker();
+  };
+
+  const saveTimeChanges = () => {
+    finishCloseTimePicker();
+  };
+
+  const updateTargetTimeParts = (patch: Partial<typeof targetTimeParts>) => {
+    setTargetTime(buildTargetTime({ ...targetTimeParts, ...patch }));
+  };
+
+  const stepTargetHour = (direction: 1 | -1) => {
+    const nextHour = ((targetTimeParts.hour - 1 + direction + 12) % 12) + 1;
+    updateTargetTimeParts({ hour: nextHour });
+  };
+
+  const stepTargetMinute = (direction: 1 | -1) => {
+    const nextMinute = (targetTimeParts.minute + direction * 5 + 60) % 60;
+    updateTargetTimeParts({ minute: nextMinute });
+  };
+
+  const setTargetPeriod = (period: TargetTimePeriod) => {
+    updateTargetTimeParts({ period });
   };
 
   const scrollTaskIntoView = (taskId: string) => {
@@ -1164,45 +1204,62 @@ function App() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [focusedTaskId]);
 
+  useEffect(() => {
+    if (!timePickerOpen || timeSavePromptOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (twinelineHeaderRef.current?.contains(target)) return;
+      requestCloseTimePicker();
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [timePickerOpen, timeSavePromptOpen, targetTime, timePickerBaseline]);
+
   return (
     <div className="app">
       <main className="app-main" ref={mainRef}>
         {activeView === "dayline" && (
-          <header className={`twineline-countdown${calendarOpen ? " is-calendar-open" : ""}`} ref={twinelineHeaderRef}>
+          <header
+            className={`twineline-countdown${calendarOpen ? " is-calendar-open" : ""}${timePickerOpen ? " is-time-open" : ""}`}
+            ref={twinelineHeaderRef}
+          >
             <div className="twineline-countdown-bar">
-              <button
-                type="button"
-                className="twineline-date"
-                aria-label={calendarOpen ? "Close calendar" : "Open calendar"}
-                aria-expanded={calendarOpen}
-                onClick={() => (calendarOpen ? closeCalendar() : openCalendar())}
-              >
-                <span>{twinelineDateLabel}</span>
-                <span className="twineline-date-chevron" aria-hidden="true">
-                  {calendarOpen ? "∨" : ">"}
-                </span>
-              </button>
+              {!timePickerOpen && (
+                <button
+                  type="button"
+                  className="twineline-date"
+                  aria-label={calendarOpen ? "Close calendar" : "Open calendar"}
+                  aria-expanded={calendarOpen}
+                  onClick={() => (calendarOpen ? closeCalendar() : openCalendar())}
+                >
+                  <span>{twinelineDateLabel}</span>
+                  <span className="twineline-date-chevron" aria-hidden="true">
+                    {calendarOpen ? "∨" : ">"}
+                  </span>
+                </button>
+              )}
               {!calendarOpen && (
-                <>
-                  <button
-                    type="button"
-                    className="twineline-countdown-button"
-                    aria-label={`Countdown to ${targetTimeLabel}. Change target time.`}
-                    onClick={openTargetTimePicker}
-                  >
-                    <span className="twineline-countdown-remaining">{countdownRemaining}</span>
-                  </button>
-                  <input
-                    ref={targetTimeInputRef}
-                    type="time"
-                    className="twineline-countdown-input"
-                    value={targetTime}
-                    aria-label="Target time of day"
-                    onChange={(e) => {
-                      if (e.target.value) setTargetTime(e.target.value);
-                    }}
-                  />
-                </>
+                <button
+                  type="button"
+                  className={`twineline-countdown-button${timePickerOpen ? " is-open" : ""}`}
+                  aria-label={
+                    timePickerOpen
+                      ? `Close target time picker. Currently ${targetTimeLabel}.`
+                      : `Countdown to ${targetTimeLabel}. Change target time.`
+                  }
+                  aria-expanded={timePickerOpen}
+                  onClick={() => (timePickerOpen ? requestCloseTimePicker() : openTimePicker())}
+                >
+                  <span className="twineline-countdown-remaining">{countdownRemaining}</span>
+                  {timePickerOpen && (
+                    <span className="twineline-date-chevron" aria-hidden="true">
+                      ∨
+                    </span>
+                  )}
+                </button>
               )}
             </div>
             {calendarOpen ? (
@@ -1249,6 +1306,112 @@ function App() {
                     ),
                   )}
                 </div>
+              </div>
+            ) : timePickerOpen ? (
+              <div className="twineline-time-picker" aria-label="Choose target time">
+                <p className="twineline-time-picker-title">Countdown to {targetTimeLabel}</p>
+                <div className="app-duration-unit" role="group" aria-label="AM or PM">
+                  <button
+                    type="button"
+                    className={`app-duration-unit-button${targetTimeParts.period === "AM" ? " is-active" : ""}`}
+                    aria-pressed={targetTimeParts.period === "AM"}
+                    onClick={() => setTargetPeriod("AM")}
+                  >
+                    AM
+                  </button>
+                  <button
+                    type="button"
+                    className={`app-duration-unit-button${targetTimeParts.period === "PM" ? " is-active" : ""}`}
+                    aria-pressed={targetTimeParts.period === "PM"}
+                    onClick={() => setTargetPeriod("PM")}
+                  >
+                    PM
+                  </button>
+                </div>
+                <div className="twineline-time-steppers">
+                  <div className="app-duration-stepper" role="group" aria-label="Hour">
+                    <button
+                      type="button"
+                      className="app-duration-step"
+                      aria-label="Decrease hour"
+                      onClick={() => stepTargetHour(-1)}
+                    >
+                      −
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      className="app-duration-input"
+                      value={String(targetTimeParts.hour)}
+                      aria-label="Hour"
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (next === "" || /^\d{1,2}$/.test(next)) {
+                          const parsed = Number.parseInt(next || "0", 10);
+                          if (next === "") return;
+                          if (parsed >= 1 && parsed <= 12) updateTargetTimeParts({ hour: parsed });
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="app-duration-step"
+                      aria-label="Increase hour"
+                      onClick={() => stepTargetHour(1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="app-duration-stepper" role="group" aria-label="Minutes">
+                    <button
+                      type="button"
+                      className="app-duration-step"
+                      aria-label="Decrease minutes by 5"
+                      onClick={() => stepTargetMinute(-1)}
+                    >
+                      −
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      className="app-duration-input"
+                      value={String(targetTimeParts.minute).padStart(2, "0")}
+                      aria-label="Minutes"
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        if (next === "" || /^\d{1,2}$/.test(next)) {
+                          const parsed = Number.parseInt(next || "0", 10);
+                          if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 59) {
+                            updateTargetTimeParts({ minute: parsed });
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="app-duration-step"
+                      aria-label="Increase minutes by 5"
+                      onClick={() => stepTargetMinute(1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                {timeSavePromptOpen && (
+                  <div className="twineline-save-prompt" role="dialog" aria-label="Save Changes?">
+                    <p className="twineline-save-prompt-title">Save Changes?</p>
+                    <div className="twineline-save-prompt-actions">
+                      <button type="button" className="twineline-save-prompt-secondary" onClick={discardTimeChanges}>
+                        No Thanks
+                      </button>
+                      <button type="button" className="twineline-save-prompt-primary" onClick={saveTimeChanges}>
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <>
