@@ -24,16 +24,25 @@
   padding: 12px var(--space) calc(var(--tray-pill) + 48px + var(--safe-bottom));
 }
 
+.app-main:has(.twineline-countdown) {
+  padding-top: 0;
+}
+
 .app:has(.app-composer:not(.is-collapsed)) .app-main {
   padding-bottom: calc(184px + var(--safe-bottom));
 }
 
 .twineline-countdown {
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin: 4px 0 20px;
+  margin: 0 calc(var(--space) * -1) 20px;
+  padding: calc(12px + var(--safe-top)) var(--space) 12px;
+  background: var(--bg);
+  will-change: transform;
 }
 
 .twineline-weekdays {
@@ -156,9 +165,9 @@
   display: flex;
   align-items: stretch;
   width: 100%;
-  min-height: 44px;
-  padding: 4px;
-  border-radius: 14px;
+  min-height: 22px;
+  padding: 2px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--bg-raised) 80%, var(--border));
   overflow: hidden;
 }
@@ -166,11 +175,11 @@
 .twineline-schedule-track::before {
   content: "";
   position: absolute;
-  left: 10px;
-  right: 10px;
+  left: 8px;
+  right: 8px;
   top: 50%;
-  height: 2px;
-  margin-top: -1px;
+  height: 1px;
+  margin-top: -0.5px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--text-h) 22%, var(--border));
   pointer-events: none;
@@ -191,10 +200,28 @@
   flex-basis: 0;
   flex-shrink: 1;
   min-width: 0;
-  margin: 0 1px;
-  border-radius: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
   background: color-mix(in srgb, var(--text-h) 14%, var(--bg-raised));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-h) 10%, transparent);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.twineline-schedule-block:hover,
+.twineline-schedule-block.is-highlighted,
+.twineline-schedule-block:focus-visible {
+  background: color-mix(in srgb, var(--accent) 42%, var(--bg-raised));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.twineline-schedule-block:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .task-list-empty {
@@ -225,6 +252,11 @@
 .task-row.is-editing {
   border-color: var(--accent-border);
   background: var(--accent-bg);
+}
+
+.task-row.is-highlighted {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
 }
 
 .task-complete {
@@ -288,6 +320,7 @@
   gap: 10px;
   padding: 28px var(--space) calc(12px + var(--safe-bottom));
   background: transparent;
+  will-change: transform;
 }
 
 .app-composer::before {

@@ -617,10 +617,16 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [tasks, setTasks] = useState<ComposerDraft[]>(() => loadTasks());
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
+  const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [targetTime, setTargetTime] = useState(() => loadTargetTime());
   const [selectedWeekday, setSelectedWeekday] = useState(() => new Date().getDay());
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const composerRef = useRef<HTMLFormElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const twinelineHeaderRef = useRef<HTMLElement>(null);
+  const lastScrollTopRef = useRef(0);
+  const chromeOffsetRef = useRef(0);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const searchFieldRef = useRef<HTMLDivElement>(null);
@@ -657,6 +663,7 @@ function App() {
   const selectedDate = dateForWeekday(selectedWeekday, new Date(countdownNow));
   const twinelineDateLabel = formatTwinelineDateLabel(selectedDate, new Date(countdownNow));
   const scheduleSegments = buildScheduleSegments(tasks, countdownMs);
+  const highlightedTaskId = hoveredTaskId ?? focusedTaskId;
 
   const openTargetTimePicker = () => {
     const input = targetTimeInputRef.current;
@@ -712,6 +719,8 @@ function App() {
       resetComposerFields();
       setCollapsed(true);
     }
+    if (focusedTaskId === id) setFocusedTaskId(null);
+    if (hoveredTaskId === id) setHoveredTaskId(null);
   };
 
   const editTask = (task: ComposerDraft) => {
@@ -830,6 +839,68 @@ function App() {
     const id = window.setInterval(() => setCountdownNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [activeView]);
+
+  const applyChromeOffset = (offset: number) => {
+    const next = Math.max(0, offset);
+    chromeOffsetRef.current = next;
+
+    const header = twinelineHeaderRef.current;
+    if (header) {
+      header.style.transform = next > 0 ? `translateY(${-next}px)` : "";
+      header.style.pointerEvents = next >= header.offsetHeight - 1 ? "none" : "";
+    }
+
+    const composer = composerRef.current;
+    if (composer) {
+      if (collapsed && !searchOpen) {
+        composer.style.transform = next > 0 ? `translateY(${next}px)` : "";
+        composer.style.pointerEvents = next >= composer.offsetHeight - 1 ? "none" : "";
+      } else {
+        composer.style.transform = "";
+        composer.style.pointerEvents = "";
+      }
+    }
+  };
+
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+
+    lastScrollTopRef.current = main.scrollTop;
+
+    const onScroll = () => {
+      if (!collapsed || searchOpen || moreMenuOpen) {
+        lastScrollTopRef.current = main.scrollTop;
+        applyChromeOffset(0);
+        return;
+      }
+
+      const top = main.scrollTop;
+      const delta = top - lastScrollTopRef.current;
+      lastScrollTopRef.current = top;
+
+      if (top <= 0) {
+        applyChromeOffset(0);
+        return;
+      }
+
+      if (delta === 0) return;
+
+      const headerHeight = twinelineHeaderRef.current?.offsetHeight ?? 0;
+      const composerHeight = composerRef.current?.offsetHeight ?? 0;
+      const maxOffset = Math.max(headerHeight, composerHeight, 1);
+      applyChromeOffset(Math.min(maxOffset, chromeOffsetRef.current + delta));
+    };
+
+    main.addEventListener("scroll", onScroll, { passive: true });
+    return () => main.removeEventListener("scroll", onScroll);
+  }, [collapsed, searchOpen, moreMenuOpen]);
+
+  useEffect(() => {
+    if (!collapsed || searchOpen || moreMenuOpen) {
+      applyChromeOffset(0);
+    }
+  }, [collapsed, searchOpen, moreMenuOpen]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -1024,11 +1095,28 @@ function App() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [moreMenuOpen]);
 
+  useEffect(() => {
+    if (!focusedTaskId) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        setFocusedTaskId(null);
+        return;
+      }
+      if (target.closest("[data-schedule-task-id]")) return;
+      setFocusedTaskId(null);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [focusedTaskId]);
+
   return (
     <div className="app">
-      <main className="app-main">
+      <main className="app-main" ref={mainRef}>
         {activeView === "dayline" && (
-          <header className="twineline-countdown">
+          <header className="twineline-countdown" ref={twinelineHeaderRef}>
             <div className="twineline-weekdays" role="tablist" aria-label="Day of week">
               {WEEKDAY_BUTTONS.map(({ id, label, name }) => (
                 <button
@@ -1070,7 +1158,10 @@ function App() {
               className="twineline-schedule"
               aria-label={`Timeline until ${targetTimeLabel}`}
             >
-              <div className="twineline-schedule-track">
+              <div
+                className="twineline-schedule-track"
+                onMouseLeave={() => setHoveredTaskId(null)}
+              >
                 {scheduleSegments.map((segment, index) =>
                   segment.type === "gap" ? (
                     <div
@@ -1080,12 +1171,26 @@ function App() {
                       aria-hidden="true"
                     />
                   ) : (
-                    <div
+                    <button
                       key={segment.task.id ?? `task-${index}`}
-                      className="twineline-schedule-block"
+                      type="button"
+                      data-schedule-task-id={segment.task.id ?? undefined}
+                      className={`twineline-schedule-block${highlightedTaskId === segment.task.id ? " is-highlighted" : ""}`}
                       style={{ flexGrow: Math.max(segment.minutes, 0.01) }}
                       title={`${segment.task.title} · ${segment.minutes}m`}
                       aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
+                      aria-pressed={focusedTaskId === segment.task.id}
+                      onMouseEnter={() => {
+                        if (segment.task.id) setHoveredTaskId(segment.task.id);
+                      }}
+                      onFocus={() => {
+                        if (segment.task.id) setHoveredTaskId(segment.task.id);
+                      }}
+                      onBlur={() => setHoveredTaskId(null)}
+                      onClick={() => {
+                        if (!segment.task.id) return;
+                        setFocusedTaskId(segment.task.id);
+                      }}
                     />
                   ),
                 )}
@@ -1113,7 +1218,7 @@ function App() {
               return (
                 <li
                   key={task.id ?? task.title}
-                  className={`task-row${editingTaskId === task.id ? " is-editing" : ""}`}
+                  className={`task-row${editingTaskId === task.id ? " is-editing" : ""}${highlightedTaskId === task.id ? " is-highlighted" : ""}`}
                 >
                   <button
                     type="button"
