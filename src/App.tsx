@@ -2,7 +2,19 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type R
 import { createPortal } from "react-dom";
 import "./App.css";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
-import { loadTasks, saveTasks } from "./taskStorage";
+import {
+  dateForWeekday,
+  formatCountdown,
+  formatTargetTimeLabel,
+  formatTwinelineDateLabel,
+  loadTargetTime,
+  loadTasks,
+  msUntilTargetTime,
+  saveTargetTime,
+  saveTasks,
+  WEEKDAY_BUTTONS,
+} from "./taskStorage";
+import { buildScheduleSegments } from "./schedule";
 
 function CloseIcon() {
   return (
@@ -604,6 +616,10 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [tasks, setTasks] = useState<ComposerDraft[]>(() => loadTasks());
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [targetTime, setTargetTime] = useState(() => loadTargetTime());
+  const [selectedWeekday, setSelectedWeekday] = useState(() => new Date().getDay());
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const composerRef = useRef<HTMLFormElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -621,6 +637,7 @@ function App() {
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const composeInputRef = useRef<HTMLInputElement>(null);
+  const targetTimeInputRef = useRef<HTMLInputElement>(null);
   const hasText = content.trim().length > 0;
   const selectedComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
@@ -634,10 +651,43 @@ function App() {
   const visibleTabIds = new Set<ActiveView>(["dayline", ...TRAY_TABS.map((tab) => tab.id)]);
   const moreButtonActive =
     moreMenuOpen || (activeView !== "dayline" && !visibleTabIds.has(activeView));
+  const countdownMs = msUntilTargetTime(targetTime, new Date(countdownNow));
+  const countdownRemaining = formatCountdown(countdownMs);
+  const targetTimeLabel = formatTargetTimeLabel(targetTime);
+  const selectedDate = dateForWeekday(selectedWeekday, new Date(countdownNow));
+  const twinelineDateLabel = formatTwinelineDateLabel(selectedDate, new Date(countdownNow));
+  const scheduleSegments = buildScheduleSegments(tasks, countdownMs);
+
+  const openTargetTimePicker = () => {
+    const input = targetTimeInputRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+        return;
+      } catch {
+        // Fall through to focus/click for browsers that block showPicker.
+      }
+    }
+    input.focus();
+    input.click();
+  };
 
   const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
     task: (draft) => {
-      setTasks((current) => [draft, ...current]);
+      setTasks((current) => {
+        if (!editingTaskId) return [draft, ...current];
+        return current.map((task) =>
+          task.id === editingTaskId
+            ? {
+                ...task,
+                title: draft.title,
+                type: draft.type,
+                est_duration: draft.est_duration,
+              }
+            : task,
+        );
+      });
     },
     project: (_draft) => {},
     note: (_draft) => {},
@@ -645,9 +695,42 @@ function App() {
     assistant: (_draft) => {},
   };
 
+  const resetComposerFields = () => {
+    setContent("");
+    setEstDurationMinutes(15);
+    setDurationInput("15");
+    setDurationUnit("minutes");
+    setDurationMenuOpen(false);
+    setDurationActivated(false);
+    setEditingTaskId(null);
+  };
+
   const completeTask = (id: string | null) => {
     if (!id) return;
     setTasks((current) => current.filter((task) => task.id !== id));
+    if (editingTaskId === id) {
+      resetComposerFields();
+      setCollapsed(true);
+    }
+  };
+
+  const editTask = (task: ComposerDraft) => {
+    if (!task.id) return;
+    const minutes = task.est_duration ?? 15;
+    setEditingTaskId(task.id);
+    setComposeKind("task");
+    setContent(task.title);
+    setEstDurationMinutes(minutes);
+    setDurationUnit("minutes");
+    setDurationInput(String(Math.round(minutes)));
+    setDurationActivated(task.est_duration != null && task.est_duration > 0);
+    setDurationMenuOpen(false);
+    setAttachMenuOpen(false);
+    setComposeKindMenuOpen(false);
+    setMoreMenuOpen(false);
+    setSearchOpen(false);
+    setSearchQuery("");
+    setCollapsed(false);
   };
 
   const selectView = (id: ActiveView) => {
@@ -676,6 +759,9 @@ function App() {
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setDurationMenuOpen(false);
+    if (editingTaskId) {
+      resetComposerFields();
+    }
   };
 
   const syncDurationInput = (minutes: number | null, unit: "minutes" | "hours" = durationUnit) => {
@@ -714,7 +800,11 @@ function App() {
   };
 
   const openComposer = () => {
-    if (!content.trim()) {
+    const wasEditing = editingTaskId != null;
+    if (wasEditing) {
+      resetComposerFields();
+    }
+    if (wasEditing || !content.trim()) {
       setComposeKind(COMPOSE_KIND_BY_VIEW[activeView]);
     }
     setMoreMenuOpen(false);
@@ -730,6 +820,16 @@ function App() {
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
+
+  useEffect(() => {
+    saveTargetTime(targetTime);
+  }, [targetTime]);
+
+  useEffect(() => {
+    if (activeView !== "dayline") return;
+    const id = window.setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [activeView]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -821,6 +921,12 @@ function App() {
   useEffect(() => {
     if (collapsed) return;
 
+    const suppressGesture = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
@@ -829,8 +935,19 @@ function App() {
       if (composeKindMenuRef.current?.contains(target)) return;
       if (durationMenuRef.current?.contains(target)) return;
 
-      event.preventDefault();
-      event.stopPropagation();
+      suppressGesture(event);
+
+      let timeoutId = 0;
+      const onClick = (clickEvent: MouseEvent) => {
+        suppressGesture(clickEvent);
+        cleanup();
+      };
+      const cleanup = () => {
+        document.removeEventListener("click", onClick, true);
+        window.clearTimeout(timeoutId);
+      };
+      document.addEventListener("click", onClick, true);
+      timeoutId = window.setTimeout(cleanup, 500);
 
       if (attachMenuOpen || composeKindMenuOpen || durationMenuOpen) {
         setAttachMenuOpen(false);
@@ -844,7 +961,7 @@ function App() {
 
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [collapsed, attachMenuOpen, composeKindMenuOpen, durationMenuOpen]);
+  }, [collapsed, attachMenuOpen, composeKindMenuOpen, durationMenuOpen, editingTaskId]);
 
   useEffect(() => {
     if (!attachMenuOpen) return;
@@ -910,6 +1027,72 @@ function App() {
   return (
     <div className="app">
       <main className="app-main">
+        {activeView === "dayline" && (
+          <header className="twineline-countdown">
+            <div className="twineline-weekdays" role="tablist" aria-label="Day of week">
+              {WEEKDAY_BUTTONS.map(({ id, label, name }) => (
+                <button
+                  key={`${id}-${name}`}
+                  type="button"
+                  role="tab"
+                  className={`twineline-weekday${selectedWeekday === id ? " is-selected" : ""}`}
+                  aria-selected={selectedWeekday === id}
+                  aria-label={name}
+                  onClick={() => setSelectedWeekday(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="twineline-countdown-bar">
+              <p className="twineline-date">{twinelineDateLabel}</p>
+              <button
+                type="button"
+                className="twineline-countdown-button"
+                aria-label={`Countdown to ${targetTimeLabel}. Change target time.`}
+                onClick={openTargetTimePicker}
+              >
+                <span className="twineline-countdown-remaining">{countdownRemaining}</span>
+                <span className="twineline-countdown-target">{targetTimeLabel}</span>
+              </button>
+              <input
+                ref={targetTimeInputRef}
+                type="time"
+                className="twineline-countdown-input"
+                value={targetTime}
+                aria-label="Target time of day"
+                onChange={(e) => {
+                  if (e.target.value) setTargetTime(e.target.value);
+                }}
+              />
+            </div>
+            <div
+              className="twineline-schedule"
+              aria-label={`Timeline until ${targetTimeLabel}`}
+            >
+              <div className="twineline-schedule-track">
+                {scheduleSegments.map((segment, index) =>
+                  segment.type === "gap" ? (
+                    <div
+                      key={`gap-${index}`}
+                      className="twineline-schedule-gap"
+                      style={{ flexGrow: segment.minutes }}
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <div
+                      key={segment.task.id ?? `task-${index}`}
+                      className="twineline-schedule-block"
+                      style={{ flexGrow: Math.max(segment.minutes, 0.01) }}
+                      title={`${segment.task.title} · ${segment.minutes}m`}
+                      aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
+                    />
+                  ),
+                )}
+              </div>
+            </div>
+          </header>
+        )}
         {tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : (
@@ -928,14 +1111,22 @@ function App() {
               if (task.status) meta.push({ key: "status", value: task.status });
 
               return (
-                <li key={task.id ?? task.title} className="task-row">
+                <li
+                  key={task.id ?? task.title}
+                  className={`task-row${editingTaskId === task.id ? " is-editing" : ""}`}
+                >
                   <button
                     type="button"
                     className="task-complete"
                     aria-label="Mark complete"
                     onClick={() => completeTask(task.id)}
                   />
-                  <div className="task-row-body">
+                  <button
+                    type="button"
+                    className="task-row-body"
+                    onClick={() => editTask(task)}
+                    aria-label={`Edit task ${task.title}`}
+                  >
                     <p className="task-row-title">{task.title}</p>
                     {meta.length > 0 && (
                       <div className="task-row-meta">
@@ -944,7 +1135,7 @@ function App() {
                         ))}
                       </div>
                     )}
-                  </div>
+                  </button>
                 </li>
               );
             })}
@@ -964,13 +1155,10 @@ function App() {
             est_duration: estDurationMinutes,
           });
           if (!draft) return;
+          const wasEditing = editingTaskId != null;
           submitComposerDraft[composeKind](draft);
-          setContent("");
-          setEstDurationMinutes(15);
-          setDurationInput("15");
-          setDurationUnit("minutes");
-          setDurationMenuOpen(false);
-          setDurationActivated(false);
+          resetComposerFields();
+          if (wasEditing) setCollapsed(true);
         }}
       >
         <div className="app-tray" ref={trayRef}>
