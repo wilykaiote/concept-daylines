@@ -109,12 +109,54 @@ function startOfDay(date: Date): Date {
   return next;
 }
 
+export function toStartOfDay(date: Date): Date {
+  return startOfDay(date);
+}
+
+export function sameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 export function dateForWeekday(weekday: number, now = new Date()): Date {
   const today = startOfDay(now);
-  const delta = weekday - today.getDay();
+  const delta = (weekday - today.getDay() + 7) % 7;
   const next = new Date(today);
   next.setDate(today.getDate() + delta);
   return next;
+}
+
+export function weekdaysFromToday(now = new Date()) {
+  const start = now.getDay();
+  return [...WEEKDAY_BUTTONS.slice(start), ...WEEKDAY_BUTTONS.slice(0, start)];
+}
+
+export function formatMonthYearLabel(date: Date): string {
+  return `${MONTH_LABELS[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+export function shiftMonth(date: Date, delta: number): Date {
+  const next = startOfDay(date);
+  next.setDate(1);
+  next.setMonth(next.getMonth() + delta);
+  return next;
+}
+
+export function buildMonthCalendarDays(month: Date): (Date | null)[] {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const startPad = first.getDay();
+  const cells: (Date | null)[] = [];
+  for (let i = 0; i < startPad; i += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push(new Date(month.getFullYear(), month.getMonth(), day));
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  while (cells.length < 42) cells.push(null);
+  return cells;
 }
 
 export function formatTwinelineDateLabel(date: Date, now = new Date()): string {

@@ -3,15 +3,21 @@ import { createPortal } from "react-dom";
 import "./App.css";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
+  buildMonthCalendarDays,
   dateForWeekday,
   formatCountdown,
+  formatMonthYearLabel,
   formatTargetTimeLabel,
   formatTwinelineDateLabel,
   loadTargetTime,
   loadTasks,
   msUntilTargetTime,
+  sameCalendarDay,
   saveTargetTime,
   saveTasks,
+  shiftMonth,
+  toStartOfDay,
+  weekdaysFromToday,
   WEEKDAY_BUTTONS,
 } from "./taskStorage";
 import { buildScheduleSegments } from "./schedule";
@@ -620,7 +626,9 @@ function App() {
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [targetTime, setTargetTime] = useState(() => loadTargetTime());
-  const [selectedWeekday, setSelectedWeekday] = useState(() => new Date().getDay());
+  const [selectedDay, setSelectedDay] = useState(() => toStartOfDay(new Date()));
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => toStartOfDay(new Date()));
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const composerRef = useRef<HTMLFormElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -661,10 +669,24 @@ function App() {
   const countdownMs = msUntilTargetTime(targetTime, new Date(countdownNow));
   const countdownRemaining = formatCountdown(countdownMs);
   const targetTimeLabel = formatTargetTimeLabel(targetTime);
-  const selectedDate = dateForWeekday(selectedWeekday, new Date(countdownNow));
-  const twinelineDateLabel = formatTwinelineDateLabel(selectedDate, new Date(countdownNow));
+  const twinelineDateLabel = formatTwinelineDateLabel(selectedDay, new Date(countdownNow));
+  const orderedWeekdays = weekdaysFromToday(new Date(countdownNow));
+  const calendarDays = buildMonthCalendarDays(calendarMonth);
+  const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const scheduleSegments = buildScheduleSegments(tasks, countdownMs);
   const highlightedTaskId = hoveredTaskId ?? focusedTaskId;
+
+  const openCalendar = () => {
+    setCalendarMonth(new Date(selectedDay.getFullYear(), selectedDay.getMonth(), 1));
+    setCalendarOpen(true);
+  };
+
+  const closeCalendar = () => setCalendarOpen(false);
+
+  const selectCalendarDay = (day: Date) => {
+    setSelectedDay(toStartOfDay(day));
+    setCalendarOpen(false);
+  };
 
   const openTargetTimePicker = () => {
     const input = targetTimeInputRef.current;
@@ -1146,87 +1168,154 @@ function App() {
     <div className="app">
       <main className="app-main" ref={mainRef}>
         {activeView === "dayline" && (
-          <header className="twineline-countdown" ref={twinelineHeaderRef}>
-            <div className="twineline-weekdays" role="tablist" aria-label="Day of week">
-              {WEEKDAY_BUTTONS.map(({ id, label, name }) => (
-                <button
-                  key={`${id}-${name}`}
-                  type="button"
-                  role="tab"
-                  className={`twineline-weekday${selectedWeekday === id ? " is-selected" : ""}`}
-                  aria-selected={selectedWeekday === id}
-                  aria-label={name}
-                  onClick={() => setSelectedWeekday(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          <header className={`twineline-countdown${calendarOpen ? " is-calendar-open" : ""}`} ref={twinelineHeaderRef}>
             <div className="twineline-countdown-bar">
-              <p className="twineline-date">{twinelineDateLabel}</p>
               <button
                 type="button"
-                className="twineline-countdown-button"
-                aria-label={`Countdown to ${targetTimeLabel}. Change target time.`}
-                onClick={openTargetTimePicker}
+                className="twineline-date"
+                aria-label={calendarOpen ? "Close calendar" : "Open calendar"}
+                aria-expanded={calendarOpen}
+                onClick={() => (calendarOpen ? closeCalendar() : openCalendar())}
               >
-                <span className="twineline-countdown-remaining">{countdownRemaining}</span>
-                <span className="twineline-countdown-target">{targetTimeLabel}</span>
+                <span>{twinelineDateLabel}</span>
+                <span className="twineline-date-chevron" aria-hidden="true">
+                  {calendarOpen ? "∨" : ">"}
+                </span>
               </button>
-              <input
-                ref={targetTimeInputRef}
-                type="time"
-                className="twineline-countdown-input"
-                value={targetTime}
-                aria-label="Target time of day"
-                onChange={(e) => {
-                  if (e.target.value) setTargetTime(e.target.value);
-                }}
-              />
+              {!calendarOpen && (
+                <>
+                  <button
+                    type="button"
+                    className="twineline-countdown-button"
+                    aria-label={`Countdown to ${targetTimeLabel}. Change target time.`}
+                    onClick={openTargetTimePicker}
+                  >
+                    <span className="twineline-countdown-remaining">{countdownRemaining}</span>
+                  </button>
+                  <input
+                    ref={targetTimeInputRef}
+                    type="time"
+                    className="twineline-countdown-input"
+                    value={targetTime}
+                    aria-label="Target time of day"
+                    onChange={(e) => {
+                      if (e.target.value) setTargetTime(e.target.value);
+                    }}
+                  />
+                </>
+              )}
             </div>
-            <div
-              className="twineline-schedule"
-              aria-label={`Timeline until ${targetTimeLabel}`}
-            >
-              <div
-                className="twineline-schedule-track"
-                onMouseLeave={() => setHoveredTaskId(null)}
-              >
-                {scheduleSegments.map((segment, index) =>
-                  segment.type === "gap" ? (
-                    <div
-                      key={`gap-${index}`}
-                      className="twineline-schedule-gap"
-                      style={{ flexGrow: segment.minutes }}
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <button
-                      key={segment.task.id ?? `task-${index}`}
-                      type="button"
-                      data-schedule-task-id={segment.task.id ?? undefined}
-                      className={`twineline-schedule-block${highlightedTaskId === segment.task.id ? " is-highlighted" : ""}`}
-                      style={{ flexGrow: Math.max(segment.minutes, 0.01) }}
-                      title={`${segment.task.title} · ${segment.minutes}m`}
-                      aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
-                      aria-pressed={focusedTaskId === segment.task.id}
-                      onMouseEnter={() => {
-                        if (segment.task.id) setHoveredTaskId(segment.task.id);
-                      }}
-                      onFocus={() => {
-                        if (segment.task.id) setHoveredTaskId(segment.task.id);
-                      }}
-                      onBlur={() => setHoveredTaskId(null)}
-                      onClick={() => {
-                        if (!segment.task.id) return;
-                        setFocusedTaskId(segment.task.id);
-                        scrollTaskIntoView(segment.task.id);
-                      }}
-                    />
-                  ),
-                )}
+            {calendarOpen ? (
+              <div className="twineline-calendar" aria-label="Choose a day">
+                <div className="twineline-calendar-header">
+                  <button
+                    type="button"
+                    className="twineline-calendar-nav"
+                    aria-label="Previous month"
+                    onClick={() => setCalendarMonth((month) => shiftMonth(month, -1))}
+                  >
+                    ‹
+                  </button>
+                  <p className="twineline-calendar-month">{calendarMonthLabel}</p>
+                  <button
+                    type="button"
+                    className="twineline-calendar-nav"
+                    aria-label="Next month"
+                    onClick={() => setCalendarMonth((month) => shiftMonth(month, 1))}
+                  >
+                    ›
+                  </button>
+                </div>
+                <div className="twineline-calendar-weekdays" aria-hidden="true">
+                  {WEEKDAY_BUTTONS.map(({ id, label, name }) => (
+                    <span key={`${id}-${name}`}>{label}</span>
+                  ))}
+                </div>
+                <div className="twineline-calendar-grid">
+                  {calendarDays.map((day, index) =>
+                    day ? (
+                      <button
+                        key={`${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`}
+                        type="button"
+                        className={`twineline-calendar-day${sameCalendarDay(day, selectedDay) ? " is-selected" : ""}${sameCalendarDay(day, new Date(countdownNow)) ? " is-today" : ""}`}
+                        aria-label={day.toDateString()}
+                        aria-pressed={sameCalendarDay(day, selectedDay)}
+                        onClick={() => selectCalendarDay(day)}
+                      >
+                        {day.getDate()}
+                      </button>
+                    ) : (
+                      <span key={`empty-${index}`} className="twineline-calendar-day is-empty" />
+                    ),
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <>
+                <div
+                  className="twineline-schedule"
+                  aria-label={`Timeline until ${targetTimeLabel}`}
+                >
+                  <div
+                    className="twineline-schedule-track"
+                    onMouseLeave={() => setHoveredTaskId(null)}
+                  >
+                    {scheduleSegments.map((segment, index) =>
+                      segment.type === "gap" ? (
+                        <div
+                          key={`gap-${index}`}
+                          className="twineline-schedule-gap"
+                          style={{ flexGrow: segment.minutes }}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <button
+                          key={segment.task.id ?? `task-${index}`}
+                          type="button"
+                          data-schedule-task-id={segment.task.id ?? undefined}
+                          className={`twineline-schedule-block${highlightedTaskId === segment.task.id ? " is-highlighted" : ""}`}
+                          style={{ flexGrow: Math.max(segment.minutes, 0.01) }}
+                          title={`${segment.task.title} · ${segment.minutes}m`}
+                          aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
+                          aria-pressed={focusedTaskId === segment.task.id}
+                          onMouseEnter={() => {
+                            if (segment.task.id) setHoveredTaskId(segment.task.id);
+                          }}
+                          onFocus={() => {
+                            if (segment.task.id) setHoveredTaskId(segment.task.id);
+                          }}
+                          onBlur={() => setHoveredTaskId(null)}
+                          onClick={() => {
+                            if (!segment.task.id) return;
+                            setFocusedTaskId(segment.task.id);
+                            scrollTaskIntoView(segment.task.id);
+                          }}
+                        />
+                      ),
+                    )}
+                  </div>
+                </div>
+                <div className="twineline-weekdays" role="tablist" aria-label="Day of week">
+                  {orderedWeekdays.map(({ id, label, name }) => {
+                    const dayDate = dateForWeekday(id, new Date(countdownNow));
+                    return (
+                      <button
+                        key={`${id}-${name}`}
+                        type="button"
+                        role="tab"
+                        className={`twineline-weekday${sameCalendarDay(dayDate, selectedDay) ? " is-selected" : ""}`}
+                        aria-selected={sameCalendarDay(dayDate, selectedDay)}
+                        aria-label={`${name} ${dayDate.getDate()}`}
+                        onClick={() => setSelectedDay(toStartOfDay(dayDate))}
+                      >
+                        <span className="twineline-weekday-letter">{label}</span>
+                        <span className="twineline-weekday-date">{dayDate.getDate()}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </header>
         )}
         {tasks.length === 0 ? (
