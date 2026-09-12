@@ -2,6 +2,7 @@ import type { ComposerDraft } from "./composer";
 
 const TASKS_STORAGE_KEY = "twineline.tasks";
 const TARGET_TIME_STORAGE_KEY = "twineline.targetTime";
+const TARGET_TIME_OVERRIDES_STORAGE_KEY = "twineline.targetTimeOverrides";
 const DEFAULT_TARGET_TIME = "17:00";
 
 function isComposerDraft(value: unknown): value is ComposerDraft {
@@ -51,6 +52,47 @@ export function saveTargetTime(time: string): void {
   } catch {
     // Ignore quota / private-mode write failures.
   }
+}
+
+export function loadTargetTimeOverrides(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(TARGET_TIME_OVERRIDES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const overrides: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "string" && isTargetTime(value)) overrides[key] = value;
+    }
+    return overrides;
+  } catch {
+    return {};
+  }
+}
+
+export function saveTargetTimeOverrides(overrides: Record<string, string>): void {
+  try {
+    localStorage.setItem(TARGET_TIME_OVERRIDES_STORAGE_KEY, JSON.stringify(overrides));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+/** YYYY-MM-DD key for per-day target time overrides. */
+export function targetTimeDayKey(date: Date): string {
+  const d = startOfDay(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+export function resolveTargetTime(
+  day: Date,
+  defaultTime: string,
+  overrides: Record<string, string>,
+): string {
+  return overrides[targetTimeDayKey(day)] ?? defaultTime;
 }
 
 export function msUntilTargetTime(hhmm: string, now = new Date()): number {

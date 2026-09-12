@@ -11,19 +11,36 @@ import {
   formatTargetTimeLabel,
   formatTwinelineDateLabel,
   loadTargetTime,
+  loadTargetTimeOverrides,
   loadTasks,
   msUntilTargetTime,
   parseTargetTimeParts,
+  resolveTargetTime,
   sameCalendarDay,
   saveTargetTime,
+  saveTargetTimeOverrides,
   saveTasks,
   shiftMonth,
+  targetTimeDayKey,
   toStartOfDay,
   weekdaysFromToday,
   WEEKDAY_BUTTONS,
   type TargetTimePeriod,
 } from "./taskStorage";
 import { buildScheduleLayout } from "./schedule";
+import {
+  addDays,
+  buildDayRange,
+  dayKey,
+  formatHourLabel,
+  formatMinutesLabel,
+  layoutCalendarTasks,
+  minutesFromMidnight,
+  MINUTES_PER_DAY,
+  PACK_START_MINUTES,
+  packWindowEndMinutes,
+  PX_PER_MINUTE,
+} from "./calendarTimeline";
 
 function CloseIcon() {
   return (
@@ -432,6 +449,21 @@ function TaskViewCollapseIcon() {
   );
 }
 
+function ScrollTopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 5v14M6 11l6-6 6 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function IntelligenceIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -651,7 +683,11 @@ function App() {
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
-  const [targetTime, setTargetTime] = useState(() => loadTargetTime());
+  const [defaultTargetTime, setDefaultTargetTime] = useState(() => loadTargetTime());
+  const [targetTimeOverrides, setTargetTimeOverrides] = useState(() => loadTargetTimeOverrides());
+  const [targetTime, setTargetTime] = useState(() =>
+    resolveTargetTime(toStartOfDay(new Date()), loadTargetTime(), loadTargetTimeOverrides()),
+  );
   const [selectedDay, setSelectedDay] = useState(() => toStartOfDay(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
@@ -670,6 +706,12 @@ function App() {
   const chromeLockRef = useRef(false);
   const chromeCooldownUntilRef = useRef(0);
   const [tasksCompact, setTasksCompact] = useState(true);
+  const [timelineRangeStart, setTimelineRangeStart] = useState(() => toStartOfDay(new Date()));
+  const [timelineDayCount, setTimelineDayCount] = useState(31);
+  const [showTimelineScrollTop, setShowTimelineScrollTop] = useState(false);
+  const timelineScrollSyncLockRef = useRef(false);
+  const timelineScrollTopBtnVisibleRef = useRef(false);
+  const pendingTimelineScrollDayRef = useRef<Date | null>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const searchFieldRef = useRef<HTMLDivElement>(null);
@@ -701,9 +743,15 @@ function App() {
   const moreButtonActive =
     moreMenuOpen ||
     (activeView !== "dayline" && activeView !== "settings" && !visibleTabIds.has(activeView));
-  const countdownMs = msUntilTargetTime(targetTime, new Date(countdownNow));
+  const todayStart = toStartOfDay(new Date(countdownNow));
+  const getTargetTimeForDay = (day: Date) => {
+    if (timePickerOpen && sameCalendarDay(day, selectedDay)) return targetTime;
+    return resolveTargetTime(day, defaultTargetTime, targetTimeOverrides);
+  };
+  const todayTargetTime = getTargetTimeForDay(todayStart);
+  const countdownMs = msUntilTargetTime(todayTargetTime, new Date(countdownNow));
   const countdownRemaining = formatCountdown(countdownMs);
-  const targetTimeLabel = formatTargetTimeLabel(targetTime);
+  const targetTimeLabel = formatTargetTimeLabel(timePickerOpen ? targetTime : todayTargetTime);
   const targetTimeParts = parseTargetTimeParts(targetTime);
   const twinelineDateLabel = formatTwinelineDateLabel(selectedDay, new Date(countdownNow));
   const orderedWeekdays = weekdaysFromToday(new Date(countdownNow));
@@ -716,6 +764,97 @@ function App() {
   const highlightedTaskId = hoveredTaskId ?? focusedTaskId;
   const overflowHighlighted =
     highlightedTaskId != null && overflowTasks.some((task) => task.id === highlightedTaskId);
+  const calendarTaskLayout = layoutCalendarTasks(tasks, new Date(countdownNow), getTargetTimeForDay);
+  const calendarLayoutSpanKey =
+    calendarTaskLayout.length > 0
+      ? `${calendarTaskLayout[0].dayKey}:${calendarTaskLayout[calendarTaskLayout.length - 1].dayKey}`
+      : "";
+  const calendarLayoutByKey = new Map(calendarTaskLayout.map((day) => [day.dayKey, day]));
+  const nowDate = new Date(countdownNow);
+  const timelineDays = buildDayRange(timelineRangeStart, timelineDayCount)
+    .filter((date) => date.getTime() >= todayStart.getTime())
+    .map((date) => {
+      const key = dayKey(date);
+      const existing = calendarLayoutByKey.get(key);
+      if (existing) return existing;
+      const isToday = sameCalendarDay(date, todayStart);
+      const visibleStartMin = isToday ? minutesFromMidnight(nowDate) : 0;
+      const packEnd = packWindowEndMinutes(getTargetTimeForDay(date));
+      const markerStart = PACK_START_MINUTES;
+      const windowOpen = markerStart < packEnd;
+      const toTop = (absMin: number) => {
+        if (absMin < visibleStartMin || absMin > MINUTES_PER_DAY) return null;
+        return (absMin - visibleStartMin) * PX_PER_MINUTE;
+      };
+      const hourMarkers = [];
+      for (let hour = Math.ceil(visibleStartMin / 60); hour < 24; hour += 1) {
+        const absTop = hour * 60;
+        if (absTop < visibleStartMin) continue;
+        hourMarkers.push({
+          hour,
+          label: formatHourLabel(hour),
+          topPx: (absTop - visibleStartMin) * PX_PER_MINUTE,
+        });
+      }
+      return {
+        date,
+        dayKey: key,
+        visibleStartMin,
+        visibleMinutes: Math.max(1, MINUTES_PER_DAY - visibleStartMin),
+        packStartMin: markerStart,
+        packEndMin: packEnd,
+        packStartLabel: formatMinutesLabel(markerStart),
+        packEndLabel: formatMinutesLabel(packEnd),
+        packStartTopPx: windowOpen ? toTop(markerStart) : null,
+        packEndTopPx: windowOpen ? toTop(packEnd) : null,
+        packBandTopPx: null,
+        packBandHeightPx: null,
+        blocks: [],
+        hourMarkers,
+      };
+    });
+
+  const scrollTimelineToDay = (day: Date) => {
+    const main = mainRef.current;
+    if (!main || tasksCompact) return;
+    const today = toStartOfDay(new Date(countdownNow));
+    const target = toStartOfDay(day);
+    // Never scroll into the past — clamp to today.
+    const clamped = target.getTime() < today.getTime() ? today : target;
+    const key = dayKey(clamped);
+    const section = main.querySelector(`[data-calendar-day="${CSS.escape(key)}"]`);
+    if (!(section instanceof HTMLElement)) {
+      pendingTimelineScrollDayRef.current = clamped;
+      const start = timelineRangeStart;
+      const end = addDays(start, timelineDayCount - 1);
+      if (clamped.getTime() < start.getTime()) {
+        setTimelineRangeStart(today);
+      } else if (clamped.getTime() > end.getTime()) {
+        const extra = Math.ceil((clamped.getTime() - end.getTime()) / 86_400_000) + 1;
+        setTimelineDayCount((count) => count + extra);
+      }
+      return;
+    }
+
+    pendingTimelineScrollDayRef.current = null;
+    timelineScrollSyncLockRef.current = true;
+    const chromeHeight = twinelineChromeRef.current?.offsetHeight ?? 0;
+    const mainRect = main.getBoundingClientRect();
+    const sectionRect = section.getBoundingClientRect();
+    const top = main.scrollTop + (sectionRect.top - mainRect.top) - chromeHeight;
+    main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+
+    window.setTimeout(() => {
+      timelineScrollSyncLockRef.current = false;
+      lastScrollTopRef.current = main.scrollTop;
+    }, 450);
+  };
+
+  const selectDayFromUi = (day: Date) => {
+    const next = toStartOfDay(day);
+    setSelectedDay(next);
+    if (!tasksCompact) scrollTimelineToDay(next);
+  };
 
   const openCalendar = () => {
     setTimePickerOpen(false);
@@ -726,14 +865,16 @@ function App() {
   const closeCalendar = () => setCalendarOpen(false);
 
   const selectCalendarDay = (day: Date) => {
-    setSelectedDay(toStartOfDay(day));
+    selectDayFromUi(day);
     setCalendarOpen(false);
   };
 
   const openTimePicker = () => {
     setCalendarOpen(false);
     setTimeSavePromptOpen(false);
-    setTimePickerBaseline(targetTime);
+    const resolved = resolveTargetTime(selectedDay, defaultTargetTime, targetTimeOverrides);
+    setTargetTime(resolved);
+    setTimePickerBaseline(resolved);
     setTimePickerOpen(true);
   };
 
@@ -756,7 +897,14 @@ function App() {
     finishCloseTimePicker();
   };
 
-  const saveTimeChanges = () => {
+  const applyTargetTimeThisDay = () => {
+    const key = targetTimeDayKey(selectedDay);
+    setTargetTimeOverrides((prev) => ({ ...prev, [key]: targetTime }));
+    finishCloseTimePicker();
+  };
+
+  const applyTargetTimeAllFutureDays = () => {
+    setDefaultTargetTime(targetTime);
     finishCloseTimePicker();
   };
 
@@ -1032,8 +1180,12 @@ function App() {
   }, [tasks]);
 
   useEffect(() => {
-    saveTargetTime(targetTime);
-  }, [targetTime]);
+    saveTargetTime(defaultTargetTime);
+  }, [defaultTargetTime]);
+
+  useEffect(() => {
+    saveTargetTimeOverrides(targetTimeOverrides);
+  }, [targetTimeOverrides]);
 
   useEffect(() => {
     if (activeView !== "dayline") return;
@@ -1072,6 +1224,42 @@ function App() {
       const delta = top - lastScrollTopRef.current;
       lastScrollTopRef.current = top;
 
+      if (!tasksCompact && activeView === "dayline") {
+        const showTop = top > 280;
+        if (showTop !== timelineScrollTopBtnVisibleRef.current) {
+          timelineScrollTopBtnVisibleRef.current = showTop;
+          setShowTimelineScrollTop(showTop);
+        }
+
+        if (!timelineScrollSyncLockRef.current) {
+          const chromeHeight = twinelineChromeRef.current?.offsetHeight ?? 0;
+          const syncY = main.getBoundingClientRect().top + chromeHeight + 12;
+          const sections = main.querySelectorAll<HTMLElement>("[data-calendar-day]");
+          let matched: HTMLElement | null = null;
+          for (const section of sections) {
+            const rect = section.getBoundingClientRect();
+            if (rect.top <= syncY && rect.bottom > syncY) {
+              matched = section;
+              break;
+            }
+            if (rect.top <= syncY) matched = section;
+          }
+          const key = matched?.dataset.calendarDay;
+          if (key) {
+            const [y, m, d] = key.split("-").map(Number);
+            if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)) {
+              const next = toStartOfDay(new Date(y, m - 1, d));
+              setSelectedDay((prev) => (sameCalendarDay(prev, next) ? prev : next));
+            }
+          }
+
+          const maxScroll = Math.max(1, main.scrollHeight - main.clientHeight);
+          if (top / maxScroll > 0.88) {
+            setTimelineDayCount((count) => count + 14);
+          }
+        }
+      }
+
       if (chromeLockRef.current) {
         setChromeHidden(false);
         return;
@@ -1097,7 +1285,37 @@ function App() {
 
     main.addEventListener("scroll", onScroll, { passive: true });
     return () => main.removeEventListener("scroll", onScroll);
-  }, [collapsed, searchOpen, moreMenuOpen]);
+  }, [collapsed, searchOpen, moreMenuOpen, tasksCompact, activeView]);
+
+  useEffect(() => {
+    if (tasksCompact || activeView !== "dayline") {
+      setShowTimelineScrollTop(false);
+      timelineScrollTopBtnVisibleRef.current = false;
+    }
+  }, [tasksCompact, activeView]);
+
+  useEffect(() => {
+    // Timeline only starts at today — never keep a past range start.
+    const today = toStartOfDay(new Date(countdownNow));
+    if (timelineRangeStart.getTime() !== today.getTime()) {
+      setTimelineRangeStart(today);
+    }
+  }, [countdownNow, timelineRangeStart]);
+
+  useEffect(() => {
+    if (!calendarLayoutSpanKey || calendarTaskLayout.length === 0) return;
+    const last = calendarTaskLayout[calendarTaskLayout.length - 1].date;
+    const rangeEnd = addDays(timelineRangeStart, timelineDayCount - 1);
+    if (last.getTime() > rangeEnd.getTime()) {
+      const extra = Math.ceil((last.getTime() - rangeEnd.getTime()) / 86_400_000) + 1;
+      setTimelineDayCount((count) => count + extra);
+    }
+  }, [calendarLayoutSpanKey, timelineRangeStart, timelineDayCount, calendarTaskLayout]);
+
+  useLayoutEffect(() => {
+    if (tasksCompact || !pendingTimelineScrollDayRef.current) return;
+    scrollTimelineToDay(pendingTimelineScrollDayRef.current);
+  }, [tasksCompact, timelineRangeStart, timelineDayCount, timelineDays.length]);
 
   useEffect(() => {
     if (!collapsed || searchOpen || moreMenuOpen) {
@@ -1567,14 +1785,35 @@ function App() {
                   </div>
                 </div>
                 {timeSavePromptOpen && (
-                  <div className="twineline-save-prompt" role="dialog" aria-label="Save Changes?">
-                    <p className="twineline-save-prompt-title">Save Changes?</p>
+                  <div
+                    className="twineline-save-prompt"
+                    role="dialog"
+                    aria-label="Apply these changes to this day or all future days?"
+                  >
+                    <p className="twineline-save-prompt-title">
+                      Apply these changes to this day or all future days?
+                    </p>
                     <div className="twineline-save-prompt-actions">
-                      <button type="button" className="twineline-save-prompt-secondary" onClick={discardTimeChanges}>
-                        No Thanks
+                      <button
+                        type="button"
+                        className="twineline-save-prompt-secondary"
+                        onClick={discardTimeChanges}
+                      >
+                        Cancel
                       </button>
-                      <button type="button" className="twineline-save-prompt-primary" onClick={saveTimeChanges}>
-                        Save
+                      <button
+                        type="button"
+                        className="twineline-save-prompt-secondary"
+                        onClick={applyTargetTimeThisDay}
+                      >
+                        This Day
+                      </button>
+                      <button
+                        type="button"
+                        className="twineline-save-prompt-primary"
+                        onClick={applyTargetTimeAllFutureDays}
+                      >
+                        All Future Days
                       </button>
                     </div>
                   </div>
@@ -1658,7 +1897,7 @@ function App() {
                         className={`twineline-weekday${sameCalendarDay(dayDate, selectedDay) ? " is-selected" : ""}`}
                         aria-selected={sameCalendarDay(dayDate, selectedDay)}
                         aria-label={`${name} ${dayDate.getDate()}`}
-                        onClick={() => setSelectedDay(toStartOfDay(dayDate))}
+                        onClick={() => selectDayFromUi(dayDate)}
                       >
                         <span className="twineline-weekday-letter">{label}</span>
                         <span className="twineline-weekday-date">{dayDate.getDate()}</span>
@@ -1674,24 +1913,9 @@ function App() {
         )}
         {tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
-        ) : (
-          <ul
-            className={`task-list${tasksCompact ? " is-compact" : ""}`}
-            onMouseLeave={() => setHoveredTaskId(null)}
-          >
+        ) : tasksCompact ? (
+          <ul className="task-list is-compact" onMouseLeave={() => setHoveredTaskId(null)}>
             {tasks.map((task) => {
-              const meta: { key: string; value: string }[] = [];
-              if (task.description) meta.push({ key: "description", value: task.description });
-              if (task.est_duration != null) meta.push({ key: "duration", value: `${task.est_duration}m` });
-              if (task.date_time) meta.push({ key: "date_time", value: task.date_time });
-              if (task.urgency) meta.push({ key: "urgency", value: task.urgency });
-              if (task.impact != null) meta.push({ key: "impact", value: `Impact ${task.impact}` });
-              if (task.recurring) meta.push({ key: "recurring", value: task.recurring });
-              if (task.after) meta.push({ key: "after", value: task.after });
-              if (task.location) meta.push({ key: "location", value: task.location });
-              if (task.tags) meta.push({ key: "tags", value: task.tags });
-              if (task.status) meta.push({ key: "status", value: task.status });
-
               return (
                 <li
                   key={task.id ?? task.title}
@@ -1717,27 +1941,119 @@ function App() {
                     aria-label={`Edit task ${task.title}`}
                   >
                     <p className="task-row-title">{task.title}</p>
-                    {!tasksCompact && meta.length > 0 && (
-                      <div className="task-row-meta">
-                        {meta.map((item) => (
-                          <span key={item.key}>{item.value}</span>
-                        ))}
-                      </div>
-                    )}
                   </button>
                 </li>
               );
             })}
           </ul>
+        ) : (
+          <div className="calendar-timeline" onMouseLeave={() => setHoveredTaskId(null)}>
+            {timelineDays.map((day) => (
+              <section
+                key={day.dayKey}
+                className="calendar-timeline-day"
+                data-calendar-day={day.dayKey}
+              >
+                <div className="calendar-timeline-day-label">
+                  {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                </div>
+                <div
+                  className="calendar-timeline-body"
+                  style={{ height: Math.max(PX_PER_MINUTE, day.visibleMinutes * PX_PER_MINUTE) }}
+                >
+                  <div className="calendar-timeline-hours" aria-hidden="true">
+                    {day.hourMarkers.map(({ hour, label, topPx }) => (
+                      <div key={hour} className="calendar-timeline-hour" style={{ top: topPx }}>
+                        <span>{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="calendar-timeline-track">
+                    {day.hourMarkers.map(({ hour, topPx }) => (
+                      <div
+                        key={`line-${hour}`}
+                        className="calendar-timeline-hour-line"
+                        style={{ top: topPx }}
+                      />
+                    ))}
+                    {day.packStartTopPx != null && (
+                      <div
+                        className="calendar-timeline-pack-marker is-start"
+                        style={{ top: day.packStartTopPx }}
+                      >
+                        <span className="calendar-timeline-pack-marker-label">{day.packStartLabel}</span>
+                      </div>
+                    )}
+                    {day.packEndTopPx != null && (
+                      <div
+                        className="calendar-timeline-pack-marker is-end"
+                        style={{ top: day.packEndTopPx }}
+                      >
+                        <span className="calendar-timeline-pack-marker-label">{day.packEndLabel}</span>
+                      </div>
+                    )}
+                    {day.blocks.map((block) => (
+                      <div
+                        key={block.key}
+                        data-task-id={block.taskId ?? undefined}
+                        className={`calendar-timeline-block${editingTaskId === block.taskId ? " is-editing" : ""}${highlightedTaskId === block.taskId ? " is-highlighted" : ""}`}
+                        style={{ top: block.topPx, height: block.heightPx }}
+                        onMouseEnter={() => {
+                          if (block.taskId) setHoveredTaskId(block.taskId);
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="task-complete"
+                          aria-label="Mark complete"
+                          onClick={() => completeTask(block.taskId)}
+                        />
+                        <button
+                          type="button"
+                          className="calendar-timeline-block-body"
+                          onClick={() => {
+                            if (block.taskId) setFocusedTaskId(block.taskId);
+                            editTask(block.task);
+                          }}
+                          aria-label={`Edit task ${block.title}`}
+                        >
+                          <span className="calendar-timeline-block-title">{block.title}</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            ))}
+          </div>
         )}
       </main>
 
       {activeView === "dayline" && (
         <div className="task-view-controls" ref={taskViewControlsRef}>
+          {showTimelineScrollTop && !tasksCompact && (
+            <button
+              type="button"
+              className="task-view-scroll-top"
+              onClick={() => {
+                scrollTimelineToDay(toStartOfDay(new Date(countdownNow)));
+              }}
+              aria-label="Scroll to today"
+            >
+              <ScrollTopIcon />
+            </button>
+          )}
           <button
             type="button"
             className="task-view-toggle"
-            onClick={() => setTasksCompact((compact) => !compact)}
+            onClick={() => {
+              setTasksCompact((compact) => {
+                if (compact) {
+                  pendingTimelineScrollDayRef.current = toStartOfDay(selectedDay);
+                }
+                return !compact;
+              });
+            }}
             aria-label={tasksCompact ? "Expand task list" : "Compact task list"}
             aria-pressed={tasksCompact}
           >
