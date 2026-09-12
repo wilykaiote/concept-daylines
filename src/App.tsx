@@ -627,6 +627,7 @@ function App() {
   const twinelineHeaderRef = useRef<HTMLElement>(null);
   const lastScrollTopRef = useRef(0);
   const chromeOffsetRef = useRef(0);
+  const chromeLockRef = useRef(false);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const searchFieldRef = useRef<HTMLDivElement>(null);
@@ -678,6 +679,28 @@ function App() {
     }
     input.focus();
     input.click();
+  };
+
+  const scrollTaskIntoView = (taskId: string) => {
+    const main = mainRef.current;
+    const row = main?.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`);
+    if (!main || !(row instanceof HTMLElement)) return;
+
+    chromeLockRef.current = true;
+    applyChromeOffset(0);
+
+    const headerHeight = twinelineHeaderRef.current?.offsetHeight ?? 0;
+    row.style.scrollMarginTop = `${headerHeight + 12}px`;
+    row.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    const unlock = () => {
+      chromeLockRef.current = false;
+      lastScrollTopRef.current = main.scrollTop;
+      main.removeEventListener("scrollend", unlock);
+      window.clearTimeout(fallbackId);
+    };
+    main.addEventListener("scrollend", unlock, { once: true });
+    const fallbackId = window.setTimeout(unlock, 600);
   };
 
   const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
@@ -869,6 +892,12 @@ function App() {
     lastScrollTopRef.current = main.scrollTop;
 
     const onScroll = () => {
+      if (chromeLockRef.current) {
+        lastScrollTopRef.current = main.scrollTop;
+        applyChromeOffset(0);
+        return;
+      }
+
       if (!collapsed || searchOpen || moreMenuOpen) {
         lastScrollTopRef.current = main.scrollTop;
         applyChromeOffset(0);
@@ -1190,6 +1219,7 @@ function App() {
                       onClick={() => {
                         if (!segment.task.id) return;
                         setFocusedTaskId(segment.task.id);
+                        scrollTaskIntoView(segment.task.id);
                       }}
                     />
                   ),
@@ -1218,6 +1248,7 @@ function App() {
               return (
                 <li
                   key={task.id ?? task.title}
+                  data-task-id={task.id ?? undefined}
                   className={`task-row${editingTaskId === task.id ? " is-editing" : ""}${highlightedTaskId === task.id ? " is-highlighted" : ""}`}
                 >
                   <button
