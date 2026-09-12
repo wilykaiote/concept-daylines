@@ -816,7 +816,7 @@ function App() {
 
   const scrollTimelineToDay = (day: Date) => {
     const main = mainRef.current;
-    if (!main || tasksCompact) return;
+    if (!main) return;
     const today = toStartOfDay(new Date(countdownNow));
     const target = toStartOfDay(day);
     // Never scroll into the past — clamp to today.
@@ -853,7 +853,7 @@ function App() {
   const selectDayFromUi = (day: Date) => {
     const next = toStartOfDay(day);
     setSelectedDay(next);
-    if (!tasksCompact) scrollTimelineToDay(next);
+    scrollTimelineToDay(next);
   };
 
   const openCalendar = () => {
@@ -1224,7 +1224,7 @@ function App() {
       const delta = top - lastScrollTopRef.current;
       lastScrollTopRef.current = top;
 
-      if (!tasksCompact && activeView === "dayline") {
+      if (activeView === "dayline") {
         const showTop = top > 280;
         if (showTop !== timelineScrollTopBtnVisibleRef.current) {
           timelineScrollTopBtnVisibleRef.current = showTop;
@@ -1288,11 +1288,11 @@ function App() {
   }, [collapsed, searchOpen, moreMenuOpen, tasksCompact, activeView]);
 
   useEffect(() => {
-    if (tasksCompact || activeView !== "dayline") {
+    if (activeView !== "dayline") {
       setShowTimelineScrollTop(false);
       timelineScrollTopBtnVisibleRef.current = false;
     }
-  }, [tasksCompact, activeView]);
+  }, [activeView]);
 
   useEffect(() => {
     // Timeline only starts at today — never keep a past range start.
@@ -1313,9 +1313,19 @@ function App() {
   }, [calendarLayoutSpanKey, timelineRangeStart, timelineDayCount, calendarTaskLayout]);
 
   useLayoutEffect(() => {
-    if (tasksCompact || !pendingTimelineScrollDayRef.current) return;
+    if (!pendingTimelineScrollDayRef.current) return;
     scrollTimelineToDay(pendingTimelineScrollDayRef.current);
   }, [tasksCompact, timelineRangeStart, timelineDayCount, timelineDays.length]);
+
+  useLayoutEffect(() => {
+    if (activeView !== "dayline") return;
+    const main = mainRef.current;
+    if (!main) return;
+    // Compact day groups are short — grow the range until the list can scroll.
+    if (main.scrollHeight <= main.clientHeight + 48) {
+      setTimelineDayCount((count) => count + 14);
+    }
+  }, [activeView, tasksCompact, timelineDayCount, timelineDays.length, tasks.length]);
 
   useEffect(() => {
     if (!collapsed || searchOpen || moreMenuOpen) {
@@ -1914,38 +1924,60 @@ function App() {
         {tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : tasksCompact ? (
-          <ul className="task-list is-compact" onMouseLeave={() => setHoveredTaskId(null)}>
-            {tasks.map((task) => {
+          <div className="task-list is-compact" onMouseLeave={() => setHoveredTaskId(null)}>
+            {timelineDays.map((day) => {
+              const seenTaskIds = new Set<string>();
+              const dayTasks = day.blocks.filter((block) => {
+                const id = block.taskId ?? block.key;
+                if (seenTaskIds.has(id)) return false;
+                seenTaskIds.add(id);
+                return true;
+              });
               return (
-                <li
-                  key={task.id ?? task.title}
-                  data-task-id={task.id ?? undefined}
-                  className={`task-row${editingTaskId === task.id ? " is-editing" : ""}${highlightedTaskId === task.id ? " is-highlighted" : ""}`}
-                  onMouseEnter={() => {
-                    if (task.id) setHoveredTaskId(task.id);
-                  }}
+                <section
+                  key={day.dayKey}
+                  className="task-day-group"
+                  data-calendar-day={day.dayKey}
                 >
-                  <button
-                    type="button"
-                    className="task-complete"
-                    aria-label="Mark complete"
-                    onClick={() => completeTask(task.id)}
-                  />
-                  <button
-                    type="button"
-                    className="task-row-body"
-                    onClick={() => {
-                      if (task.id) setFocusedTaskId(task.id);
-                      editTask(task);
-                    }}
-                    aria-label={`Edit task ${task.title}`}
-                  >
-                    <p className="task-row-title">{task.title}</p>
-                  </button>
-                </li>
+                  <div className="task-day-label">
+                    {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                  </div>
+                  {dayTasks.length > 0 && (
+                    <ul className="task-day-tasks">
+                      {dayTasks.map((block) => (
+                        <li
+                          key={block.key}
+                          data-task-id={block.taskId ?? undefined}
+                          className={`task-row${editingTaskId === block.taskId ? " is-editing" : ""}${highlightedTaskId === block.taskId ? " is-highlighted" : ""}`}
+                          onMouseEnter={() => {
+                            if (block.taskId) setHoveredTaskId(block.taskId);
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="task-complete"
+                            aria-label="Mark complete"
+                            onClick={() => completeTask(block.taskId)}
+                          />
+                          <button
+                            type="button"
+                            className="task-row-body"
+                            onClick={() => {
+                              if (block.taskId) setFocusedTaskId(block.taskId);
+                              editTask(block.task);
+                            }}
+                            aria-label={`Edit task ${block.title}`}
+                          >
+                            <p className="task-row-title">{block.title}</p>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
               );
             })}
-          </ul>
+          </div>
         ) : (
           <div className="calendar-timeline" onMouseLeave={() => setHoveredTaskId(null)}>
             {timelineDays.map((day) => (
@@ -2031,7 +2063,7 @@ function App() {
 
       {activeView === "dayline" && (
         <div className="task-view-controls" ref={taskViewControlsRef}>
-          {showTimelineScrollTop && !tasksCompact && (
+          {showTimelineScrollTop && (
             <button
               type="button"
               className="task-view-scroll-top"
@@ -2047,12 +2079,8 @@ function App() {
             type="button"
             className="task-view-toggle"
             onClick={() => {
-              setTasksCompact((compact) => {
-                if (compact) {
-                  pendingTimelineScrollDayRef.current = toStartOfDay(selectedDay);
-                }
-                return !compact;
-              });
+              pendingTimelineScrollDayRef.current = toStartOfDay(selectedDay);
+              setTasksCompact((compact) => !compact);
             }}
             aria-label={tasksCompact ? "Expand task list" : "Compact task list"}
             aria-pressed={tasksCompact}

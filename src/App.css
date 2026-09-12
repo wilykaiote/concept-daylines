@@ -511,6 +511,37 @@
 }
 
 .task-list.is-compact {
+  gap: 0;
+}
+
+.task-day-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.task-day-group:last-child {
+  border-bottom: 0;
+}
+
+.task-day-label {
+  align-self: flex-start;
+  margin: 0;
+  padding: 2px 0;
+  color: var(--text-h);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.task-day-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
