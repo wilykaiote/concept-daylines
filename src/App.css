@@ -32,17 +32,40 @@
   padding-bottom: calc(184px + var(--safe-bottom));
 }
 
-.twineline-countdown {
+.twineline-chrome {
   position: sticky;
   top: 0;
   z-index: 5;
+  margin: 0 calc(var(--space) * -1) 20px;
+}
+
+.twineline-chrome-slot {
+  width: 100%;
+  pointer-events: none;
+}
+
+.twineline-countdown {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  transform: translate3d(0, 0, 0);
+  transition: transform 0.2s ease;
+  will-change: transform;
+}
+
+.twineline-chrome.is-chrome-hidden .twineline-countdown {
+  transform: translate3d(0, -100%, 0);
+  pointer-events: none;
+}
+
+.twineline-countdown-slide {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin: 0 calc(var(--space) * -1) 20px;
   padding: calc(12px + var(--safe-top)) var(--space) 12px;
   background: var(--bg);
-  will-change: transform;
 }
 
 .twineline-weekdays {
@@ -566,7 +589,14 @@
   gap: 10px;
   padding: 28px var(--space) calc(12px + var(--safe-bottom));
   background: transparent;
+  transform: translate3d(0, 0, 0);
+  transition: transform 0.2s ease;
   will-change: transform;
+}
+
+.app-composer.is-chrome-hidden {
+  transform: translate3d(0, 100%, 0);
+  pointer-events: none;
 }
 
 .app-composer::before {

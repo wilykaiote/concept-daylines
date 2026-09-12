@@ -643,10 +643,14 @@ function App() {
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const composerRef = useRef<HTMLFormElement>(null);
   const mainRef = useRef<HTMLElement>(null);
+  const twinelineChromeRef = useRef<HTMLDivElement>(null);
+  const twinelineSlotRef = useRef<HTMLDivElement>(null);
   const twinelineHeaderRef = useRef<HTMLElement>(null);
+  const twinelineSlideRef = useRef<HTMLDivElement>(null);
   const lastScrollTopRef = useRef(0);
-  const chromeOffsetRef = useRef(0);
+  const chromeHiddenRef = useRef(false);
   const chromeLockRef = useRef(false);
+  const chromeCooldownUntilRef = useRef(0);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const searchFieldRef = useRef<HTMLDivElement>(null);
@@ -757,21 +761,58 @@ function App() {
     const row = main?.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`);
     if (!main || !(row instanceof HTMLElement)) return;
 
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
     chromeLockRef.current = true;
-    applyChromeOffset(0);
+    setChromeHidden(false);
 
-    const headerHeight = twinelineHeaderRef.current?.offsetHeight ?? 0;
-    row.style.scrollMarginTop = `${headerHeight + 12}px`;
-    row.scrollIntoView({ behavior: "smooth", block: "start" });
+    const headerHeight =
+      twinelineSlotRef.current?.offsetHeight ||
+      twinelineSlideRef.current?.offsetHeight ||
+      twinelineHeaderRef.current?.offsetHeight ||
+      0;
+    const mainRect = main.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const targetTop = main.scrollTop + (rowRect.top - mainRect.top) - headerHeight - 12;
+    main.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
 
-    const unlock = () => {
+    let finished = false;
+    let settledFrames = 0;
+    let lastTop = main.scrollTop;
+    let rafId = 0;
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
       chromeLockRef.current = false;
       lastScrollTopRef.current = main.scrollTop;
-      main.removeEventListener("scrollend", unlock);
+      setChromeHidden(false);
+      window.cancelAnimationFrame(rafId);
       window.clearTimeout(fallbackId);
+      main.removeEventListener("scrollend", finish);
     };
-    main.addEventListener("scrollend", unlock, { once: true });
-    const fallbackId = window.setTimeout(unlock, 600);
+
+    main.addEventListener("scrollend", finish, { once: true });
+    const fallbackId = window.setTimeout(finish, 1500);
+
+    const watch = () => {
+      if (finished) return;
+      const top = main.scrollTop;
+      if (Math.abs(top - lastTop) < 0.5) {
+        settledFrames += 1;
+        if (settledFrames >= 8) {
+          finish();
+          return;
+        }
+      } else {
+        settledFrames = 0;
+        lastTop = top;
+      }
+      rafId = window.requestAnimationFrame(watch);
+    };
+    rafId = window.requestAnimationFrame(watch);
   };
 
   const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
@@ -978,25 +1019,17 @@ function App() {
     return () => window.clearInterval(id);
   }, [activeView]);
 
-  const applyChromeOffset = (offset: number) => {
-    const next = Math.max(0, offset);
-    chromeOffsetRef.current = next;
+  const setChromeHidden = (hidden: boolean) => {
+    if (chromeHiddenRef.current === hidden) return;
+    chromeHiddenRef.current = hidden;
+    chromeCooldownUntilRef.current = performance.now() + 280;
 
-    const header = twinelineHeaderRef.current;
-    if (header) {
-      header.style.transform = next > 0 ? `translateY(${-next}px)` : "";
-      header.style.pointerEvents = next >= header.offsetHeight - 1 ? "none" : "";
-    }
+    twinelineChromeRef.current?.classList.toggle("is-chrome-hidden", hidden);
 
     const composer = composerRef.current;
     if (composer) {
-      if (collapsed && !searchOpen) {
-        composer.style.transform = next > 0 ? `translateY(${next}px)` : "";
-        composer.style.pointerEvents = next >= composer.offsetHeight - 1 ? "none" : "";
-      } else {
-        composer.style.transform = "";
-        composer.style.pointerEvents = "";
-      }
+      const hideComposer = hidden && collapsed && !searchOpen;
+      composer.classList.toggle("is-chrome-hidden", hideComposer);
     }
   };
 
@@ -1007,33 +1040,31 @@ function App() {
     lastScrollTopRef.current = main.scrollTop;
 
     const onScroll = () => {
-      if (chromeLockRef.current) {
-        lastScrollTopRef.current = main.scrollTop;
-        applyChromeOffset(0);
-        return;
-      }
-
-      if (!collapsed || searchOpen || moreMenuOpen) {
-        lastScrollTopRef.current = main.scrollTop;
-        applyChromeOffset(0);
-        return;
-      }
-
       const top = main.scrollTop;
       const delta = top - lastScrollTopRef.current;
       lastScrollTopRef.current = top;
 
-      if (top <= 0) {
-        applyChromeOffset(0);
+      if (chromeLockRef.current) {
+        setChromeHidden(false);
         return;
       }
 
-      if (delta === 0) return;
+      if (!collapsed || searchOpen || moreMenuOpen) {
+        setChromeHidden(false);
+        return;
+      }
 
-      const headerHeight = twinelineHeaderRef.current?.offsetHeight ?? 0;
-      const composerHeight = composerRef.current?.offsetHeight ?? 0;
-      const maxOffset = Math.max(headerHeight, composerHeight, 1);
-      applyChromeOffset(Math.min(maxOffset, chromeOffsetRef.current + delta));
+      // Ignore scroll noise while the hide/show transition runs so layout
+      // feedback cannot flip the chrome rapidly.
+      if (performance.now() < chromeCooldownUntilRef.current) return;
+
+      if (top < 12) {
+        setChromeHidden(false);
+        return;
+      }
+
+      if (delta > 6) setChromeHidden(true);
+      else if (delta < -6) setChromeHidden(false);
     };
 
     main.addEventListener("scroll", onScroll, { passive: true });
@@ -1042,9 +1073,27 @@ function App() {
 
   useEffect(() => {
     if (!collapsed || searchOpen || moreMenuOpen) {
-      applyChromeOffset(0);
+      setChromeHidden(false);
+    } else {
+      const composer = composerRef.current;
+      composer?.classList.toggle("is-chrome-hidden", chromeHiddenRef.current);
     }
   }, [collapsed, searchOpen, moreMenuOpen]);
+
+  useLayoutEffect(() => {
+    const slide = twinelineSlideRef.current;
+    const slot = twinelineSlotRef.current;
+    if (!slide || !slot || activeView !== "dayline") return;
+
+    const syncSlotHeight = () => {
+      slot.style.height = `${slide.offsetHeight}px`;
+    };
+    syncSlotHeight();
+
+    const observer = new ResizeObserver(syncSlotHeight);
+    observer.observe(slide);
+    return () => observer.disconnect();
+  }, [activeView, calendarOpen, timePickerOpen, scheduleOverflowCount, orderedWeekdays.length]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -1282,10 +1331,13 @@ function App() {
     <div className="app">
       <main className="app-main" ref={mainRef}>
         {activeView === "dayline" && (
-          <header
-            className={`twineline-countdown${calendarOpen ? " is-calendar-open" : ""}${timePickerOpen ? " is-time-open" : ""}`}
-            ref={twinelineHeaderRef}
-          >
+          <div className="twineline-chrome" ref={twinelineChromeRef}>
+            <div className="twineline-chrome-slot" ref={twinelineSlotRef} aria-hidden="true" />
+            <header
+              className={`twineline-countdown${calendarOpen ? " is-calendar-open" : ""}${timePickerOpen ? " is-time-open" : ""}`}
+              ref={twinelineHeaderRef}
+            >
+              <div className="twineline-countdown-slide" ref={twinelineSlideRef}>
             <div className="twineline-countdown-bar">
               {!timePickerOpen && (
                 <button
@@ -1569,7 +1621,9 @@ function App() {
                 </div>
               </>
             )}
-          </header>
+              </div>
+            </header>
+          </div>
         )}
         {tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
