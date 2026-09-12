@@ -23,7 +23,7 @@ import {
   WEEKDAY_BUTTONS,
   type TargetTimePeriod,
 } from "./taskStorage";
-import { buildScheduleSegments } from "./schedule";
+import { buildScheduleLayout } from "./schedule";
 
 function CloseIcon() {
   return (
@@ -626,6 +626,11 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [tasks, setTasks] = useState<ComposerDraft[]>(() => loadTasks());
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editTaskBaseline, setEditTaskBaseline] = useState<{
+    title: string;
+    est_duration: number | null;
+  } | null>(null);
+  const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [targetTime, setTargetTime] = useState(() => loadTargetTime());
@@ -670,7 +675,8 @@ function App() {
   const moreMenuItems = MORE_MENU_ITEMS;
   const visibleTabIds = new Set<ActiveView>(["dayline", ...TRAY_TABS.map((tab) => tab.id)]);
   const moreButtonActive =
-    moreMenuOpen || (activeView !== "dayline" && !visibleTabIds.has(activeView));
+    moreMenuOpen ||
+    (activeView !== "dayline" && activeView !== "settings" && !visibleTabIds.has(activeView));
   const countdownMs = msUntilTargetTime(targetTime, new Date(countdownNow));
   const countdownRemaining = formatCountdown(countdownMs);
   const targetTimeLabel = formatTargetTimeLabel(targetTime);
@@ -679,7 +685,10 @@ function App() {
   const orderedWeekdays = weekdaysFromToday(new Date(countdownNow));
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
-  const scheduleSegments = buildScheduleSegments(tasks, countdownMs);
+  const scheduleLayout = buildScheduleLayout(tasks, countdownMs);
+  const { timelineMinutes: scheduleTimelineMinutes, segments: scheduleSegments, overflowTasks } =
+    scheduleLayout;
+  const scheduleOverflowCount = overflowTasks.length;
   const highlightedTaskId = hoveredTaskId ?? focusedTaskId;
 
   const openCalendar = () => {
@@ -795,7 +804,15 @@ function App() {
     setDurationMenuOpen(false);
     setDurationActivated(false);
     setEditingTaskId(null);
+    setEditTaskBaseline(null);
+    setComposerSavePromptOpen(false);
   };
+
+  const isEditDirty =
+    editingTaskId != null &&
+    editTaskBaseline != null &&
+    (content !== editTaskBaseline.title ||
+      (estDurationMinutes ?? null) !== (editTaskBaseline.est_duration ?? null));
 
   const completeTask = (id: string | null) => {
     if (!id) return;
@@ -812,6 +829,8 @@ function App() {
     if (!task.id) return;
     const minutes = task.est_duration ?? 15;
     setEditingTaskId(task.id);
+    setEditTaskBaseline({ title: task.title, est_duration: minutes });
+    setComposerSavePromptOpen(false);
     setComposeKind("task");
     setContent(task.title);
     setEstDurationMinutes(minutes);
@@ -853,9 +872,39 @@ function App() {
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setDurationMenuOpen(false);
+    setComposerSavePromptOpen(false);
     if (editingTaskId) {
       resetComposerFields();
+    } else {
+      setEditTaskBaseline(null);
     }
+  };
+
+  const requestCloseComposer = () => {
+    if (isEditDirty) {
+      setAttachMenuOpen(false);
+      setComposeKindMenuOpen(false);
+      setDurationMenuOpen(false);
+      setComposerSavePromptOpen(true);
+      return;
+    }
+    closeComposer();
+  };
+
+  const discardComposerChanges = () => {
+    closeComposer();
+  };
+
+  const saveComposerChanges = () => {
+    const draft = buildComposerDraft({
+      title: content,
+      type: composeKind,
+      est_duration: estDurationMinutes,
+    });
+    if (draft) {
+      submitComposerDraft[composeKind](draft);
+    }
+    closeComposer();
   };
 
   const syncDurationInput = (minutes: number | null, unit: "minutes" | "hours" = durationUnit) => {
@@ -895,6 +944,10 @@ function App() {
 
   const openComposer = () => {
     const wasEditing = editingTaskId != null;
+    if (wasEditing && isEditDirty) {
+      setComposerSavePromptOpen(true);
+      return;
+    }
     if (wasEditing) {
       resetComposerFields();
     }
@@ -1118,12 +1171,19 @@ function App() {
         return;
       }
 
-      closeComposer();
+      requestCloseComposer();
     };
 
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [collapsed, attachMenuOpen, composeKindMenuOpen, durationMenuOpen, editingTaskId]);
+  }, [
+    collapsed,
+    attachMenuOpen,
+    composeKindMenuOpen,
+    durationMenuOpen,
+    editingTaskId,
+    isEditDirty,
+  ]);
 
   useEffect(() => {
     if (!attachMenuOpen) return;
@@ -1261,6 +1321,14 @@ function App() {
                   )}
                 </button>
               )}
+              <button
+                type="button"
+                className="twineline-settings"
+                aria-label={SETTINGS_OPTION.label}
+                onClick={() => selectView("settings")}
+              >
+                <SETTINGS_OPTION.Icon />
+              </button>
             </div>
             {calendarOpen ? (
               <div className="twineline-calendar" aria-label="Choose a day">
@@ -1420,41 +1488,63 @@ function App() {
                   aria-label={`Timeline until ${targetTimeLabel}`}
                 >
                   <div
-                    className="twineline-schedule-track"
+                    className={`twineline-schedule-track${scheduleOverflowCount > 0 ? " has-overflow" : ""}`}
                     onMouseLeave={() => setHoveredTaskId(null)}
                   >
-                    {scheduleSegments.map((segment, index) =>
-                      segment.type === "gap" ? (
-                        <div
-                          key={`gap-${index}`}
-                          className="twineline-schedule-gap"
-                          style={{ flexGrow: segment.minutes }}
-                          aria-hidden="true"
-                        />
-                      ) : (
-                        <button
-                          key={segment.task.id ?? `task-${index}`}
-                          type="button"
-                          data-schedule-task-id={segment.task.id ?? undefined}
-                          className={`twineline-schedule-block${highlightedTaskId === segment.task.id ? " is-highlighted" : ""}`}
-                          style={{ flexGrow: Math.max(segment.minutes, 0.01) }}
-                          title={`${segment.task.title} · ${segment.minutes}m`}
-                          aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
-                          aria-pressed={focusedTaskId === segment.task.id}
-                          onMouseEnter={() => {
-                            if (segment.task.id) setHoveredTaskId(segment.task.id);
-                          }}
-                          onFocus={() => {
-                            if (segment.task.id) setHoveredTaskId(segment.task.id);
-                          }}
-                          onBlur={() => setHoveredTaskId(null)}
-                          onClick={() => {
-                            if (!segment.task.id) return;
-                            setFocusedTaskId(segment.task.id);
-                            scrollTaskIntoView(segment.task.id);
-                          }}
-                        />
-                      ),
+                    <div className="twineline-schedule-lane">
+                      {scheduleSegments.map((segment, index) => {
+                        const widthPercent =
+                          (Math.max(segment.minutes, segment.type === "task" ? 0.01 : 0) /
+                            scheduleTimelineMinutes) *
+                          100;
+                        return segment.type === "gap" ? (
+                          <div
+                            key={`gap-${index}`}
+                            className="twineline-schedule-gap"
+                            style={{ flex: `0 0 ${widthPercent}%` }}
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <button
+                            key={segment.task.id ?? `task-${index}`}
+                            type="button"
+                            data-schedule-task-id={segment.task.id ?? undefined}
+                            className={`twineline-schedule-block${highlightedTaskId === segment.task.id ? " is-highlighted" : ""}`}
+                            style={{ flex: `0 0 ${widthPercent}%` }}
+                            title={`${segment.task.title} · ${segment.minutes}m`}
+                            aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
+                            aria-pressed={focusedTaskId === segment.task.id}
+                            onMouseEnter={() => {
+                              if (segment.task.id) setHoveredTaskId(segment.task.id);
+                            }}
+                            onFocus={() => {
+                              if (segment.task.id) setHoveredTaskId(segment.task.id);
+                            }}
+                            onBlur={() => setHoveredTaskId(null)}
+                            onClick={() => {
+                              if (!segment.task.id) return;
+                              setFocusedTaskId(segment.task.id);
+                              scrollTaskIntoView(segment.task.id);
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                    {scheduleOverflowCount > 0 && (
+                      <button
+                        type="button"
+                        className="twineline-schedule-overflow"
+                        aria-label={`${scheduleOverflowCount} more task${scheduleOverflowCount === 1 ? "" : "s"} beyond the timeline`}
+                        title={overflowTasks.map((task) => task.title).join(", ")}
+                        onClick={() => {
+                          const first = overflowTasks[0];
+                          if (!first?.id) return;
+                          setFocusedTaskId(first.id);
+                          scrollTaskIntoView(first.id);
+                        }}
+                      >
+                        {scheduleOverflowCount}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1629,15 +1719,6 @@ function App() {
                 className="app-tray-more-menu"
                 aria-label="More..."
               >
-                <button
-                  type="button"
-                  className={`app-tray-more-settings${activeView === "settings" ? " is-selected" : ""}`}
-                  role="menuitem"
-                  aria-label={SETTINGS_OPTION.label}
-                  onClick={() => selectView("settings")}
-                >
-                  <SETTINGS_OPTION.Icon />
-                </button>
                 {moreMenuItems.map(({ id, label, Icon }) => (
                   <button
                     key={id}
@@ -1727,7 +1808,7 @@ function App() {
             <button
               type="button"
               className="app-composer-collapse"
-              onClick={closeComposer}
+              onClick={requestCloseComposer}
               aria-label="Collapse input"
               tabIndex={collapsed ? -1 : 0}
             >
@@ -1745,6 +1826,27 @@ function App() {
                 tabIndex={collapsed ? -1 : 0}
               />
             </div>
+            {composerSavePromptOpen && (
+              <div className="twineline-save-prompt" role="dialog" aria-label="Save Changes?">
+                <p className="twineline-save-prompt-title">Save Changes?</p>
+                <div className="twineline-save-prompt-actions">
+                  <button
+                    type="button"
+                    className="twineline-save-prompt-secondary"
+                    onClick={discardComposerChanges}
+                  >
+                    No Thanks
+                  </button>
+                  <button
+                    type="button"
+                    className="twineline-save-prompt-primary"
+                    onClick={saveComposerChanges}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="app-composer-tools">
               <div className="app-composer-tools-left">
                 <div className="app-composer-attach">
