@@ -1134,6 +1134,7 @@ function App() {
         return;
       }
       if (target.closest("[data-schedule-task-id]")) return;
+      if (target.closest("[data-task-id]")) return;
       setFocusedTaskId(null);
     };
 
@@ -1231,7 +1232,10 @@ function App() {
         {tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : (
-          <ul className="task-list">
+          <ul
+            className="task-list"
+            onMouseLeave={() => setHoveredTaskId(null)}
+          >
             {tasks.map((task) => {
               const meta: { key: string; value: string }[] = [];
               if (task.description) meta.push({ key: "description", value: task.description });
@@ -1250,6 +1254,9 @@ function App() {
                   key={task.id ?? task.title}
                   data-task-id={task.id ?? undefined}
                   className={`task-row${editingTaskId === task.id ? " is-editing" : ""}${highlightedTaskId === task.id ? " is-highlighted" : ""}`}
+                  onMouseEnter={() => {
+                    if (task.id) setHoveredTaskId(task.id);
+                  }}
                 >
                   <button
                     type="button"
@@ -1260,7 +1267,10 @@ function App() {
                   <button
                     type="button"
                     className="task-row-body"
-                    onClick={() => editTask(task)}
+                    onClick={() => {
+                      if (task.id) setFocusedTaskId(task.id);
+                      editTask(task);
+                    }}
                     aria-label={`Edit task ${task.title}`}
                   >
                     <p className="task-row-title">{task.title}</p>
