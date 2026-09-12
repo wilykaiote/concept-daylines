@@ -483,8 +483,10 @@
 }
 
 .twineline-schedule-overflow:hover,
-.twineline-schedule-overflow:focus-visible {
+.twineline-schedule-overflow:focus-visible,
+.twineline-schedule-overflow.is-highlighted {
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 42%, var(--bg-raised));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
@@ -508,6 +510,10 @@
   gap: 10px;
 }
 
+.task-list.is-compact {
+  gap: 4px;
+}
+
 .task-row {
   display: flex;
   align-items: flex-start;
@@ -516,6 +522,23 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
+}
+
+.task-list.is-compact .task-row {
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.task-list.is-compact .task-complete {
+  margin-top: 0;
+  width: 18px;
+  height: 18px;
+}
+
+.task-list.is-compact .task-row-title {
+  font-size: 0.95rem;
+  line-height: 1.25;
 }
 
 .task-row.is-editing {
@@ -587,7 +610,7 @@
   min-width: 0;
   max-width: 100%;
   gap: 10px;
-  padding: 28px var(--space) calc(12px + var(--safe-bottom));
+  padding: 4px var(--space) calc(12px + var(--safe-bottom));
   background: transparent;
   transform: translate3d(0, 0, 0);
   transition: transform 0.2s ease;
@@ -1626,6 +1649,45 @@
   pointer-events: none;
   transform: scale(0.65);
   transition-delay: 0s;
+}
+
+.task-view-controls {
+  position: absolute;
+  right: var(--space);
+  bottom: calc(12px + var(--safe-bottom) + var(--tray-pill) + 10px);
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  transition: bottom 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.task-view-toggle {
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  width: var(--tray-pill);
+  height: var(--tray-pill);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  color: var(--text-h);
+  box-shadow: inset 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+
+.task-view-toggle svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.task-view-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 @media (prefers-color-scheme: dark) {

@@ -414,6 +414,24 @@ function SettingsIcon() {
   );
 }
 
+function TaskViewExpandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3.2 17 10.2H7Z" fill="currentColor" />
+      <path d="M12 20.8 7 13.8h10Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function TaskViewCollapseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 3.8h10L12 10.8Z" fill="currentColor" />
+      <path d="M7 20.2h10L12 13.2Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 function IntelligenceIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -651,6 +669,7 @@ function App() {
   const chromeHiddenRef = useRef(false);
   const chromeLockRef = useRef(false);
   const chromeCooldownUntilRef = useRef(0);
+  const [tasksCompact, setTasksCompact] = useState(true);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const searchFieldRef = useRef<HTMLDivElement>(null);
@@ -667,6 +686,7 @@ function App() {
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const composeInputRef = useRef<HTMLInputElement>(null);
+  const taskViewControlsRef = useRef<HTMLDivElement>(null);
   const hasText = content.trim().length > 0;
   const selectedComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
@@ -694,6 +714,8 @@ function App() {
     scheduleLayout;
   const scheduleOverflowCount = overflowTasks.length;
   const highlightedTaskId = hoveredTaskId ?? focusedTaskId;
+  const overflowHighlighted =
+    highlightedTaskId != null && overflowTasks.some((task) => task.id === highlightedTaskId);
 
   const openCalendar = () => {
     setTimePickerOpen(false);
@@ -1034,6 +1056,12 @@ function App() {
   };
 
   useEffect(() => {
+    if (activeView !== "dayline") {
+      setChromeHidden(false);
+    }
+  }, [activeView]);
+
+  useEffect(() => {
     const main = mainRef.current;
     if (!main) return;
 
@@ -1076,9 +1104,12 @@ function App() {
       setChromeHidden(false);
     } else {
       const composer = composerRef.current;
-      composer?.classList.toggle("is-chrome-hidden", chromeHiddenRef.current);
+      composer?.classList.toggle(
+        "is-chrome-hidden",
+        chromeHiddenRef.current && activeView === "dayline",
+      );
     }
-  }, [collapsed, searchOpen, moreMenuOpen]);
+  }, [collapsed, searchOpen, moreMenuOpen, activeView]);
 
   useLayoutEffect(() => {
     const slide = twinelineSlideRef.current;
@@ -1094,6 +1125,22 @@ function App() {
     observer.observe(slide);
     return () => observer.disconnect();
   }, [activeView, calendarOpen, timePickerOpen, scheduleOverflowCount, orderedWeekdays.length]);
+
+  useLayoutEffect(() => {
+    if (activeView !== "dayline") return;
+    const composer = composerRef.current;
+    const controls = taskViewControlsRef.current;
+    if (!composer || !controls) return;
+
+    const sync = () => {
+      controls.style.bottom = `${composer.offsetHeight + 10}px`;
+    };
+    sync();
+
+    const observer = new ResizeObserver(sync);
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, [activeView, collapsed, searchOpen, composerSavePromptOpen]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -1585,7 +1632,7 @@ function App() {
                     {scheduleOverflowCount > 0 && (
                       <button
                         type="button"
-                        className="twineline-schedule-overflow"
+                        className={`twineline-schedule-overflow${overflowHighlighted ? " is-highlighted" : ""}`}
                         aria-label={`${scheduleOverflowCount} more task${scheduleOverflowCount === 1 ? "" : "s"} beyond the timeline`}
                         title={overflowTasks.map((task) => task.title).join(", ")}
                         onClick={() => {
@@ -1629,7 +1676,7 @@ function App() {
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : (
           <ul
-            className="task-list"
+            className={`task-list${tasksCompact ? " is-compact" : ""}`}
             onMouseLeave={() => setHoveredTaskId(null)}
           >
             {tasks.map((task) => {
@@ -1670,7 +1717,7 @@ function App() {
                     aria-label={`Edit task ${task.title}`}
                   >
                     <p className="task-row-title">{task.title}</p>
-                    {meta.length > 0 && (
+                    {!tasksCompact && meta.length > 0 && (
                       <div className="task-row-meta">
                         {meta.map((item) => (
                           <span key={item.key}>{item.value}</span>
@@ -1684,6 +1731,20 @@ function App() {
           </ul>
         )}
       </main>
+
+      {activeView === "dayline" && (
+        <div className="task-view-controls" ref={taskViewControlsRef}>
+          <button
+            type="button"
+            className="task-view-toggle"
+            onClick={() => setTasksCompact((compact) => !compact)}
+            aria-label={tasksCompact ? "Expand task list" : "Compact task list"}
+            aria-pressed={tasksCompact}
+          >
+            {tasksCompact ? <TaskViewExpandIcon /> : <TaskViewCollapseIcon />}
+          </button>
+        </div>
+      )}
 
       <form
         ref={composerRef}
