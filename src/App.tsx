@@ -348,6 +348,51 @@ function CycleIcon() {
   );
 }
 
+function ParentTaskIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="5.5" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M12 7.7v4.3M8 16.5v-2.8c0-.9.7-1.6 1.6-1.6h4.8c.9 0 1.6.7 1.6 1.6v2.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="18.5" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="16" cy="18.5" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function UrgencyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6.5 4.5v10M12 4.5v10M17.5 4.5v10"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      <circle cx="6.5" cy="18.5" r="1.15" fill="currentColor" />
+      <circle cx="12" cy="18.5" r="1.15" fill="currentColor" />
+      <circle cx="17.5" cy="18.5" r="1.15" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ImpactIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="2.2" fill="currentColor" />
+      <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function FoodIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -554,6 +599,30 @@ const MORE_OPTIONS = [
 ] as const;
 
 const MORE_MENU_ITEMS = MORE_OPTIONS.filter((item) => item.id !== "settings");
+
+const URGENCY_OPTIONS = ["Future", "Later", "Soon", "Now"] as const;
+type UrgencyOption = (typeof URGENCY_OPTIONS)[number];
+const DEFAULT_URGENCY: UrgencyOption = "Now";
+const DEFAULT_IMPACT = 10;
+const IMPACT_MIN = 0;
+const IMPACT_MAX = 50;
+
+function clampImpact(value: number): number {
+  return Math.min(IMPACT_MAX, Math.max(IMPACT_MIN, Math.round(value)));
+}
+
+function isUrgencyOption(value: string | null | undefined): value is UrgencyOption {
+  return URGENCY_OPTIONS.includes(value as UrgencyOption);
+}
+
+function formatTaskDurationLabel(minutes: number | null | undefined): string | null {
+  if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return null;
+  const total = Math.round(minutes);
+  if (total < 60) return `${total}m`;
+  const hours = Math.floor(total / 60);
+  const rem = total % 60;
+  return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
+}
 const SETTINGS_OPTION = MORE_OPTIONS.find((item) => item.id === "settings")!;
 
 const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, ...MORE_OPTIONS] as const;
@@ -677,6 +746,13 @@ function App() {
   const [composeKindMenuOpen, setComposeKindMenuOpen] = useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = useState(false);
   const [durationActivated, setDurationActivated] = useState(false);
+  const [urgencyMenuOpen, setUrgencyMenuOpen] = useState(false);
+  const [urgencyActivated, setUrgencyActivated] = useState(false);
+  const [urgency, setUrgency] = useState<UrgencyOption>(DEFAULT_URGENCY);
+  const [impactMenuOpen, setImpactMenuOpen] = useState(false);
+  const [impactActivated, setImpactActivated] = useState(false);
+  const [impact, setImpact] = useState(DEFAULT_IMPACT);
+  const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
   const [durationInput, setDurationInput] = useState("15");
@@ -692,6 +768,8 @@ function App() {
   const [editTaskBaseline, setEditTaskBaseline] = useState<{
     title: string;
     est_duration: number | null;
+    urgency: UrgencyOption;
+    impact: number;
   } | null>(null);
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
@@ -746,6 +824,15 @@ function App() {
   const composeAddButtonRef = useRef<HTMLButtonElement>(null);
   const durationMenuRef = useRef<HTMLDivElement>(null);
   const durationButtonRef = useRef<HTMLButtonElement>(null);
+  const urgencyMenuRef = useRef<HTMLDivElement>(null);
+  const impactMenuRef = useRef<HTMLDivElement>(null);
+  const taskToolHintMenuRef = useRef<HTMLDivElement>(null);
+  const taskToolHintAnchorRef = useRef<HTMLElement | null>(null);
+  const dueDateButtonRef = useRef<HTMLButtonElement>(null);
+  const parentTaskButtonRef = useRef<HTMLButtonElement>(null);
+  const urgencyButtonRef = useRef<HTMLButtonElement>(null);
+  const impactButtonRef = useRef<HTMLButtonElement>(null);
+  const cycleButtonRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
@@ -1158,6 +1245,8 @@ function App() {
                 title: draft.title,
                 type: draft.type,
                 est_duration: draft.est_duration,
+                urgency: draft.urgency,
+                impact: draft.impact,
               }
             : task,
         );
@@ -1176,16 +1265,38 @@ function App() {
     setDurationUnit("minutes");
     setDurationMenuOpen(false);
     setDurationActivated(false);
+    setUrgencyMenuOpen(false);
+    setUrgencyActivated(false);
+    setUrgency(DEFAULT_URGENCY);
+    setImpactMenuOpen(false);
+    setImpactActivated(false);
+    setImpact(DEFAULT_IMPACT);
+    setTaskToolHint(null);
     setEditingTaskId(null);
     setEditTaskBaseline(null);
     setComposerSavePromptOpen(false);
   };
 
+  const openTaskToolHint = (anchor: HTMLElement | null, title: string) => {
+    if (!anchor) return;
+    taskToolHintAnchorRef.current = anchor;
+    setAttachMenuOpen(false);
+    setComposeKindMenuOpen(false);
+    setDurationMenuOpen(false);
+    setUrgencyMenuOpen(false);
+    setImpactMenuOpen(false);
+    setTaskToolHint((current) => (current === title ? null : title));
+  };
+
+  const closeTaskToolHint = () => setTaskToolHint(null);
+
   const isEditDirty =
     editingTaskId != null &&
     editTaskBaseline != null &&
     (content !== editTaskBaseline.title ||
-      (estDurationMinutes ?? null) !== (editTaskBaseline.est_duration ?? null));
+      (estDurationMinutes ?? null) !== (editTaskBaseline.est_duration ?? null) ||
+      urgency !== editTaskBaseline.urgency ||
+      impact !== editTaskBaseline.impact);
 
   const completeTask = (id: string | null) => {
     if (!id) return;
@@ -1207,8 +1318,18 @@ function App() {
   const editTask = (task: ComposerDraft) => {
     if (!task.id) return;
     const minutes = task.est_duration ?? 15;
+    const nextUrgency = isUrgencyOption(task.urgency) ? task.urgency : DEFAULT_URGENCY;
+    const nextImpact =
+      typeof task.impact === "number" && Number.isFinite(task.impact)
+        ? clampImpact(task.impact)
+        : DEFAULT_IMPACT;
     setEditingTaskId(task.id);
-    setEditTaskBaseline({ title: task.title, est_duration: minutes });
+    setEditTaskBaseline({
+      title: task.title,
+      est_duration: minutes,
+      urgency: nextUrgency,
+      impact: nextImpact,
+    });
     setComposerSavePromptOpen(false);
     setComposeKind("task");
     setContent(task.title);
@@ -1217,6 +1338,12 @@ function App() {
     setDurationInput(String(Math.round(minutes)));
     setDurationActivated(task.est_duration != null && task.est_duration > 0);
     setDurationMenuOpen(false);
+    setUrgency(nextUrgency);
+    setUrgencyActivated(task.urgency != null);
+    setUrgencyMenuOpen(false);
+    setImpact(nextImpact);
+    setImpactActivated(task.impact != null);
+    setImpactMenuOpen(false);
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setMoreMenuOpen(false);
@@ -1251,6 +1378,9 @@ function App() {
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setDurationMenuOpen(false);
+    setUrgencyMenuOpen(false);
+    setImpactMenuOpen(false);
+    closeTaskToolHint();
     setComposerSavePromptOpen(false);
     if (editingTaskId) {
       resetComposerFields();
@@ -1264,6 +1394,9 @@ function App() {
       setAttachMenuOpen(false);
       setComposeKindMenuOpen(false);
       setDurationMenuOpen(false);
+      setUrgencyMenuOpen(false);
+      setImpactMenuOpen(false);
+      closeTaskToolHint();
       setComposerSavePromptOpen(true);
       return;
     }
@@ -1279,6 +1412,8 @@ function App() {
       title: content,
       type: composeKind,
       est_duration: estDurationMinutes,
+      urgency,
+      impact,
     });
     if (draft) {
       submitComposerDraft[composeKind](draft);
@@ -1319,6 +1454,10 @@ function App() {
     if (unit === durationUnit) return;
     setDurationUnit(unit);
     syncDurationInput(estDurationMinutes, unit);
+  };
+
+  const stepImpact = (direction: 1 | -1) => {
+    setImpact((value) => clampImpact(value + direction));
   };
 
   const openComposer = () => {
@@ -1781,6 +1920,9 @@ function App() {
       if (attachMenuRef.current?.contains(target)) return;
       if (composeKindMenuRef.current?.contains(target)) return;
       if (durationMenuRef.current?.contains(target)) return;
+      if (urgencyMenuRef.current?.contains(target)) return;
+      if (impactMenuRef.current?.contains(target)) return;
+      if (taskToolHintMenuRef.current?.contains(target)) return;
 
       // Edit form: close on outside click, but let the click reach tasks/buttons.
       // Create form: swallow the outside click so it only dismisses the composer.
@@ -1802,10 +1944,20 @@ function App() {
         timeoutId = window.setTimeout(cleanup, 500);
       }
 
-      if (attachMenuOpen || composeKindMenuOpen || durationMenuOpen) {
+      if (
+        attachMenuOpen ||
+        composeKindMenuOpen ||
+        durationMenuOpen ||
+        urgencyMenuOpen ||
+        impactMenuOpen ||
+        taskToolHint != null
+      ) {
         setAttachMenuOpen(false);
         setComposeKindMenuOpen(false);
         setDurationMenuOpen(false);
+        setUrgencyMenuOpen(false);
+        setImpactMenuOpen(false);
+        closeTaskToolHint();
         return;
       }
 
@@ -1819,6 +1971,9 @@ function App() {
     attachMenuOpen,
     composeKindMenuOpen,
     durationMenuOpen,
+    urgencyMenuOpen,
+    impactMenuOpen,
+    taskToolHint,
     editingTaskId,
     isEditDirty,
   ]);
@@ -1868,6 +2023,51 @@ function App() {
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [durationMenuOpen]);
+
+  useEffect(() => {
+    if (!urgencyMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (urgencyMenuRef.current?.contains(target)) return;
+      if (urgencyButtonRef.current?.contains(target)) return;
+      setUrgencyMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [urgencyMenuOpen]);
+
+  useEffect(() => {
+    if (!impactMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (impactMenuRef.current?.contains(target)) return;
+      if (impactButtonRef.current?.contains(target)) return;
+      setImpactMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [impactMenuOpen]);
+
+  useEffect(() => {
+    if (taskToolHint == null) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (taskToolHintMenuRef.current?.contains(target)) return;
+      if (taskToolHintAnchorRef.current?.contains(target)) return;
+      closeTaskToolHint();
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [taskToolHint]);
 
   useEffect(() => {
     if (!moreMenuOpen) return;
@@ -2297,34 +2497,78 @@ function App() {
                   </div>
                   {dayTasks.length > 0 && (
                     <ul className="task-day-tasks">
-                      {dayTasks.map((block) => (
-                        <li
-                          key={block.key}
-                          data-task-id={block.taskId ?? undefined}
-                          className={`task-row${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}`}
-                        >
-                          <button
-                            type="button"
-                            className="task-complete"
-                            aria-label="Mark complete"
-                            onClick={() => completeTask(block.taskId)}
-                          />
-                          <button
-                            type="button"
-                            className="task-row-body"
-                            onClick={() => {
-                              if (block.taskId) {
-                                setFocusedOverflowTaskIds(null);
-                                setFocusedTaskId(block.taskId);
-                              }
-                              editTask(block.task);
-                            }}
-                            aria-label={`Edit task ${block.title}`}
+                      {dayTasks.map((block) => {
+                        const urgencyLabel = isUrgencyOption(block.task.urgency)
+                          ? block.task.urgency
+                          : null;
+                        const impactValue =
+                          typeof block.task.impact === "number" &&
+                          Number.isFinite(block.task.impact)
+                            ? Math.round(block.task.impact)
+                            : null;
+                        const impactPercent =
+                          impactValue != null
+                            ? Math.min(100, Math.max(0, (impactValue / IMPACT_MAX) * 100))
+                            : null;
+                        const durationLabel = formatTaskDurationLabel(block.task.est_duration);
+                        const hasMeta =
+                          urgencyLabel != null || impactValue != null || durationLabel != null;
+                        return (
+                          <li
+                            key={block.key}
+                            data-task-id={block.taskId ?? undefined}
+                            className={`task-row${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}`}
                           >
-                            <p className="task-row-title">{block.title}</p>
-                          </button>
-                        </li>
-                      ))}
+                            <button
+                              type="button"
+                              className="task-complete"
+                              aria-label="Mark complete"
+                              onClick={() => completeTask(block.taskId)}
+                            />
+                            <button
+                              type="button"
+                              className="task-row-body"
+                              onClick={() => {
+                                if (block.taskId) {
+                                  setFocusedOverflowTaskIds(null);
+                                  setFocusedTaskId(block.taskId);
+                                }
+                                editTask(block.task);
+                              }}
+                              aria-label={`Edit task ${block.title}`}
+                            >
+                              <p className="task-row-title">{block.title}</p>
+                              {hasMeta && (
+                                <div className="task-row-meta">
+                                  <div className="task-row-meta-left">
+                                    {urgencyLabel != null && (
+                                      <span className="task-row-urgency">{urgencyLabel}</span>
+                                    )}
+                                    {impactValue != null && impactPercent != null && (
+                                      <span
+                                        className="task-row-impact"
+                                        role="img"
+                                        aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
+                                        title={`Impact ${impactValue}`}
+                                      >
+                                        <span className="task-row-impact-track" aria-hidden="true">
+                                          <span
+                                            className="task-row-impact-fill"
+                                            style={{ width: `${impactPercent}%` }}
+                                          />
+                                        </span>
+                                      </span>
+                                    )}
+                                  </div>
+                                  {durationLabel != null && (
+                                    <span className="task-row-duration">{durationLabel}</span>
+                                  )}
+                                </div>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </section>
@@ -2471,6 +2715,8 @@ function App() {
             title: content,
             type: composeKind,
             est_duration: estDurationMinutes,
+            urgency,
+            impact,
           });
           if (!draft) return;
           const wasEditing = editingTaskId != null;
@@ -2762,6 +3008,9 @@ function App() {
                     onClick={() => {
                       setComposeKindMenuOpen(false);
                       setDurationMenuOpen(false);
+                      setUrgencyMenuOpen(false);
+                      setImpactMenuOpen(false);
+                      closeTaskToolHint();
                       setAttachMenuOpen((open) => !open);
                     }}
                     aria-label={attachMenuOpen ? "Close add menu" : "Open add menu"}
@@ -2773,15 +3022,172 @@ function App() {
                 </div>
               </div>
               <div className="app-composer-tools-center">
+                <ComposerOverlayMenu
+                  open={taskToolHint != null}
+                  anchorRef={taskToolHintAnchorRef}
+                  menuRef={taskToolHintMenuRef}
+                  className="app-composer-tool-hint"
+                  aria-label={taskToolHint ?? "Tool info"}
+                >
+                  <p className="app-composer-tool-hint-title">{taskToolHint}</p>
+                </ComposerOverlayMenu>
                 {(composeKind === "task" || composeKind === "project") && (
-                  <button type="button" className="app-composer-tool" aria-label="Calendar" tabIndex={collapsed ? -1 : 0}>
+                  <button
+                    ref={dueDateButtonRef}
+                    type="button"
+                    className={`app-composer-tool${taskToolHint === "Due Date" ? " is-open" : ""}`}
+                    aria-label="Due Date"
+                    aria-expanded={taskToolHint === "Due Date"}
+                    tabIndex={collapsed ? -1 : 0}
+                    onClick={(event) => openTaskToolHint(event.currentTarget, "Due Date")}
+                  >
                     <CalendarIcon />
                   </button>
                 )}
-                {(composeKind === "task" || composeKind === "note") && (
+                {composeKind === "note" && (
                   <button type="button" className="app-composer-tool" aria-label="Notes" tabIndex={collapsed ? -1 : 0}>
                     <NotesIcon />
                   </button>
+                )}
+                {composeKind === "task" && (
+                  <>
+                    <button
+                      ref={parentTaskButtonRef}
+                      type="button"
+                      className={`app-composer-tool${taskToolHint === "Parent Task" ? " is-open" : ""}`}
+                      aria-label="Parent Task"
+                      aria-expanded={taskToolHint === "Parent Task"}
+                      tabIndex={collapsed ? -1 : 0}
+                      onClick={(event) => openTaskToolHint(event.currentTarget, "Parent Task")}
+                    >
+                      <ParentTaskIcon />
+                    </button>
+                    <button
+                      ref={cycleButtonRef}
+                      type="button"
+                      className={`app-composer-tool${taskToolHint === "Recurring or Cycle/After" ? " is-open" : ""}`}
+                      aria-label="Recurring or Cycle/After"
+                      aria-expanded={taskToolHint === "Recurring or Cycle/After"}
+                      tabIndex={collapsed ? -1 : 0}
+                      onClick={(event) =>
+                        openTaskToolHint(event.currentTarget, "Recurring or Cycle/After")
+                      }
+                    >
+                      <CycleIcon />
+                    </button>
+                    <div className="app-composer-impact">
+                      <ComposerOverlayMenu
+                        open={impactMenuOpen}
+                        anchorRef={impactButtonRef}
+                        menuRef={impactMenuRef}
+                        className="app-impact-menu"
+                        aria-label="Impact"
+                      >
+                        <p className="app-impact-title">Impact</p>
+                        <div className="app-impact-divider" aria-hidden="true" />
+                        <p className="app-impact-value" aria-live="polite">
+                          {impact}
+                        </p>
+                        <div className="app-impact-stepper">
+                          <button
+                            type="button"
+                            className="app-duration-step"
+                            aria-label="Decrease impact"
+                            onClick={() => stepImpact(-1)}
+                          >
+                            −
+                          </button>
+                          <input
+                            type="range"
+                            className="app-impact-slider"
+                            min={IMPACT_MIN}
+                            max={IMPACT_MAX}
+                            step={1}
+                            value={impact}
+                            aria-label="Impact score"
+                            aria-valuemin={IMPACT_MIN}
+                            aria-valuemax={IMPACT_MAX}
+                            aria-valuenow={impact}
+                            onChange={(e) => setImpact(clampImpact(Number(e.target.value)))}
+                          />
+                          <button
+                            type="button"
+                            className="app-duration-step"
+                            aria-label="Increase impact"
+                            onClick={() => stepImpact(1)}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </ComposerOverlayMenu>
+                      <button
+                        ref={impactButtonRef}
+                        type="button"
+                        className={`app-composer-tool app-composer-tool-accent${impactActivated ? " is-activated" : ""}${impactMenuOpen ? " is-open" : ""}`}
+                        aria-label="Impact"
+                        aria-expanded={impactMenuOpen}
+                        tabIndex={collapsed ? -1 : 0}
+                        onClick={() => {
+                          setAttachMenuOpen(false);
+                          setComposeKindMenuOpen(false);
+                          setDurationMenuOpen(false);
+                          setUrgencyMenuOpen(false);
+                          closeTaskToolHint();
+                          setImpactActivated(true);
+                          setImpactMenuOpen((open) => !open);
+                        }}
+                      >
+                        <ImpactIcon />
+                      </button>
+                    </div>
+                    <div className="app-composer-urgency">
+                      <ComposerOverlayMenu
+                        open={urgencyMenuOpen}
+                        anchorRef={urgencyButtonRef}
+                        menuRef={urgencyMenuRef}
+                        className="app-urgency-menu"
+                        aria-label="Urgency"
+                      >
+                        <p className="app-urgency-title">Urgency</p>
+                        <div className="app-urgency-divider" aria-hidden="true" />
+                        {URGENCY_OPTIONS.map((option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            className={`app-attach-menu-item app-urgency-menu-item${urgency === option ? " is-selected" : ""}`}
+                            role="menuitemradio"
+                            aria-checked={urgency === option}
+                            onClick={() => {
+                              setUrgency(option);
+                              setUrgencyActivated(true);
+                              setUrgencyMenuOpen(false);
+                            }}
+                          >
+                            <span>{option}</span>
+                          </button>
+                        ))}
+                      </ComposerOverlayMenu>
+                      <button
+                        ref={urgencyButtonRef}
+                        type="button"
+                        className={`app-composer-tool app-composer-tool-accent${urgencyActivated ? " is-activated" : ""}${urgencyMenuOpen ? " is-open" : ""}`}
+                        aria-label="Urgency"
+                        aria-expanded={urgencyMenuOpen}
+                        tabIndex={collapsed ? -1 : 0}
+                        onClick={() => {
+                          setAttachMenuOpen(false);
+                          setComposeKindMenuOpen(false);
+                          setDurationMenuOpen(false);
+                          setImpactMenuOpen(false);
+                          closeTaskToolHint();
+                          setUrgencyActivated(true);
+                          setUrgencyMenuOpen((open) => !open);
+                        }}
+                      >
+                        <UrgencyIcon />
+                      </button>
+                    </div>
+                  </>
                 )}
                 {composeKind === "task" && (
                   <div className="app-composer-duration">
@@ -2858,13 +3264,16 @@ function App() {
                     <button
                       ref={durationButtonRef}
                       type="button"
-                      className={`app-composer-tool app-composer-tool-duration${durationActivated ? " is-activated" : ""}${durationMenuOpen ? " is-open" : ""}`}
+                      className={`app-composer-tool app-composer-tool-accent app-composer-tool-duration${durationActivated ? " is-activated" : ""}${durationMenuOpen ? " is-open" : ""}`}
                       aria-label="Time"
                       aria-expanded={durationMenuOpen}
                       tabIndex={collapsed ? -1 : 0}
                       onClick={() => {
                         setAttachMenuOpen(false);
                         setComposeKindMenuOpen(false);
+                        setUrgencyMenuOpen(false);
+                        setImpactMenuOpen(false);
+                        closeTaskToolHint();
                         setDurationActivated(true);
                         setDurationMenuOpen((open) => !open);
                       }}
@@ -2919,6 +3328,9 @@ function App() {
                   onClick={() => {
                     setAttachMenuOpen(false);
                     setDurationMenuOpen(false);
+                    setUrgencyMenuOpen(false);
+                    setImpactMenuOpen(false);
+                    closeTaskToolHint();
                     setComposeKindMenuOpen((open) => !open);
                   }}
                   tabIndex={collapsed ? -1 : 0}
@@ -2938,6 +3350,9 @@ function App() {
                       : () => {
                           setAttachMenuOpen(false);
                           setDurationMenuOpen(false);
+                          setUrgencyMenuOpen(false);
+                          setImpactMenuOpen(false);
+                          closeTaskToolHint();
                           setComposeKindMenuOpen((open) => !open);
                         }
                   }
