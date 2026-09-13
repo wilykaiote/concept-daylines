@@ -701,6 +701,15 @@
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
 }
 
+.task-row.is-overdue {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-raised));
+}
+
+.task-row.is-overdue .task-row-title {
+  color: var(--danger);
+}
+
 .task-complete {
   flex-shrink: 0;
   width: 22px;
@@ -1925,6 +1934,89 @@
   white-space: nowrap;
 }
 
+.app-composer-tool-hint.is-due-date {
+  min-width: 220px;
+  padding: 12px 14px;
+}
+
+.app-due-date-title {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.app-due-date-divider {
+  height: 1px;
+  margin: 10px 0;
+  background: var(--border);
+}
+
+.app-due-date-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.app-due-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.app-due-date-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.app-due-date-field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.app-due-date-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.app-due-date-clear {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.app-due-date-clear:hover,
+.app-due-date-clear:focus-visible {
+  color: var(--danger);
+}
+
+.app-due-date-clear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .app-composer-icon,
 .app-composer-fab {
   flex-shrink: 0;
@@ -2175,6 +2267,15 @@
 .calendar-timeline-block.is-highlighted {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
+}
+
+.calendar-timeline-block.is-overdue {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg-raised));
+}
+
+.calendar-timeline-block.is-overdue .calendar-timeline-block-title {
+  color: var(--danger);
 }
 
 .calendar-timeline-block .task-complete {

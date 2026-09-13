@@ -623,6 +623,12 @@ function formatTaskDurationLabel(minutes: number | null | undefined): string | n
   const rem = total % 60;
   return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
 }
+
+function normalizeOptionalField(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
 const SETTINGS_OPTION = MORE_OPTIONS.find((item) => item.id === "settings")!;
 
 const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, ...MORE_OPTIONS] as const;
@@ -752,6 +758,9 @@ function App() {
   const [impactMenuOpen, setImpactMenuOpen] = useState(false);
   const [impactActivated, setImpactActivated] = useState(false);
   const [impact, setImpact] = useState(DEFAULT_IMPACT);
+  const [taskDate, setTaskDate] = useState("");
+  const [taskStartsAt, setTaskStartsAt] = useState("");
+  const [taskDueAt, setTaskDueAt] = useState("");
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
@@ -770,6 +779,9 @@ function App() {
     est_duration: number | null;
     urgency: UrgencyOption;
     impact: number;
+    date: string | null;
+    starts_at: string | null;
+    due_at: string | null;
   } | null>(null);
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
@@ -1247,6 +1259,9 @@ function App() {
                 est_duration: draft.est_duration,
                 urgency: draft.urgency,
                 impact: draft.impact,
+                date: draft.date,
+                starts_at: draft.starts_at,
+                due_at: draft.due_at,
               }
             : task,
         );
@@ -1271,6 +1286,9 @@ function App() {
     setImpactMenuOpen(false);
     setImpactActivated(false);
     setImpact(DEFAULT_IMPACT);
+    setTaskDate("");
+    setTaskStartsAt("");
+    setTaskDueAt("");
     setTaskToolHint(null);
     setEditingTaskId(null);
     setEditTaskBaseline(null);
@@ -1290,13 +1308,21 @@ function App() {
 
   const closeTaskToolHint = () => setTaskToolHint(null);
 
+  const composerDate = normalizeOptionalField(taskDate);
+  const composerStartsAt = normalizeOptionalField(taskStartsAt);
+  const composerDueAt = normalizeOptionalField(taskDueAt);
+  const dueDateActivated = composerDate != null;
+
   const isEditDirty =
     editingTaskId != null &&
     editTaskBaseline != null &&
     (content !== editTaskBaseline.title ||
       (estDurationMinutes ?? null) !== (editTaskBaseline.est_duration ?? null) ||
       urgency !== editTaskBaseline.urgency ||
-      impact !== editTaskBaseline.impact);
+      impact !== editTaskBaseline.impact ||
+      composerDate !== editTaskBaseline.date ||
+      composerStartsAt !== editTaskBaseline.starts_at ||
+      composerDueAt !== editTaskBaseline.due_at);
 
   const completeTask = (id: string | null) => {
     if (!id) return;
@@ -1323,12 +1349,18 @@ function App() {
       typeof task.impact === "number" && Number.isFinite(task.impact)
         ? clampImpact(task.impact)
         : DEFAULT_IMPACT;
+    const nextDate = normalizeOptionalField(task.date);
+    const nextStartsAt = normalizeOptionalField(task.starts_at);
+    const nextDueAt = normalizeOptionalField(task.due_at);
     setEditingTaskId(task.id);
     setEditTaskBaseline({
       title: task.title,
       est_duration: minutes,
       urgency: nextUrgency,
       impact: nextImpact,
+      date: nextDate,
+      starts_at: nextStartsAt,
+      due_at: nextDueAt,
     });
     setComposerSavePromptOpen(false);
     setComposeKind("task");
@@ -1344,12 +1376,47 @@ function App() {
     setImpact(nextImpact);
     setImpactActivated(task.impact != null);
     setImpactMenuOpen(false);
+    setTaskDate(nextDate ?? "");
+    setTaskStartsAt(nextStartsAt ?? "");
+    setTaskDueAt(nextDueAt ?? "");
+    setTaskToolHint(null);
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setMoreMenuOpen(false);
     setSearchOpen(false);
     setSearchQuery("");
     setCollapsed(false);
+  };
+
+  const clearTaskDueDate = () => {
+    setTaskDate("");
+    setTaskStartsAt("");
+    setTaskDueAt("");
+  };
+
+  const setTaskDateValue = (value: string) => {
+    const next = value.trim();
+    setTaskDate(next);
+    if (!next) {
+      setTaskStartsAt("");
+      setTaskDueAt("");
+    }
+  };
+
+  const setTaskStartsAtValue = (value: string) => {
+    const next = value.trim();
+    setTaskStartsAt(next);
+    if (next && !taskDate.trim()) {
+      setTaskDate(dayKey(new Date(countdownNow)));
+    }
+  };
+
+  const setTaskDueAtValue = (value: string) => {
+    const next = value.trim();
+    setTaskDueAt(next);
+    if (next && !taskDate.trim()) {
+      setTaskDate(dayKey(new Date(countdownNow)));
+    }
   };
 
   const selectView = (id: ActiveView) => {
@@ -1414,6 +1481,9 @@ function App() {
       est_duration: estDurationMinutes,
       urgency,
       impact,
+      date: composerDate,
+      starts_at: composerStartsAt,
+      due_at: composerDueAt,
     });
     if (draft) {
       submitComposerDraft[composeKind](draft);
@@ -2532,7 +2602,7 @@ function App() {
                           <li
                             key={block.key}
                             data-task-id={block.taskId ?? undefined}
-                            className={`task-row${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}`}
+                            className={`task-row${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${block.overdue ? " is-overdue" : ""}`}
                           >
                             <button
                               type="button"
@@ -2640,7 +2710,7 @@ function App() {
                       <div
                         key={block.key}
                         data-task-id={block.taskId ?? undefined}
-                        className={`calendar-timeline-block${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}`}
+                        className={`calendar-timeline-block${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${block.overdue ? " is-overdue" : ""}`}
                         style={{ top: block.topPx, height: block.heightPx }}
                       >
                         <button
@@ -2732,6 +2802,9 @@ function App() {
             est_duration: estDurationMinutes,
             urgency,
             impact,
+            date: composerDate,
+            starts_at: composerStartsAt,
+            due_at: composerDueAt,
           });
           if (!draft) return;
           const wasEditing = editingTaskId != null;
@@ -3041,16 +3114,62 @@ function App() {
                   open={taskToolHint != null}
                   anchorRef={taskToolHintAnchorRef}
                   menuRef={taskToolHintMenuRef}
-                  className="app-composer-tool-hint"
+                  className={`app-composer-tool-hint${taskToolHint === "Due Date" ? " is-due-date" : ""}`}
                   aria-label={taskToolHint ?? "Tool info"}
                 >
-                  <p className="app-composer-tool-hint-title">{taskToolHint}</p>
+                  {taskToolHint === "Due Date" ? (
+                    <>
+                      <p className="app-due-date-title">Due Date</p>
+                      <div className="app-due-date-divider" aria-hidden="true" />
+                      <div className="app-due-date-fields">
+                        <label className="app-due-date-field">
+                          Date
+                          <input
+                            type="date"
+                            value={taskDate}
+                            onChange={(event) => setTaskDateValue(event.target.value)}
+                            aria-label="Task date"
+                          />
+                        </label>
+                        <label className="app-due-date-field">
+                          Starts
+                          <input
+                            type="time"
+                            value={taskStartsAt}
+                            onChange={(event) => setTaskStartsAtValue(event.target.value)}
+                            aria-label="Starts at"
+                          />
+                        </label>
+                        <label className="app-due-date-field">
+                          Due
+                          <input
+                            type="time"
+                            value={taskDueAt}
+                            onChange={(event) => setTaskDueAtValue(event.target.value)}
+                            aria-label="Due at"
+                          />
+                        </label>
+                      </div>
+                      <div className="app-due-date-actions">
+                        <button
+                          type="button"
+                          className="app-due-date-clear"
+                          onClick={clearTaskDueDate}
+                          disabled={!dueDateActivated && !composerStartsAt && !composerDueAt}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="app-composer-tool-hint-title">{taskToolHint}</p>
+                  )}
                 </ComposerOverlayMenu>
                 {(composeKind === "task" || composeKind === "project") && (
                   <button
                     ref={dueDateButtonRef}
                     type="button"
-                    className={`app-composer-tool${taskToolHint === "Due Date" ? " is-open" : ""}`}
+                    className={`app-composer-tool app-composer-tool-accent${dueDateActivated ? " is-activated" : ""}${taskToolHint === "Due Date" ? " is-open" : ""}`}
                     aria-label="Due Date"
                     aria-expanded={taskToolHint === "Due Date"}
                     tabIndex={collapsed ? -1 : 0}

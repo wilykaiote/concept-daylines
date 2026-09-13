@@ -7,7 +7,14 @@ export type ComposerDraft = {
   title: string;
   description: string | null;
   est_duration: number | null;
+  /** @deprecated Unused for packing; prefer `date` + `starts_at` / `due_at`. */
   date_time: string | null;
+  /** Calendar day `YYYY-MM-DD`, nullable. */
+  date: string | null;
+  /** Time of day `HH:mm`, nullable. */
+  starts_at: string | null;
+  /** Time of day `HH:mm`, nullable. */
+  due_at: string | null;
   urgency: string | null;
   impact: number | null;
   recurring: string | null;
@@ -44,6 +51,9 @@ export function buildComposerDraft({
     description: overrides.description ?? null,
     est_duration: overrides.est_duration ?? null,
     date_time: overrides.date_time ?? null,
+    date: overrides.date ?? null,
+    starts_at: overrides.starts_at ?? null,
+    due_at: overrides.due_at ?? null,
     urgency: overrides.urgency ?? null,
     impact: overrides.impact ?? null,
     recurring: overrides.recurring ?? null,
