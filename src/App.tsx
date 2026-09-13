@@ -5,7 +5,6 @@ import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
   buildMonthCalendarDays,
   buildTargetTime,
-  dateForWeekday,
   formatCountdown,
   formatMonthYearLabel,
   formatTargetTimeLabel,
@@ -23,11 +22,10 @@ import {
   shiftMonth,
   targetTimeDayKey,
   toStartOfDay,
-  weekdaysFromToday,
   WEEKDAY_BUTTONS,
   type TargetTimePeriod,
 } from "./taskStorage";
-import { buildScheduleLayout } from "./schedule";
+import { buildScheduleLayoutForWindow } from "./schedule";
 import {
   addDays,
   buildDayRange,
@@ -173,6 +171,20 @@ function ClockIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function RestIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M14.5 4.5A7.5 7.5 0 0 0 9 19.2 7.8 7.8 0 1 1 14.5 4.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
         strokeLinejoin="round"
       />
     </svg>
@@ -708,10 +720,12 @@ function App() {
   const [tasksCompact, setTasksCompact] = useState(true);
   const [timelineRangeStart, setTimelineRangeStart] = useState(() => toStartOfDay(new Date()));
   const [timelineDayCount, setTimelineDayCount] = useState(31);
+  const [weekdayDayCount, setWeekdayDayCount] = useState(28);
   const [showTimelineScrollTop, setShowTimelineScrollTop] = useState(false);
   const timelineScrollSyncLockRef = useRef(false);
   const timelineScrollTopBtnVisibleRef = useRef(false);
   const pendingTimelineScrollDayRef = useRef<Date | null>(null);
+  const weekdayStripRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const searchFieldRef = useRef<HTMLDivElement>(null);
@@ -727,7 +741,7 @@ function App() {
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
-  const composeInputRef = useRef<HTMLInputElement>(null);
+  const composeInputRef = useRef<HTMLTextAreaElement>(null);
   const taskViewControlsRef = useRef<HTMLDivElement>(null);
   const hasText = content.trim().length > 0;
   const selectedComposeKind =
@@ -751,25 +765,59 @@ function App() {
   const todayTargetTime = getTargetTimeForDay(todayStart);
   const countdownMs = msUntilTargetTime(todayTargetTime, new Date(countdownNow));
   const countdownRemaining = formatCountdown(countdownMs);
+  const nowMinutes = minutesFromMidnight(new Date(countdownNow));
+  const todayPackEnd = packWindowEndMinutes(todayTargetTime);
+  const outsideTaskWindow =
+    nowMinutes < PACK_START_MINUTES || nowMinutes >= todayPackEnd;
   const targetTimeLabel = formatTargetTimeLabel(timePickerOpen ? targetTime : todayTargetTime);
   const targetTimeParts = parseTargetTimeParts(targetTime);
   const twinelineDateLabel = formatTwinelineDateLabel(selectedDay, new Date(countdownNow));
-  const orderedWeekdays = weekdaysFromToday(new Date(countdownNow));
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
-  const scheduleLayout = buildScheduleLayout(tasks, countdownMs);
-  const { timelineMinutes: scheduleTimelineMinutes, segments: scheduleSegments, overflowTasks } =
-    scheduleLayout;
-  const scheduleOverflowCount = overflowTasks.length;
-  const highlightedTaskId = hoveredTaskId ?? focusedTaskId;
-  const overflowHighlighted =
-    highlightedTaskId != null && overflowTasks.some((task) => task.id === highlightedTaskId);
+  const weekdayDays = buildDayRange(todayStart, weekdayDayCount);
   const calendarTaskLayout = layoutCalendarTasks(tasks, new Date(countdownNow), getTargetTimeForDay);
   const calendarLayoutSpanKey =
     calendarTaskLayout.length > 0
       ? `${calendarTaskLayout[0].dayKey}:${calendarTaskLayout[calendarTaskLayout.length - 1].dayKey}`
       : "";
   const calendarLayoutByKey = new Map(calendarTaskLayout.map((day) => [day.dayKey, day]));
+  const selectedDayKey = dayKey(selectedDay);
+  const selectedDayLayout = calendarLayoutByKey.get(selectedDayKey);
+  const selectedDayTargetTime = getTargetTimeForDay(selectedDay);
+  const selectedPackEnd =
+    selectedDayLayout?.packEndMin ?? packWindowEndMinutes(selectedDayTargetTime);
+  const selectedIsToday = sameCalendarDay(selectedDay, todayStart);
+  const selectedWindowStart = selectedIsToday
+    ? Math.min(selectedPackEnd, Math.max(PACK_START_MINUTES, nowMinutes))
+    : PACK_START_MINUTES;
+  const selectedDayBlocks = (selectedDayLayout?.blocks ?? []).map((block) => ({
+    startMin: block.startMin,
+    endMin: block.endMin,
+    task: block.task,
+  }));
+  const scheduleOverflowSeen = new Set<string>();
+  const scheduleOverflowTasks = calendarTaskLayout
+    .filter((day) => day.date.getTime() > selectedDay.getTime())
+    .flatMap((day) => day.blocks)
+    .map((block) => block.task)
+    .filter((task) => {
+      const id = task.id ?? task.title;
+      if (scheduleOverflowSeen.has(id)) return false;
+      scheduleOverflowSeen.add(id);
+      return true;
+    });
+  const scheduleLayout = buildScheduleLayoutForWindow(
+    selectedDayBlocks,
+    selectedWindowStart,
+    selectedPackEnd,
+    scheduleOverflowTasks,
+  );
+  const { timelineMinutes: scheduleTimelineMinutes, segments: scheduleSegments, overflowTasks } =
+    scheduleLayout;
+  const scheduleOverflowCount = overflowTasks.length;
+  const highlightedTaskId = hoveredTaskId ?? focusedTaskId;
+  const overflowHighlighted =
+    highlightedTaskId != null && overflowTasks.some((task) => task.id === highlightedTaskId);
   const nowDate = new Date(countdownNow);
   const timelineDays = buildDayRange(timelineRangeStart, timelineDayCount)
     .filter((date) => date.getTime() >= todayStart.getTime())
@@ -866,7 +914,6 @@ function App() {
 
   const selectCalendarDay = (day: Date) => {
     selectDayFromUi(day);
-    setCalendarOpen(false);
   };
 
   const openTimePicker = () => {
@@ -1201,9 +1248,16 @@ function App() {
     twinelineChromeRef.current?.classList.toggle("is-chrome-hidden", hidden);
 
     const composer = composerRef.current;
+    const hideComposer = hidden && collapsed && !searchOpen;
     if (composer) {
-      const hideComposer = hidden && collapsed && !searchOpen;
       composer.classList.toggle("is-chrome-hidden", hideComposer);
+    }
+
+    const controls = taskViewControlsRef.current;
+    if (controls) {
+      controls.style.bottom = hideComposer
+        ? "calc(12px + var(--safe-bottom))"
+        : `${(composer?.offsetHeight ?? 0) + 10}px`;
     }
   };
 
@@ -1332,10 +1386,14 @@ function App() {
       setChromeHidden(false);
     } else {
       const composer = composerRef.current;
-      composer?.classList.toggle(
-        "is-chrome-hidden",
-        chromeHiddenRef.current && activeView === "dayline",
-      );
+      const hideComposer = chromeHiddenRef.current && activeView === "dayline";
+      composer?.classList.toggle("is-chrome-hidden", hideComposer);
+      const controls = taskViewControlsRef.current;
+      if (controls) {
+        controls.style.bottom = hideComposer
+          ? "calc(12px + var(--safe-bottom))"
+          : `${(composer?.offsetHeight ?? 0) + 10}px`;
+      }
     }
   }, [collapsed, searchOpen, moreMenuOpen, activeView]);
 
@@ -1352,7 +1410,30 @@ function App() {
     const observer = new ResizeObserver(syncSlotHeight);
     observer.observe(slide);
     return () => observer.disconnect();
-  }, [activeView, calendarOpen, timePickerOpen, scheduleOverflowCount, orderedWeekdays.length]);
+  }, [activeView, calendarOpen, timePickerOpen, scheduleOverflowCount, weekdayDayCount]);
+
+  useEffect(() => {
+    const end = addDays(todayStart, weekdayDayCount - 1);
+    if (selectedDay.getTime() > end.getTime()) {
+      const extra = Math.ceil((selectedDay.getTime() - end.getTime()) / 86_400_000) + 7;
+      setWeekdayDayCount((count) => count + extra);
+    }
+  }, [selectedDay, todayStart, weekdayDayCount]);
+
+  useLayoutEffect(() => {
+    if (calendarOpen) return;
+    const strip = weekdayStripRef.current;
+    if (!strip) return;
+    const key = dayKey(selectedDay);
+    const button = strip.querySelector(`[data-weekday-day="${CSS.escape(key)}"]`);
+    if (!(button instanceof HTMLElement)) return;
+    const stripRect = strip.getBoundingClientRect();
+    const buttonRect = button.getBoundingClientRect();
+    if (buttonRect.left < stripRect.left || buttonRect.right > stripRect.right) {
+      const nextLeft = strip.scrollLeft + (buttonRect.left - stripRect.left);
+      strip.scrollTo({ left: Math.max(0, nextLeft), behavior: "smooth" });
+    }
+  }, [selectedDay, calendarOpen, weekdayDayCount]);
 
   useLayoutEffect(() => {
     if (activeView !== "dayline") return;
@@ -1361,7 +1442,10 @@ function App() {
     if (!composer || !controls) return;
 
     const sync = () => {
-      controls.style.bottom = `${composer.offsetHeight + 10}px`;
+      const composerHidden = composer.classList.contains("is-chrome-hidden");
+      controls.style.bottom = composerHidden
+        ? "calc(12px + var(--safe-bottom))"
+        : `${composer.offsetHeight + 10}px`;
     };
     sync();
 
@@ -1369,6 +1453,34 @@ function App() {
     observer.observe(composer);
     return () => observer.disconnect();
   }, [activeView, collapsed, searchOpen, composerSavePromptOpen]);
+
+  useLayoutEffect(() => {
+    const el = composeInputRef.current;
+    if (!el) return;
+
+    const syncHeight = () => {
+      if (collapsed || el.clientWidth < 40) {
+        el.style.height = "46px";
+        return;
+      }
+      // Measure from the min height so empty/short text doesn't inflate scrollHeight.
+      el.style.height = "46px";
+      const next = Math.min(Math.max(el.scrollHeight, 46), 160);
+      el.style.height = `${next}px`;
+    };
+
+    syncHeight();
+    const frame = requestAnimationFrame(() => {
+      syncHeight();
+      requestAnimationFrame(syncHeight);
+    });
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [content, collapsed, composeKind, editingTaskId]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -1613,51 +1725,64 @@ function App() {
               ref={twinelineHeaderRef}
             >
               <div className="twineline-countdown-slide" ref={twinelineSlideRef}>
-            <div className="twineline-countdown-bar">
-              {!timePickerOpen && (
+            {!calendarOpen && (
+              <div className="twineline-countdown-bar">
                 <button
                   type="button"
-                  className="twineline-date"
-                  aria-label={calendarOpen ? "Close calendar" : "Open calendar"}
-                  aria-expanded={calendarOpen}
-                  onClick={() => (calendarOpen ? closeCalendar() : openCalendar())}
+                  className="twineline-settings"
+                  aria-label={SETTINGS_OPTION.label}
+                  onClick={() => selectView("settings")}
                 >
-                  <span>{twinelineDateLabel}</span>
-                  <span className="twineline-date-chevron" aria-hidden="true">
-                    {calendarOpen ? "∨" : ">"}
-                  </span>
+                  <SETTINGS_OPTION.Icon />
                 </button>
-              )}
-              {!calendarOpen && (
+                {!timePickerOpen && (
+                  <button
+                    type="button"
+                    className="twineline-date"
+                    aria-label="Open calendar"
+                    aria-expanded={false}
+                    onClick={openCalendar}
+                  >
+                    <span>{formatMonthYearLabel(selectedDay)}</span>
+                    <span className="twineline-date-chevron" aria-hidden="true">
+                      {">"}
+                    </span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  className={`twineline-countdown-button${timePickerOpen ? " is-open" : ""}`}
+                  className={`twineline-countdown-button${timePickerOpen ? " is-open" : ""}${outsideTaskWindow && !timePickerOpen ? " is-rest" : ""}`}
                   aria-label={
                     timePickerOpen
                       ? `Close target time picker. Currently ${targetTimeLabel}.`
-                      : `Countdown to ${targetTimeLabel}. Change target time.`
+                      : outsideTaskWindow
+                        ? `Rest time. Outside task window until ${formatMinutesLabel(PACK_START_MINUTES)}. Change target time.`
+                        : `Countdown to ${targetTimeLabel}. Change target time.`
                   }
                   aria-expanded={timePickerOpen}
                   onClick={() => (timePickerOpen ? requestCloseTimePicker() : openTimePicker())}
                 >
-                  <span className="twineline-countdown-remaining">{countdownRemaining}</span>
-                  {timePickerOpen && (
-                    <span className="twineline-date-chevron" aria-hidden="true">
-                      ∨
-                    </span>
+                  {outsideTaskWindow && !timePickerOpen ? (
+                    <>
+                      <span className="twineline-countdown-remaining">REST</span>
+                      <span className="twineline-countdown-rest-icon">
+                        <RestIcon />
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="twineline-countdown-remaining">{countdownRemaining}</span>
+                      {timePickerOpen && (
+                        <span className="twineline-date-chevron" aria-hidden="true">
+                          ∨
+                        </span>
+                      )}
+                    </>
                   )}
                 </button>
-              )}
-              <button
-                type="button"
-                className="twineline-settings"
-                aria-label={SETTINGS_OPTION.label}
-                onClick={() => selectView("settings")}
-              >
-                <SETTINGS_OPTION.Icon />
-              </button>
-            </div>
-            {calendarOpen ? (
+              </div>
+            )}
+            {calendarOpen && (
               <div className="twineline-calendar" aria-label="Choose a day">
                 <div className="twineline-calendar-header">
                   <button
@@ -1668,7 +1793,17 @@ function App() {
                   >
                     ‹
                   </button>
-                  <p className="twineline-calendar-month">{calendarMonthLabel}</p>
+                  <button
+                    type="button"
+                    className="twineline-calendar-month"
+                    aria-label="Close calendar"
+                    onClick={closeCalendar}
+                  >
+                    <span>{calendarMonthLabel}</span>
+                    <span className="twineline-date-chevron" aria-hidden="true">
+                      ∧
+                    </span>
+                  </button>
                   <button
                     type="button"
                     className="twineline-calendar-nav"
@@ -1702,7 +1837,8 @@ function App() {
                   )}
                 </div>
               </div>
-            ) : timePickerOpen ? (
+            )}
+            {timePickerOpen ? (
               <div className="twineline-time-picker" aria-label="Choose target time">
                 <p className="twineline-time-picker-title">Countdown to {targetTimeLabel}</p>
                 <div className="app-duration-unit" role="group" aria-label="AM or PM">
@@ -1831,9 +1967,43 @@ function App() {
               </div>
             ) : (
               <>
+                {!calendarOpen && (
+                  <div
+                    ref={weekdayStripRef}
+                    className="twineline-weekdays"
+                    role="tablist"
+                    aria-label="Upcoming days"
+                    onScroll={(event) => {
+                      const el = event.currentTarget;
+                      if (el.scrollLeft + el.clientWidth > el.scrollWidth - 96) {
+                        setWeekdayDayCount((count) => count + 14);
+                      }
+                    }}
+                  >
+                    {weekdayDays.map((dayDate) => {
+                      const weekday = WEEKDAY_BUTTONS[dayDate.getDay()];
+                      const key = dayKey(dayDate);
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          role="tab"
+                          data-weekday-day={key}
+                          className={`twineline-weekday${sameCalendarDay(dayDate, selectedDay) ? " is-selected" : ""}`}
+                          aria-selected={sameCalendarDay(dayDate, selectedDay)}
+                          aria-label={`${weekday.name} ${dayDate.getDate()}`}
+                          onClick={() => selectDayFromUi(dayDate)}
+                        >
+                          <span className="twineline-weekday-letter">{weekday.label}</span>
+                          <span className="twineline-weekday-date">{dayDate.getDate()}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <div
                   className="twineline-schedule"
-                  aria-label={`Timeline until ${targetTimeLabel}`}
+                  aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
                 >
                   <div
                     className={`twineline-schedule-track${scheduleOverflowCount > 0 ? " has-overflow" : ""}`}
@@ -1895,25 +2065,6 @@ function App() {
                       </button>
                     )}
                   </div>
-                </div>
-                <div className="twineline-weekdays" role="tablist" aria-label="Day of week">
-                  {orderedWeekdays.map(({ id, label, name }) => {
-                    const dayDate = dateForWeekday(id, new Date(countdownNow));
-                    return (
-                      <button
-                        key={`${id}-${name}`}
-                        type="button"
-                        role="tab"
-                        className={`twineline-weekday${sameCalendarDay(dayDate, selectedDay) ? " is-selected" : ""}`}
-                        aria-selected={sameCalendarDay(dayDate, selectedDay)}
-                        aria-label={`${name} ${dayDate.getDate()}`}
-                        onClick={() => selectDayFromUi(dayDate)}
-                      >
-                        <span className="twineline-weekday-letter">{label}</span>
-                        <span className="twineline-weekday-date">{dayDate.getDate()}</span>
-                      </button>
-                    );
-                  })}
                 </div>
               </>
             )}
@@ -2274,11 +2425,27 @@ function App() {
               <CloseIcon />
             </button>
             <div className="app-composer-field-row">
-              <input
+              {editingTaskId != null && (
+                <div className="app-composer-complete-slot">
+                  <button
+                    type="button"
+                    className="task-complete"
+                    aria-label="Mark complete"
+                    tabIndex={collapsed ? -1 : 0}
+                    onClick={() => completeTask(editingTaskId)}
+                  />
+                </div>
+              )}
+              <textarea
                 ref={composeInputRef}
-                type="text"
+                rows={1}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" || e.shiftKey) return;
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }}
                 placeholder={selectedComposeKind.placeholder}
                 enterKeyHint="send"
                 autoComplete="off"

@@ -223,7 +223,6 @@ export function buildMonthCalendarDays(month: Date): (Date | null)[] {
     cells.push(new Date(month.getFullYear(), month.getMonth(), day));
   }
   while (cells.length % 7 !== 0) cells.push(null);
-  while (cells.length < 42) cells.push(null);
   return cells;
 }
 
@@ -232,8 +231,9 @@ export function formatTwinelineDateLabel(date: Date, now = new Date()): string {
   const today = startOfDay(now);
   const dayMs = 24 * 60 * 60 * 1000;
   const diffDays = Math.round((selected.getTime() - today.getTime()) / dayMs);
-  const relative =
-    diffDays === 0 ? "Today" : diffDays === 1 ? "Tomorrow" : diffDays === -1 ? "Yesterday" : null;
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Tomorrow";
   const stamp = `${MONTH_LABELS[selected.getMonth()]} ${selected.getDate()}`;
-  return relative ? `${stamp} - ${relative}` : stamp;
+  if (diffDays === -1) return `${stamp} - Yesterday`;
+  return stamp;
 }

@@ -6,6 +6,8 @@ export const PX_PER_MINUTE = 1;
 export const MINUTES_PER_DAY = 24 * 60;
 export const DAY_HEIGHT_PX = MINUTES_PER_DAY * PX_PER_MINUTE;
 export const DEFAULT_TASK_MINUTES = 15;
+/** Minimum block height so title + complete control fit with no extra padding. */
+export const MIN_BLOCK_HEIGHT_PX = 16;
 
 export type CalendarTaskBlock = {
   key: string;
@@ -374,7 +376,7 @@ export function layoutCalendarTasks(
         startMin,
         endMin,
         topPx: (startMin - visibleStartMin) * PX_PER_MINUTE,
-        heightPx: Math.max(1, endMin - startMin) * PX_PER_MINUTE,
+        heightPx: Math.max(MIN_BLOCK_HEIGHT_PX, (endMin - startMin) * PX_PER_MINUTE),
       });
     }
 
