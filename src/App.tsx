@@ -177,20 +177,6 @@ function ClockIcon() {
   );
 }
 
-function RestIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M14.5 4.5A7.5 7.5 0 0 0 9 19.2 7.8 7.8 0 1 1 14.5 4.5Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function CalendarIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -717,6 +703,10 @@ function App() {
   const chromeHiddenRef = useRef(false);
   const chromeLockRef = useRef(false);
   const chromeCooldownUntilRef = useRef(0);
+  const selectedDayRef = useRef(selectedDay);
+  selectedDayRef.current = selectedDay;
+  const countdownNowRef = useRef(countdownNow);
+  countdownNowRef.current = countdownNow;
   const [tasksCompact, setTasksCompact] = useState(true);
   const [timelineRangeStart, setTimelineRangeStart] = useState(() => toStartOfDay(new Date()));
   const [timelineDayCount, setTimelineDayCount] = useState(31);
@@ -727,6 +717,7 @@ function App() {
   const pendingTimelineScrollDayRef = useRef<Date | null>(null);
   const pendingViewScrollTaskIdRef = useRef<string | null>(null);
   const pendingViewPreserveChromeRef = useRef(false);
+  const pendingViewChromeHiddenRef = useRef(false);
   const weekdayStripRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -864,7 +855,7 @@ function App() {
       };
     });
 
-  const scrollTimelineToDay = (day: Date) => {
+  const scrollTimelineToDay = (day: Date, behavior: ScrollBehavior = "smooth") => {
     const main = mainRef.current;
     if (!main) return;
     const today = toStartOfDay(new Date(countdownNow));
@@ -892,12 +883,12 @@ function App() {
     const mainRect = main.getBoundingClientRect();
     const sectionRect = section.getBoundingClientRect();
     const top = main.scrollTop + (sectionRect.top - mainRect.top) - chromeHeight;
-    main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    main.scrollTo({ top: Math.max(0, top), behavior });
 
     window.setTimeout(() => {
       timelineScrollSyncLockRef.current = false;
       lastScrollTopRef.current = main.scrollTop;
-    }, 450);
+    }, behavior === "auto" ? 0 : 450);
   };
 
   const selectDayFromUi = (day: Date) => {
@@ -1052,42 +1043,88 @@ function App() {
     return true;
   };
 
-  const findTaskNearestToScheduleTrack = (): string | null => {
+  const findNearestToScheduleTrack = ():
+    | { type: "task"; taskId: string }
+    | { type: "day"; day: Date }
+    | null => {
     const main = mainRef.current;
     if (!main) return null;
     const track = twinelineSlideRef.current?.querySelector(".twineline-schedule-track");
     const chrome = twinelineChromeRef.current;
+    const mainRect = main.getBoundingClientRect();
     const anchorY =
       track instanceof HTMLElement
         ? track.getBoundingClientRect().bottom + 8
-        : (chrome?.getBoundingClientRect().bottom ?? main.getBoundingClientRect().top) + 8;
+        : (chrome?.getBoundingClientRect().bottom ?? mainRect.top) + 8;
 
-    let bestId: string | null = null;
-    let bestDist = Infinity;
+    let best:
+      | { type: "task"; taskId: string; dist: number }
+      | { type: "day"; day: Date; dist: number }
+      | null = null;
+
+    const consider = (
+      candidate: { type: "task"; taskId: string } | { type: "day"; day: Date },
+      top: number,
+      bottom: number,
+    ) => {
+      if (bottom < anchorY - 40 || top > mainRect.bottom) return;
+      const dist = Math.abs(top - anchorY);
+      if (!best || dist < best.dist) {
+        best = { ...candidate, dist };
+      }
+    };
+
     for (const el of main.querySelectorAll<HTMLElement>("[data-task-id]")) {
       const id = el.dataset.taskId;
       if (!id) continue;
       const rect = el.getBoundingClientRect();
-      if (rect.bottom < anchorY - 40 || rect.top > main.getBoundingClientRect().bottom) continue;
-      const dist = Math.abs(rect.top - anchorY);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestId = id;
+      consider({ type: "task", taskId: id }, rect.top, rect.bottom);
+    }
+
+    for (const section of main.querySelectorAll<HTMLElement>("[data-calendar-day]")) {
+      const key = section.dataset.calendarDay;
+      if (!key) continue;
+      const [y, m, d] = key.split("-").map(Number);
+      if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) continue;
+      const label =
+        section.querySelector<HTMLElement>(".task-day-label, .calendar-timeline-day-label") ??
+        section;
+      const rect = label.getBoundingClientRect();
+      consider(
+        { type: "day", day: toStartOfDay(new Date(y, m - 1, d)) },
+        rect.top,
+        rect.bottom,
+      );
+    }
+
+    if (!best) {
+      // Fall back to any closest task/day on the page.
+      for (const el of main.querySelectorAll<HTMLElement>("[data-task-id]")) {
+        const id = el.dataset.taskId;
+        if (!id) continue;
+        const rect = el.getBoundingClientRect();
+        const dist = Math.abs(rect.top - anchorY);
+        if (!best || dist < best.dist) best = { type: "task", taskId: id, dist };
+      }
+      for (const section of main.querySelectorAll<HTMLElement>("[data-calendar-day]")) {
+        const key = section.dataset.calendarDay;
+        if (!key) continue;
+        const [y, m, d] = key.split("-").map(Number);
+        if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) continue;
+        const label =
+          section.querySelector<HTMLElement>(".task-day-label, .calendar-timeline-day-label") ??
+          section;
+        const dist = Math.abs(label.getBoundingClientRect().top - anchorY);
+        if (!best || dist < best.dist) {
+          best = { type: "day", day: toStartOfDay(new Date(y, m - 1, d)), dist };
+        }
       }
     }
-    // If nothing near the track in-view, fall back to any closest task in the list.
-    if (bestId) return bestId;
-    for (const el of main.querySelectorAll<HTMLElement>("[data-task-id]")) {
-      const id = el.dataset.taskId;
-      if (!id) continue;
-      const rect = el.getBoundingClientRect();
-      const dist = Math.abs(rect.top - anchorY);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestId = id;
-      }
-    }
-    return bestId;
+
+    if (!best) return null;
+    return best.type === "task"
+      ? { type: "task", taskId: best.taskId }
+      : { type: "day", day: best.day };
   };
 
   const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
@@ -1337,10 +1374,12 @@ function App() {
       lastScrollTopRef.current = top;
 
       if (activeView === "dayline") {
-        const showTop = top > 280;
-        if (showTop !== timelineScrollTopBtnVisibleRef.current) {
-          timelineScrollTopBtnVisibleRef.current = showTop;
-          setShowTimelineScrollTop(showTop);
+        const today = toStartOfDay(new Date(countdownNowRef.current));
+        const awayFromToday =
+          top > 80 || !sameCalendarDay(selectedDayRef.current, today);
+        if (awayFromToday !== timelineScrollTopBtnVisibleRef.current) {
+          timelineScrollTopBtnVisibleRef.current = awayFromToday;
+          setShowTimelineScrollTop(awayFromToday);
         }
 
         if (!timelineScrollSyncLockRef.current) {
@@ -1373,7 +1412,6 @@ function App() {
       }
 
       if (chromeLockRef.current) {
-        setChromeHidden(false);
         return;
       }
 
@@ -1403,8 +1441,18 @@ function App() {
     if (activeView !== "dayline") {
       setShowTimelineScrollTop(false);
       timelineScrollTopBtnVisibleRef.current = false;
+      return;
     }
-  }, [activeView]);
+    const main = mainRef.current;
+    if (!main) return;
+    const today = toStartOfDay(new Date(countdownNow));
+    const awayFromToday =
+      main.scrollTop > 80 || !sameCalendarDay(selectedDay, today);
+    if (awayFromToday !== timelineScrollTopBtnVisibleRef.current) {
+      timelineScrollTopBtnVisibleRef.current = awayFromToday;
+      setShowTimelineScrollTop(awayFromToday);
+    }
+  }, [activeView, tasksCompact, selectedDay, countdownNow]);
 
   useEffect(() => {
     // Timeline only starts at today — never keep a past range start.
@@ -1426,6 +1474,7 @@ function App() {
 
   useLayoutEffect(() => {
     const preserveChrome = pendingViewPreserveChromeRef.current;
+    const chromeHiddenSnapshot = pendingViewChromeHiddenRef.current;
     const taskId = pendingViewScrollTaskIdRef.current;
     if (taskId) {
       const main = mainRef.current;
@@ -1451,12 +1500,18 @@ function App() {
         pendingTimelineScrollDayRef.current = null;
         pendingViewPreserveChromeRef.current = false;
         scrollTaskIntoView(taskId, "auto", { preserveChrome });
+        if (preserveChrome) {
+          setChromeHidden(chromeHiddenSnapshot);
+        }
         return;
       }
     }
 
     if (!pendingTimelineScrollDayRef.current) {
-      if (preserveChrome) chromeLockRef.current = false;
+      if (preserveChrome) {
+        setChromeHidden(chromeHiddenSnapshot);
+        chromeLockRef.current = false;
+      }
       pendingViewPreserveChromeRef.current = false;
       return;
     }
@@ -1464,11 +1519,15 @@ function App() {
     if (preserveChrome) {
       chromeLockRef.current = true;
     }
-    scrollTimelineToDay(pendingTimelineScrollDayRef.current);
+    scrollTimelineToDay(
+      pendingTimelineScrollDayRef.current,
+      preserveChrome ? "auto" : "smooth",
+    );
     if (preserveChrome) {
+      setChromeHidden(chromeHiddenSnapshot);
       window.setTimeout(() => {
         chromeLockRef.current = false;
-      }, 450);
+      }, 0);
     }
   }, [tasksCompact, timelineRangeStart, timelineDayCount, timelineDays.length, calendarLayoutSpanKey]);
 
@@ -1864,12 +1923,7 @@ function App() {
                   onClick={() => (timePickerOpen ? requestCloseTimePicker() : openTimePicker())}
                 >
                   {outsideTaskWindow && !timePickerOpen ? (
-                    <>
-                      <span className="twineline-countdown-remaining">REST</span>
-                      <span className="twineline-countdown-rest-icon">
-                        <RestIcon />
-                      </span>
-                    </>
+                    <span className="twineline-countdown-remaining">REST</span>
                   ) : (
                     <>
                       <span className="twineline-countdown-remaining">{countdownRemaining}</span>
@@ -2320,7 +2374,11 @@ function App() {
               type="button"
               className="task-view-scroll-top"
               onClick={() => {
-                scrollTimelineToDay(toStartOfDay(new Date(countdownNow)));
+                const today = toStartOfDay(new Date(countdownNow));
+                setSelectedDay(today);
+                scrollTimelineToDay(today);
+                const strip = weekdayStripRef.current;
+                if (strip) strip.scrollTo({ left: 0, behavior: "smooth" });
               }}
               aria-label="Scroll to today"
             >
@@ -2332,11 +2390,16 @@ function App() {
             className="task-view-toggle"
             onClick={() => {
               pendingViewPreserveChromeRef.current = true;
+              pendingViewChromeHiddenRef.current = chromeHiddenRef.current;
               chromeLockRef.current = true;
-              const nearestTaskId = findTaskNearestToScheduleTrack();
-              if (nearestTaskId) {
-                pendingViewScrollTaskIdRef.current = nearestTaskId;
+              const nearest = findNearestToScheduleTrack();
+              if (nearest?.type === "task") {
+                pendingViewScrollTaskIdRef.current = nearest.taskId;
                 pendingTimelineScrollDayRef.current = null;
+              } else if (nearest?.type === "day") {
+                pendingViewScrollTaskIdRef.current = null;
+                pendingTimelineScrollDayRef.current = nearest.day;
+                setSelectedDay(nearest.day);
               } else {
                 pendingViewScrollTaskIdRef.current = null;
                 pendingTimelineScrollDayRef.current = toStartOfDay(selectedDay);
