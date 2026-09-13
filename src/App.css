@@ -1496,10 +1496,10 @@
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 4px;
   min-height: 46px;
   padding: 0 8px 4px 4px;
+  min-width: 0;
 }
 
 .app-composer-tools-left {
@@ -1519,10 +1519,31 @@
   position: relative;
   display: flex;
   align-items: center;
-  flex-shrink: 0;
-  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
   z-index: 2;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-composer-tools-center::-webkit-scrollbar {
+  display: none;
+}
+
+.app-composer-tools-center-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+.app-composer-tools-center-inner > * {
+  flex-shrink: 0;
 }
 
 .app-compose-action {

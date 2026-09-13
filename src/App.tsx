@@ -845,6 +845,7 @@ function App() {
   const urgencyButtonRef = useRef<HTMLButtonElement>(null);
   const impactButtonRef = useRef<HTMLButtonElement>(null);
   const cycleButtonRef = useRef<HTMLButtonElement>(null);
+  const toolsCenterRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
@@ -916,7 +917,7 @@ function App() {
     selectedDayBlocks,
     selectedWindowStart,
     selectedPackEnd,
-    scheduleOverflowTasks,
+    outsideTaskWindow ? [] : scheduleOverflowTasks,
   );
   const { timelineMinutes: scheduleTimelineMinutes, segments: scheduleSegments, overflowTasks } =
     scheduleLayout;
@@ -1908,6 +1909,24 @@ function App() {
     });
     return () => cancelAnimationFrame(frame);
   }, [collapsed]);
+
+  useLayoutEffect(() => {
+    const el = toolsCenterRef.current;
+    if (!el) return;
+
+    const scrollToEnd = () => {
+      el.scrollLeft = el.scrollWidth - el.clientWidth;
+    };
+
+    scrollToEnd();
+    const frame = requestAnimationFrame(scrollToEnd);
+    const observer = new ResizeObserver(scrollToEnd);
+    observer.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [collapsed, composeKind, editingTaskId]);
 
   useLayoutEffect(() => {
     if (!collapsed || searchOpen) return;
@@ -3108,7 +3127,8 @@ function App() {
                   </button>
                 </div>
               </div>
-              <div className="app-composer-tools-center">
+              <div className="app-composer-tools-center" ref={toolsCenterRef}>
+                <div className="app-composer-tools-center-inner">
                 <ComposerOverlayMenu
                   open={taskToolHint != null}
                   anchorRef={taskToolHintAnchorRef}
@@ -3168,7 +3188,7 @@ function App() {
                   <button
                     ref={dueDateButtonRef}
                     type="button"
-                    className={`app-composer-tool app-composer-tool-accent${dueDateActivated ? " is-activated" : ""}${taskToolHint === "Due Date" ? " is-open" : ""}`}
+                    className={`app-composer-tool${taskToolHint === "Due Date" ? " is-open" : ""}`}
                     aria-label="Due Date"
                     aria-expanded={taskToolHint === "Due Date"}
                     tabIndex={collapsed ? -1 : 0}
@@ -3415,6 +3435,7 @@ function App() {
                     </button>
                   </div>
                 )}
+                </div>
               </div>
               <div className="app-compose-action">
                 <ComposerOverlayMenu
