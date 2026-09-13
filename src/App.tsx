@@ -725,6 +725,8 @@ function App() {
   const timelineScrollSyncLockRef = useRef(false);
   const timelineScrollTopBtnVisibleRef = useRef(false);
   const pendingTimelineScrollDayRef = useRef<Date | null>(null);
+  const pendingViewScrollTaskIdRef = useRef<string | null>(null);
+  const pendingViewPreserveChromeRef = useRef(false);
   const weekdayStripRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
@@ -973,17 +975,25 @@ function App() {
     updateTargetTimeParts({ period });
   };
 
-  const scrollTaskIntoView = (taskId: string) => {
+  const scrollTaskIntoView = (
+    taskId: string,
+    behavior: ScrollBehavior = "smooth",
+    options?: { preserveChrome?: boolean },
+  ) => {
     const main = mainRef.current;
     const row = main?.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`);
-    if (!main || !(row instanceof HTMLElement)) return;
+    if (!main || !(row instanceof HTMLElement)) return false;
 
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
 
+    const preserveChrome = options?.preserveChrome === true;
     chromeLockRef.current = true;
-    setChromeHidden(false);
+    timelineScrollSyncLockRef.current = true;
+    if (!preserveChrome) {
+      setChromeHidden(false);
+    }
 
     const headerHeight =
       twinelineSlotRef.current?.offsetHeight ||
@@ -993,26 +1003,35 @@ function App() {
     const mainRect = main.getBoundingClientRect();
     const rowRect = row.getBoundingClientRect();
     const targetTop = main.scrollTop + (rowRect.top - mainRect.top) - headerHeight - 12;
-    main.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+    main.scrollTo({ top: Math.max(0, targetTop), behavior });
 
     let finished = false;
     let settledFrames = 0;
     let lastTop = main.scrollTop;
     let rafId = 0;
+    let fallbackId = 0;
 
     const finish = () => {
       if (finished) return;
       finished = true;
       chromeLockRef.current = false;
+      timelineScrollSyncLockRef.current = false;
       lastScrollTopRef.current = main.scrollTop;
-      setChromeHidden(false);
+      if (!preserveChrome) {
+        setChromeHidden(false);
+      }
       window.cancelAnimationFrame(rafId);
       window.clearTimeout(fallbackId);
       main.removeEventListener("scrollend", finish);
     };
 
+    if (behavior === "auto") {
+      finish();
+      return true;
+    }
+
     main.addEventListener("scrollend", finish, { once: true });
-    const fallbackId = window.setTimeout(finish, 1500);
+    fallbackId = window.setTimeout(finish, 1500);
 
     const watch = () => {
       if (finished) return;
@@ -1030,6 +1049,45 @@ function App() {
       rafId = window.requestAnimationFrame(watch);
     };
     rafId = window.requestAnimationFrame(watch);
+    return true;
+  };
+
+  const findTaskNearestToScheduleTrack = (): string | null => {
+    const main = mainRef.current;
+    if (!main) return null;
+    const track = twinelineSlideRef.current?.querySelector(".twineline-schedule-track");
+    const chrome = twinelineChromeRef.current;
+    const anchorY =
+      track instanceof HTMLElement
+        ? track.getBoundingClientRect().bottom + 8
+        : (chrome?.getBoundingClientRect().bottom ?? main.getBoundingClientRect().top) + 8;
+
+    let bestId: string | null = null;
+    let bestDist = Infinity;
+    for (const el of main.querySelectorAll<HTMLElement>("[data-task-id]")) {
+      const id = el.dataset.taskId;
+      if (!id) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom < anchorY - 40 || rect.top > main.getBoundingClientRect().bottom) continue;
+      const dist = Math.abs(rect.top - anchorY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestId = id;
+      }
+    }
+    // If nothing near the track in-view, fall back to any closest task in the list.
+    if (bestId) return bestId;
+    for (const el of main.querySelectorAll<HTMLElement>("[data-task-id]")) {
+      const id = el.dataset.taskId;
+      if (!id) continue;
+      const rect = el.getBoundingClientRect();
+      const dist = Math.abs(rect.top - anchorY);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestId = id;
+      }
+    }
+    return bestId;
   };
 
   const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
@@ -1367,9 +1425,52 @@ function App() {
   }, [calendarLayoutSpanKey, timelineRangeStart, timelineDayCount, calendarTaskLayout]);
 
   useLayoutEffect(() => {
-    if (!pendingTimelineScrollDayRef.current) return;
+    const preserveChrome = pendingViewPreserveChromeRef.current;
+    const taskId = pendingViewScrollTaskIdRef.current;
+    if (taskId) {
+      const main = mainRef.current;
+      const el = main?.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`);
+      if (!(el instanceof HTMLElement)) {
+        const dayWithTask = calendarTaskLayout.find((day) =>
+          day.blocks.some((block) => block.taskId === taskId),
+        );
+        if (dayWithTask) {
+          const end = addDays(timelineRangeStart, timelineDayCount - 1);
+          if (dayWithTask.date.getTime() > end.getTime()) {
+            const extra =
+              Math.ceil((dayWithTask.date.getTime() - end.getTime()) / 86_400_000) + 1;
+            setTimelineDayCount((count) => count + extra);
+            return;
+          }
+        }
+        pendingViewScrollTaskIdRef.current = null;
+        pendingViewPreserveChromeRef.current = false;
+        chromeLockRef.current = false;
+      } else {
+        pendingViewScrollTaskIdRef.current = null;
+        pendingTimelineScrollDayRef.current = null;
+        pendingViewPreserveChromeRef.current = false;
+        scrollTaskIntoView(taskId, "auto", { preserveChrome });
+        return;
+      }
+    }
+
+    if (!pendingTimelineScrollDayRef.current) {
+      if (preserveChrome) chromeLockRef.current = false;
+      pendingViewPreserveChromeRef.current = false;
+      return;
+    }
+    pendingViewPreserveChromeRef.current = false;
+    if (preserveChrome) {
+      chromeLockRef.current = true;
+    }
     scrollTimelineToDay(pendingTimelineScrollDayRef.current);
-  }, [tasksCompact, timelineRangeStart, timelineDayCount, timelineDays.length]);
+    if (preserveChrome) {
+      window.setTimeout(() => {
+        chromeLockRef.current = false;
+      }, 450);
+    }
+  }, [tasksCompact, timelineRangeStart, timelineDayCount, timelineDays.length, calendarLayoutSpanKey]);
 
   useLayoutEffect(() => {
     if (activeView !== "dayline") return;
@@ -2230,7 +2331,16 @@ function App() {
             type="button"
             className="task-view-toggle"
             onClick={() => {
-              pendingTimelineScrollDayRef.current = toStartOfDay(selectedDay);
+              pendingViewPreserveChromeRef.current = true;
+              chromeLockRef.current = true;
+              const nearestTaskId = findTaskNearestToScheduleTrack();
+              if (nearestTaskId) {
+                pendingViewScrollTaskIdRef.current = nearestTaskId;
+                pendingTimelineScrollDayRef.current = null;
+              } else {
+                pendingViewScrollTaskIdRef.current = null;
+                pendingTimelineScrollDayRef.current = toStartOfDay(selectedDay);
+              }
               setTasksCompact((compact) => !compact);
             }}
             aria-label={tasksCompact ? "Expand task list" : "Compact task list"}
