@@ -1511,15 +1511,21 @@ function App() {
       return;
     }
 
-    const app = composer.closest(".app");
+    // Use layout sizes (not getBoundingClientRect) so the slide-in transform
+    // does not place the toggle on top of the FAB while chrome reappears.
     const field = composer.querySelector<HTMLElement>(".app-composer-field");
     const useField =
       field != null &&
       !composer.classList.contains("is-collapsed") &&
       !composer.classList.contains("is-search-open");
-    const appRect = (app ?? composer).getBoundingClientRect();
-    const anchorRect = (useField ? field : composer).getBoundingClientRect();
-    controls.style.bottom = `${Math.max(0, appRect.bottom - anchorRect.top + 10)}px`;
+
+    if (useField && field) {
+      const padBottom = parseFloat(getComputedStyle(composer).paddingBottom) || 0;
+      controls.style.bottom = `${padBottom + field.offsetHeight + 10}px`;
+      return;
+    }
+
+    controls.style.bottom = `${composer.offsetHeight + 10}px`;
   };
 
   const setChromeHidden = (hidden: boolean) => {
@@ -1780,13 +1786,22 @@ function App() {
 
     syncTaskViewControlsBottom();
 
+    const onTransitionEnd = (event: TransitionEvent) => {
+      if (event.target !== composer || event.propertyName !== "transform") return;
+      syncTaskViewControlsBottom();
+    };
+
     const observer = new ResizeObserver(() => {
       syncTaskViewControlsBottom();
     });
     observer.observe(composer);
     const field = composer.querySelector(".app-composer-field");
     if (field) observer.observe(field);
-    return () => observer.disconnect();
+    composer.addEventListener("transitionend", onTransitionEnd);
+    return () => {
+      observer.disconnect();
+      composer.removeEventListener("transitionend", onTransitionEnd);
+    };
   }, [activeView, collapsed, searchOpen, composerSavePromptOpen]);
 
   useLayoutEffect(() => {
