@@ -878,7 +878,6 @@ function App() {
     nowMinutes < PACK_START_MINUTES || nowMinutes >= todayPackEnd;
   const targetTimeLabel = formatTargetTimeLabel(timePickerOpen ? targetTime : todayTargetTime);
   const targetTimeParts = parseTargetTimeParts(targetTime);
-  const twinelineDateLabel = formatTwinelineDateLabel(selectedDay, new Date(countdownNow));
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const weekdayDays = buildDayRange(todayStart, weekdayDayCount);
