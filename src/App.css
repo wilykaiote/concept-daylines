@@ -473,7 +473,7 @@
 }
 
 .twineline-schedule-track.has-overflow::before {
-  right: 30px;
+  right: 42px;
 }
 
 .twineline-schedule-gap {
@@ -499,7 +499,6 @@
     box-shadow 0.15s ease;
 }
 
-.twineline-schedule-block:hover,
 .twineline-schedule-block.is-highlighted,
 .twineline-schedule-block:focus-visible {
   background: color-mix(in srgb, var(--accent) 42%, var(--bg-raised));
@@ -509,6 +508,24 @@
 .twineline-schedule-block:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.twineline-schedule-overflow-chevron {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 10px;
+  height: 10px;
+  color: var(--text);
+  pointer-events: none;
+}
+
+.twineline-schedule-overflow-chevron svg {
+  width: 10px;
+  height: 10px;
+  display: block;
 }
 
 .twineline-schedule-overflow {
@@ -533,7 +550,6 @@
   cursor: pointer;
 }
 
-.twineline-schedule-overflow:hover,
 .twineline-schedule-overflow:focus-visible,
 .twineline-schedule-overflow.is-highlighted {
   color: var(--accent);
@@ -704,24 +720,6 @@
   pointer-events: none;
 }
 
-.app-composer::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    color-mix(in srgb, var(--bg) 18%, transparent) 42%,
-    color-mix(in srgb, var(--bg) 32%, transparent) 100%
-  );
-  -webkit-backdrop-filter: blur(7px);
-  backdrop-filter: blur(7px);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 38%);
-  mask-image: linear-gradient(to bottom, transparent 0%, #000 38%);
-}
-
 .app-composer.is-collapsed {
   justify-content: stretch;
   align-items: flex-end;
@@ -801,6 +799,7 @@
 }
 
 .app-tray-tabs {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: 4px;
@@ -813,9 +812,12 @@
   padding: 3px 0 3px 3px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--bg-raised);
+  background: transparent;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
+  isolation: isolate;
+  --ui-outer-fade-radius: 999px;
+  --ui-outer-fade-surface: var(--bg-raised);
   transform-origin: left center;
   transition:
     opacity 0.22s ease,
@@ -834,6 +836,11 @@
   border-color: transparent;
   transform: translateX(-12px);
   pointer-events: none;
+}
+
+.app-composer.is-search-open .app-tray-tabs.ui-outer-fade::before,
+.app-composer.is-search-open .app-tray-tabs.ui-outer-fade::after {
+  opacity: 0;
 }
 
 .app-tray-search-field {
@@ -1256,11 +1263,13 @@
   padding: 4px 4px 8px;
   border: 1px solid var(--border);
   border-radius: 24px;
-  background: var(--bg-raised);
+  background: transparent;
   overflow: hidden;
   opacity: 1;
   transform: scale(1);
   transform-origin: 100% 100%;
+  --ui-outer-fade-radius: 24px;
+  --ui-outer-fade-surface: var(--bg-raised);
   transition:
     opacity 0.3s ease,
     transform 0.34s cubic-bezier(0.22, 1, 0.36, 1),
@@ -1319,9 +1328,60 @@
   transform: scale(0.72);
 }
 
+.app-composer.is-collapsed .app-composer-field.ui-outer-fade::before,
+.app-composer.is-collapsed .app-composer-field.ui-outer-fade::after {
+  opacity: 0;
+}
+
 .app-composer:not(.is-collapsed) .app-composer-field {
   top: auto;
   overflow: visible;
+}
+
+/* Soft outer fade — set --ui-outer-fade-radius / --ui-outer-fade-surface on the host. */
+.ui-outer-fade {
+  --ui-outer-fade-size: 28px;
+  --ui-outer-fade-radius: 24px;
+  --ui-outer-fade-surface: var(--bg-raised);
+  isolation: isolate;
+}
+
+.ui-outer-fade::before {
+  content: "";
+  position: absolute;
+  inset: calc(-0.25 * var(--ui-outer-fade-size));
+  z-index: -1;
+  pointer-events: none;
+  border-radius: calc(var(--ui-outer-fade-radius) + 0.25 * var(--ui-outer-fade-size));
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  box-shadow: 0 0 calc(0.4 * var(--ui-outer-fade-size)) calc(0.12 * var(--ui-outer-fade-size))
+    color-mix(in srgb, var(--bg) 55%, transparent);
+  filter: blur(calc(0.45 * var(--ui-outer-fade-size)));
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+/* Opaque surface above the fade so fill matches child controls (e.g. more button). */
+.ui-outer-fade::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--ui-outer-fade-surface);
+  transition: opacity 0.2s ease;
+}
+
+.ui-outer-fade > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Keep collapse control absolutely pinned (don't let the fade stacking rule win). */
+.app-composer-field.ui-outer-fade > .app-composer-collapse {
+  position: absolute;
+  z-index: 4;
 }
 
 .app-composer-field-row {

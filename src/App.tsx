@@ -146,6 +146,21 @@ function PlusIcon() {
   );
 }
 
+function TinyArrowRightIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M9 6l6 6-6 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -679,8 +694,8 @@ function App() {
     est_duration: number | null;
   } | null>(null);
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
-  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  const [focusedOverflowTaskIds, setFocusedOverflowTaskIds] = useState<string[] | null>(null);
   const [defaultTargetTime, setDefaultTargetTime] = useState(() => loadTargetTime());
   const [targetTimeOverrides, setTargetTimeOverrides] = useState(() => loadTargetTimeOverrides());
   const [targetTime, setTargetTime] = useState(() =>
@@ -808,9 +823,14 @@ function App() {
   const { timelineMinutes: scheduleTimelineMinutes, segments: scheduleSegments, overflowTasks } =
     scheduleLayout;
   const scheduleOverflowCount = overflowTasks.length;
-  const highlightedTaskId = hoveredTaskId ?? focusedTaskId;
+  const isTaskHighlighted = (id: string | null | undefined) => {
+    if (!id) return false;
+    if (focusedTaskId === id) return true;
+    return focusedOverflowTaskIds?.includes(id) ?? false;
+  };
   const overflowHighlighted =
-    highlightedTaskId != null && overflowTasks.some((task) => task.id === highlightedTaskId);
+    (focusedOverflowTaskIds != null && focusedOverflowTaskIds.length > 0) ||
+    (focusedTaskId != null && overflowTasks.some((task) => task.id === focusedTaskId));
   const nowDate = new Date(countdownNow);
   const timelineDays = buildDayRange(timelineRangeStart, timelineDayCount)
     .filter((date) => date.getTime() >= todayStart.getTime())
@@ -1175,7 +1195,13 @@ function App() {
       setCollapsed(true);
     }
     if (focusedTaskId === id) setFocusedTaskId(null);
-    if (hoveredTaskId === id) setHoveredTaskId(null);
+    if (focusedOverflowTaskIds?.includes(id)) {
+      setFocusedOverflowTaskIds((ids) => {
+        if (!ids) return null;
+        const next = ids.filter((taskId) => taskId !== id);
+        return next.length > 0 ? next : null;
+      });
+    }
   };
 
   const editTask = (task: ComposerDraft) => {
@@ -1335,6 +1361,28 @@ function App() {
     return () => window.clearInterval(id);
   }, [activeView]);
 
+  const syncTaskViewControlsBottom = () => {
+    const composer = composerRef.current;
+    const controls = taskViewControlsRef.current;
+    if (!controls) return;
+
+    const composerHidden = composer?.classList.contains("is-chrome-hidden") === true;
+    if (!composer || composerHidden) {
+      controls.style.bottom = "calc(12px + var(--safe-bottom))";
+      return;
+    }
+
+    const app = composer.closest(".app");
+    const field = composer.querySelector<HTMLElement>(".app-composer-field");
+    const useField =
+      field != null &&
+      !composer.classList.contains("is-collapsed") &&
+      !composer.classList.contains("is-search-open");
+    const appRect = (app ?? composer).getBoundingClientRect();
+    const anchorRect = (useField ? field : composer).getBoundingClientRect();
+    controls.style.bottom = `${Math.max(0, appRect.bottom - anchorRect.top + 10)}px`;
+  };
+
   const setChromeHidden = (hidden: boolean) => {
     if (chromeHiddenRef.current === hidden) return;
     chromeHiddenRef.current = hidden;
@@ -1348,12 +1396,7 @@ function App() {
       composer.classList.toggle("is-chrome-hidden", hideComposer);
     }
 
-    const controls = taskViewControlsRef.current;
-    if (controls) {
-      controls.style.bottom = hideComposer
-        ? "calc(12px + var(--safe-bottom))"
-        : `${(composer?.offsetHeight ?? 0) + 10}px`;
-    }
+    syncTaskViewControlsBottom();
   };
 
   useEffect(() => {
@@ -1548,12 +1591,7 @@ function App() {
       const composer = composerRef.current;
       const hideComposer = chromeHiddenRef.current && activeView === "dayline";
       composer?.classList.toggle("is-chrome-hidden", hideComposer);
-      const controls = taskViewControlsRef.current;
-      if (controls) {
-        controls.style.bottom = hideComposer
-          ? "calc(12px + var(--safe-bottom))"
-          : `${(composer?.offsetHeight ?? 0) + 10}px`;
-      }
+      syncTaskViewControlsBottom();
     }
   }, [collapsed, searchOpen, moreMenuOpen, activeView]);
 
@@ -1601,16 +1639,14 @@ function App() {
     const controls = taskViewControlsRef.current;
     if (!composer || !controls) return;
 
-    const sync = () => {
-      const composerHidden = composer.classList.contains("is-chrome-hidden");
-      controls.style.bottom = composerHidden
-        ? "calc(12px + var(--safe-bottom))"
-        : `${composer.offsetHeight + 10}px`;
-    };
-    sync();
+    syncTaskViewControlsBottom();
 
-    const observer = new ResizeObserver(sync);
+    const observer = new ResizeObserver(() => {
+      syncTaskViewControlsBottom();
+    });
     observer.observe(composer);
+    const field = composer.querySelector(".app-composer-field");
+    if (field) observer.observe(field);
     return () => observer.disconnect();
   }, [activeView, collapsed, searchOpen, composerSavePromptOpen]);
 
@@ -1746,19 +1782,25 @@ function App() {
       if (composeKindMenuRef.current?.contains(target)) return;
       if (durationMenuRef.current?.contains(target)) return;
 
-      suppressGesture(event);
+      // Edit form: close on outside click, but let the click reach tasks/buttons.
+      // Create form: swallow the outside click so it only dismisses the composer.
+      const allowClickThrough = editingTaskId != null;
 
-      let timeoutId = 0;
-      const onClick = (clickEvent: MouseEvent) => {
-        suppressGesture(clickEvent);
-        cleanup();
-      };
-      const cleanup = () => {
-        document.removeEventListener("click", onClick, true);
-        window.clearTimeout(timeoutId);
-      };
-      document.addEventListener("click", onClick, true);
-      timeoutId = window.setTimeout(cleanup, 500);
+      if (!allowClickThrough) {
+        suppressGesture(event);
+
+        let timeoutId = 0;
+        const onClick = (clickEvent: MouseEvent) => {
+          suppressGesture(clickEvent);
+          cleanup();
+        };
+        const cleanup = () => {
+          document.removeEventListener("click", onClick, true);
+          window.clearTimeout(timeoutId);
+        };
+        document.addEventListener("click", onClick, true);
+        timeoutId = window.setTimeout(cleanup, 500);
+      }
 
       if (attachMenuOpen || composeKindMenuOpen || durationMenuOpen) {
         setAttachMenuOpen(false);
@@ -1843,22 +1885,25 @@ function App() {
   }, [moreMenuOpen]);
 
   useEffect(() => {
-    if (!focusedTaskId) return;
+    if (!focusedTaskId && !focusedOverflowTaskIds?.length) return;
 
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) {
         setFocusedTaskId(null);
+        setFocusedOverflowTaskIds(null);
         return;
       }
       if (target.closest("[data-schedule-task-id]")) return;
       if (target.closest("[data-task-id]")) return;
+      if (target.closest("[data-schedule-overflow]")) return;
       setFocusedTaskId(null);
+      setFocusedOverflowTaskIds(null);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [focusedTaskId]);
+  }, [focusedTaskId, focusedOverflowTaskIds]);
 
   useEffect(() => {
     if (!timePickerOpen || timeSavePromptOpen) return;
@@ -2162,7 +2207,6 @@ function App() {
                 >
                   <div
                     className={`twineline-schedule-track${scheduleOverflowCount > 0 ? " has-overflow" : ""}`}
-                    onMouseLeave={() => setHoveredTaskId(null)}
                   >
                     <div className="twineline-schedule-lane">
                       {scheduleSegments.map((segment, index) => {
@@ -2182,20 +2226,14 @@ function App() {
                             key={segment.task.id ?? `task-${index}`}
                             type="button"
                             data-schedule-task-id={segment.task.id ?? undefined}
-                            className={`twineline-schedule-block${highlightedTaskId === segment.task.id ? " is-highlighted" : ""}`}
+                            className={`twineline-schedule-block${isTaskHighlighted(segment.task.id) ? " is-highlighted" : ""}`}
                             style={{ flex: `0 0 ${widthPercent}%` }}
                             title={`${segment.task.title} · ${segment.minutes}m`}
                             aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
                             aria-pressed={focusedTaskId === segment.task.id}
-                            onMouseEnter={() => {
-                              if (segment.task.id) setHoveredTaskId(segment.task.id);
-                            }}
-                            onFocus={() => {
-                              if (segment.task.id) setHoveredTaskId(segment.task.id);
-                            }}
-                            onBlur={() => setHoveredTaskId(null)}
                             onClick={() => {
                               if (!segment.task.id) return;
+                              setFocusedOverflowTaskIds(null);
                               setFocusedTaskId(segment.task.id);
                               scrollTaskIntoView(segment.task.id);
                             }}
@@ -2204,20 +2242,29 @@ function App() {
                       })}
                     </div>
                     {scheduleOverflowCount > 0 && (
-                      <button
-                        type="button"
-                        className={`twineline-schedule-overflow${overflowHighlighted ? " is-highlighted" : ""}`}
-                        aria-label={`${scheduleOverflowCount} more task${scheduleOverflowCount === 1 ? "" : "s"} beyond the timeline`}
-                        title={overflowTasks.map((task) => task.title).join(", ")}
-                        onClick={() => {
-                          const first = overflowTasks[0];
-                          if (!first?.id) return;
-                          setFocusedTaskId(first.id);
-                          scrollTaskIntoView(first.id);
-                        }}
-                      >
-                        {scheduleOverflowCount}
-                      </button>
+                      <>
+                        <span className="twineline-schedule-overflow-chevron" aria-hidden="true">
+                          <TinyArrowRightIcon />
+                        </span>
+                        <button
+                          type="button"
+                          data-schedule-overflow=""
+                          className={`twineline-schedule-overflow${overflowHighlighted ? " is-highlighted" : ""}`}
+                          aria-label={`${scheduleOverflowCount} more task${scheduleOverflowCount === 1 ? "" : "s"} beyond the timeline`}
+                          title={overflowTasks.map((task) => task.title).join(", ")}
+                          onClick={() => {
+                            const ids = overflowTasks
+                              .map((task) => task.id)
+                              .filter((id): id is string => !!id);
+                            if (ids.length === 0) return;
+                            setFocusedTaskId(null);
+                            setFocusedOverflowTaskIds(ids);
+                            scrollTaskIntoView(ids[0]);
+                          }}
+                        >
+                          {scheduleOverflowCount}
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -2230,7 +2277,7 @@ function App() {
         {tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : tasksCompact ? (
-          <div className="task-list is-compact" onMouseLeave={() => setHoveredTaskId(null)}>
+          <div className="task-list is-compact">
             {timelineDays.map((day) => {
               const seenTaskIds = new Set<string>();
               const dayTasks = day.blocks.filter((block) => {
@@ -2254,10 +2301,7 @@ function App() {
                         <li
                           key={block.key}
                           data-task-id={block.taskId ?? undefined}
-                          className={`task-row${editingTaskId === block.taskId ? " is-editing" : ""}${highlightedTaskId === block.taskId ? " is-highlighted" : ""}`}
-                          onMouseEnter={() => {
-                            if (block.taskId) setHoveredTaskId(block.taskId);
-                          }}
+                          className={`task-row${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}`}
                         >
                           <button
                             type="button"
@@ -2269,7 +2313,10 @@ function App() {
                             type="button"
                             className="task-row-body"
                             onClick={() => {
-                              if (block.taskId) setFocusedTaskId(block.taskId);
+                              if (block.taskId) {
+                                setFocusedOverflowTaskIds(null);
+                                setFocusedTaskId(block.taskId);
+                              }
                               editTask(block.task);
                             }}
                             aria-label={`Edit task ${block.title}`}
@@ -2285,7 +2332,7 @@ function App() {
             })}
           </div>
         ) : (
-          <div className="calendar-timeline" onMouseLeave={() => setHoveredTaskId(null)}>
+          <div className="calendar-timeline">
             {timelineDays.map((day) => (
               <section
                 key={day.dayKey}
@@ -2334,11 +2381,8 @@ function App() {
                       <div
                         key={block.key}
                         data-task-id={block.taskId ?? undefined}
-                        className={`calendar-timeline-block${editingTaskId === block.taskId ? " is-editing" : ""}${highlightedTaskId === block.taskId ? " is-highlighted" : ""}`}
+                        className={`calendar-timeline-block${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}`}
                         style={{ top: block.topPx, height: block.heightPx }}
-                        onMouseEnter={() => {
-                          if (block.taskId) setHoveredTaskId(block.taskId);
-                        }}
                       >
                         <button
                           type="button"
@@ -2350,7 +2394,10 @@ function App() {
                           type="button"
                           className="calendar-timeline-block-body"
                           onClick={() => {
-                            if (block.taskId) setFocusedTaskId(block.taskId);
+                            if (block.taskId) {
+                              setFocusedOverflowTaskIds(null);
+                              setFocusedTaskId(block.taskId);
+                            }
                             editTask(block.task);
                           }}
                           aria-label={`Edit task ${block.title}`}
@@ -2469,7 +2516,7 @@ function App() {
               </div>
             ))}
           </div>
-          <div className="app-tray-tabs" aria-hidden={!collapsed || searchOpen}>
+          <div className="app-tray-tabs ui-outer-fade" aria-hidden={!collapsed || searchOpen}>
             <button
               type="button"
               className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
@@ -2584,7 +2631,7 @@ function App() {
           </button>
 
           <div
-            className="app-composer-field"
+            className="app-composer-field ui-outer-fade"
             aria-hidden={collapsed}
             {...(collapsed ? { inert: true } : {})}
           >
