@@ -37,6 +37,7 @@ import {
   MINUTES_PER_DAY,
   PACK_START_MINUTES,
   packWindowEndMinutes,
+  parseTaskDate,
   PX_PER_MINUTE,
 } from "./calendarTimeline";
 
@@ -644,6 +645,160 @@ function normalizeOptionalField(value: string | null | undefined): string | null
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
+
+const TASK_META_MONTHS = [
+  "JAN",
+  "FEB",
+  "MAR",
+  "APR",
+  "MAY",
+  "JUN",
+  "JUL",
+  "AUG",
+  "SEP",
+  "OCT",
+  "NOV",
+  "DEC",
+] as const;
+
+function dayOrdinal(day: number): string {
+  const mod100 = day % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${day}th`;
+  switch (day % 10) {
+    case 1:
+      return `${day}st`;
+    case 2:
+      return `${day}nd`;
+    case 3:
+      return `${day}rd`;
+    default:
+      return `${day}th`;
+  }
+}
+
+function formatTaskClockLabel(hhmm: string): string | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  const hour12 = hours % 12 || 12;
+  const period = hours >= 12 ? "pm" : "am";
+  return `${hour12}:${String(minutes).padStart(2, "0")}${period}`;
+}
+
+function formatTaskScheduleMetaLabel(
+  task: ComposerDraft,
+  now: Date,
+): string | null {
+  const date = parseTaskDate(task.date);
+  if (!date) return null;
+
+  const today = toStartOfDay(now);
+  const tomorrow = addDays(today, 1);
+  let datePart: string;
+  if (sameCalendarDay(date, today)) datePart = "Today";
+  else if (sameCalendarDay(date, tomorrow)) datePart = "Tomorrow";
+  else datePart = `${TASK_META_MONTHS[date.getMonth()]} ${dayOrdinal(date.getDate())}`;
+
+  const startsAt = normalizeOptionalField(task.starts_at);
+  const dueAt = normalizeOptionalField(task.due_at);
+  const timeRaw = startsAt ?? dueAt;
+  if (!timeRaw) return datePart;
+
+  const timePart = formatTaskClockLabel(timeRaw);
+  if (!timePart) return datePart;
+
+  const prefix = startsAt ? "Starts" : "Due";
+  return `${prefix} ${datePart}, ${timePart}`;
+}
+
+function CompactTaskRow({
+  task,
+  overdue,
+  editing,
+  highlighted,
+  now,
+  onComplete,
+  onEdit,
+}: {
+  task: ComposerDraft;
+  overdue: boolean;
+  editing: boolean;
+  highlighted: boolean;
+  now: Date;
+  onComplete: () => void;
+  onEdit: () => void;
+}) {
+  const urgencyLabel = isUrgencyOption(task.urgency) ? task.urgency : null;
+  const impactValue =
+    typeof task.impact === "number" && Number.isFinite(task.impact)
+      ? Math.round(task.impact)
+      : null;
+  const impactPercent =
+    impactValue != null ? Math.min(100, Math.max(0, (impactValue / IMPACT_MAX) * 100)) : null;
+  const durationLabel = formatTaskDurationLabel(task.est_duration);
+  const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
+  const hasMeta =
+    urgencyLabel != null ||
+    impactValue != null ||
+    durationLabel != null ||
+    scheduleLabel != null;
+
+  return (
+    <li
+      data-task-id={task.id ?? undefined}
+      className={`task-row${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}`}
+    >
+      <button
+        type="button"
+        className="task-complete"
+        aria-label="Mark complete"
+        onClick={onComplete}
+      />
+      <button
+        type="button"
+        className="task-row-body"
+        onClick={onEdit}
+        aria-label={`Edit task ${task.title}`}
+      >
+        <p className="task-row-title">{task.title}</p>
+        {hasMeta && (
+          <div className="task-row-meta">
+            <div className="task-row-meta-left">
+              {urgencyLabel != null && (
+                <span className="task-row-urgency">{urgencyLabel}</span>
+              )}
+              {impactValue != null && impactPercent != null && (
+                <span
+                  className="task-row-impact"
+                  role="img"
+                  aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
+                  title={`Impact ${impactValue}`}
+                >
+                  <span className="task-row-impact-track" aria-hidden="true">
+                    <span
+                      className="task-row-impact-fill"
+                      style={{ width: `${impactPercent}%` }}
+                    />
+                  </span>
+                </span>
+              )}
+              {scheduleLabel != null && (
+                <span className="task-row-schedule">{scheduleLabel}</span>
+              )}
+            </div>
+            {durationLabel != null && (
+              <span className="task-row-duration">{durationLabel}</span>
+            )}
+          </div>
+        )}
+      </button>
+    </li>
+  );
+}
+
 const SETTINGS_OPTION = MORE_OPTIONS.find((item) => item.id === "settings")!;
 
 const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, ...MORE_OPTIONS] as const;
@@ -809,6 +964,7 @@ function App() {
   );
   const [selectedDay, setSelectedDay] = useState(() => toStartOfDay(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [overdueSectionOpen, setOverdueSectionOpen] = useState(true);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [timePickerBaseline, setTimePickerBaseline] = useState<string | null>(null);
   const [timeSavePromptOpen, setTimeSavePromptOpen] = useState(false);
@@ -898,7 +1054,9 @@ function App() {
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const weekdayDays = buildDayRange(todayStart, weekdayDayCount);
-  const calendarTaskLayout = layoutCalendarTasks(tasks, new Date(countdownNow), getTargetTimeForDay);
+  const calendarTasksLayout = layoutCalendarTasks(tasks, new Date(countdownNow), getTargetTimeForDay);
+  const calendarTaskLayout = calendarTasksLayout.days;
+  const overdueTasks = calendarTasksLayout.overdueTasks;
   const calendarLayoutSpanKey =
     calendarTaskLayout.length > 0
       ? `${calendarTaskLayout[0].dayKey}:${calendarTaskLayout[calendarTaskLayout.length - 1].dayKey}`
@@ -1942,19 +2100,30 @@ function App() {
   }, [collapsed]);
 
   useLayoutEffect(() => {
+    if (collapsed) return;
     const el = toolsCenterRef.current;
     if (!el) return;
 
     const scrollToEnd = () => {
-      el.scrollLeft = el.scrollWidth - el.clientWidth;
+      el.scrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
     };
 
     scrollToEnd();
-    const frame = requestAnimationFrame(scrollToEnd);
+    const frame = requestAnimationFrame(() => {
+      scrollToEnd();
+      requestAnimationFrame(scrollToEnd);
+    });
+    // Composer expand transition is ~0.34s; re-pin after layout settles.
+    const timers = [50, 120, 360].map((ms) => window.setTimeout(scrollToEnd, ms));
+
+    const inner = el.querySelector(".app-composer-tools-center-inner");
     const observer = new ResizeObserver(scrollToEnd);
     observer.observe(el);
+    if (inner instanceof HTMLElement) observer.observe(inner);
+
     return () => {
       cancelAnimationFrame(frame);
+      for (const id of timers) window.clearTimeout(id);
       observer.disconnect();
     };
   }, [collapsed, composeKind, editingTaskId]);
@@ -2608,6 +2777,46 @@ function App() {
             </header>
           </div>
         )}
+        {activeView === "dayline" && overdueTasks.length > 0 && (
+          <section className="task-overdue-section" aria-label="Overdue tasks">
+            <button
+              type="button"
+              className={`task-day-label task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
+              aria-expanded={overdueSectionOpen}
+              onClick={() => setOverdueSectionOpen((open) => !open)}
+            >
+              <span>Overdue</span>
+              <span className="task-overdue-toggle-action">
+                <span className="task-overdue-toggle-reschedule">Reschedule</span>
+                <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                  {overdueSectionOpen ? "∨" : ">"}
+                </span>
+              </span>
+            </button>
+            {overdueSectionOpen && (
+              <ul className="task-day-tasks task-overdue-tasks">
+                {overdueTasks.map((task) => (
+                  <CompactTaskRow
+                    key={task.id ?? task.title}
+                    task={task}
+                    overdue
+                    editing={editingTaskId === task.id}
+                    highlighted={isTaskHighlighted(task.id)}
+                    now={new Date(countdownNow)}
+                    onComplete={() => completeTask(task.id)}
+                    onEdit={() => {
+                      if (task.id) {
+                        setFocusedOverflowTaskIds(null);
+                        setFocusedTaskId(task.id);
+                      }
+                      editTask(task);
+                    }}
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
         {tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : tasksCompact ? (
@@ -2631,78 +2840,24 @@ function App() {
                   </div>
                   {dayTasks.length > 0 && (
                     <ul className="task-day-tasks">
-                      {dayTasks.map((block) => {
-                        const urgencyLabel = isUrgencyOption(block.task.urgency)
-                          ? block.task.urgency
-                          : null;
-                        const impactValue =
-                          typeof block.task.impact === "number" &&
-                          Number.isFinite(block.task.impact)
-                            ? Math.round(block.task.impact)
-                            : null;
-                        const impactPercent =
-                          impactValue != null
-                            ? Math.min(100, Math.max(0, (impactValue / IMPACT_MAX) * 100))
-                            : null;
-                        const durationLabel = formatTaskDurationLabel(block.task.est_duration);
-                        const hasMeta =
-                          urgencyLabel != null || impactValue != null || durationLabel != null;
-                        return (
-                          <li
-                            key={block.key}
-                            data-task-id={block.taskId ?? undefined}
-                            className={`task-row${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${block.overdue ? " is-overdue" : ""}`}
-                          >
-                            <button
-                              type="button"
-                              className="task-complete"
-                              aria-label="Mark complete"
-                              onClick={() => completeTask(block.taskId)}
-                            />
-                            <button
-                              type="button"
-                              className="task-row-body"
-                              onClick={() => {
-                                if (block.taskId) {
-                                  setFocusedOverflowTaskIds(null);
-                                  setFocusedTaskId(block.taskId);
-                                }
-                                editTask(block.task);
-                              }}
-                              aria-label={`Edit task ${block.title}`}
-                            >
-                              <p className="task-row-title">{block.title}</p>
-                              {hasMeta && (
-                                <div className="task-row-meta">
-                                  <div className="task-row-meta-left">
-                                    {urgencyLabel != null && (
-                                      <span className="task-row-urgency">{urgencyLabel}</span>
-                                    )}
-                                    {impactValue != null && impactPercent != null && (
-                                      <span
-                                        className="task-row-impact"
-                                        role="img"
-                                        aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
-                                        title={`Impact ${impactValue}`}
-                                      >
-                                        <span className="task-row-impact-track" aria-hidden="true">
-                                          <span
-                                            className="task-row-impact-fill"
-                                            style={{ width: `${impactPercent}%` }}
-                                          />
-                                        </span>
-                                      </span>
-                                    )}
-                                  </div>
-                                  {durationLabel != null && (
-                                    <span className="task-row-duration">{durationLabel}</span>
-                                  )}
-                                </div>
-                              )}
-                            </button>
-                          </li>
-                        );
-                      })}
+                      {dayTasks.map((block) => (
+                        <CompactTaskRow
+                          key={block.key}
+                          task={block.task}
+                          overdue={block.overdue}
+                          editing={editingTaskId === block.taskId}
+                          highlighted={isTaskHighlighted(block.taskId)}
+                          now={new Date(countdownNow)}
+                          onComplete={() => completeTask(block.taskId)}
+                          onEdit={() => {
+                            if (block.taskId) {
+                              setFocusedOverflowTaskIds(null);
+                              setFocusedTaskId(block.taskId);
+                            }
+                            editTask(block.task);
+                          }}
+                        />
+                      ))}
                     </ul>
                   )}
                 </section>
@@ -3236,7 +3391,12 @@ function App() {
                     <p className="app-composer-tool-hint-title">{taskToolHint}</p>
                   )}
                 </ComposerOverlayMenu>
-                {(composeKind === "task" || composeKind === "project") && (
+                {composeKind === "note" && (
+                  <button type="button" className="app-composer-tool" aria-label="Notes" tabIndex={collapsed ? -1 : 0}>
+                    <NotesIcon />
+                  </button>
+                )}
+                {composeKind === "project" && (
                   <button
                     ref={dueDateButtonRef}
                     type="button"
@@ -3247,11 +3407,6 @@ function App() {
                     onClick={(event) => openTaskToolHint(event.currentTarget, "Date & Time")}
                   >
                     <CalendarIcon />
-                  </button>
-                )}
-                {composeKind === "note" && (
-                  <button type="button" className="app-composer-tool" aria-label="Notes" tabIndex={collapsed ? -1 : 0}>
-                    <NotesIcon />
                   </button>
                 )}
                 {composeKind === "task" && (
@@ -3279,6 +3434,17 @@ function App() {
                       }
                     >
                       <CycleIcon />
+                    </button>
+                    <button
+                      ref={dueDateButtonRef}
+                      type="button"
+                      className={`app-composer-tool${taskToolHint === "Date & Time" ? " is-open" : ""}`}
+                      aria-label="Date & Time"
+                      aria-expanded={taskToolHint === "Date & Time"}
+                      tabIndex={collapsed ? -1 : 0}
+                      onClick={(event) => openTaskToolHint(event.currentTarget, "Date & Time")}
+                    >
+                      <CalendarIcon />
                     </button>
                     <div className="app-composer-impact">
                       <ComposerOverlayMenu
@@ -3547,7 +3713,13 @@ function App() {
                   ref={composeAddButtonRef}
                   type={hasText ? "submit" : "button"}
                   className={`app-composer-icon app-composer-add${hasText ? " is-ready" : ""}`}
-                  aria-label={hasText ? "Send" : "Choose compose type"}
+                  aria-label={
+                    hasText
+                      ? editingTaskId != null
+                        ? "Save"
+                        : "Send"
+                      : "Choose compose type"
+                  }
                   aria-expanded={hasText ? undefined : composeKindMenuOpen}
                   tabIndex={collapsed ? -1 : 0}
                   onClick={
@@ -3564,7 +3736,11 @@ function App() {
                   }
                 >
                   {hasText ? (
-                    <SendIcon />
+                    editingTaskId != null ? (
+                      <CheckIcon />
+                    ) : (
+                      <SendIcon />
+                    )
                   ) : (
                     <ComposeAddIcon Icon={SelectedComposeIcon} showPlus={composeKind !== "assistant"} />
                   )}

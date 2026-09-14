@@ -245,73 +245,55 @@ function placeDuration(
 }
 
 /** Pin a timed task on its date without checking soft/timed collisions. */
+function resolveTimedStartMin(
+  task: ComposerDraft,
+  packStart: number,
+): number {
+  const duration = taskDurationMinutes(task);
+  const starts = parseTimeOfDay(task.starts_at);
+  if (starts != null) return starts;
+  const due = parseTimeOfDay(task.due_at);
+  if (due != null) return Math.max(0, due - duration);
+  return packStart;
+}
+
+/**
+ * Place a timed task on its scheduled day, or collect it as overdue when missed.
+ * Never rolls missed timed tasks onto later days.
+ */
 function placeTimedTask(
   byDay: Map<string, PackBlock[]>,
   task: ComposerDraft,
   now: Date,
   getPackEnd: (day: Date) => number,
+  overdueTasks: ComposerDraft[],
 ) {
   const scheduled = parseTaskDate(task.date);
   if (!scheduled) return;
   const today = toStartOfDay(now);
-  let day = scheduled.getTime() < today.getTime() ? today : scheduled;
-  const forceOverdue = scheduled.getTime() < today.getTime() || day.getTime() > scheduled.getTime();
   const duration = taskDurationMinutes(task);
-  const packEnd = getPackEnd(day);
-  const packStart = packStartForDay(day, now, packEnd);
+  const nowMin = minutesFromMidnight(now);
 
-  let startMin: number;
-  const starts = parseTimeOfDay(task.starts_at);
-  if (starts != null) {
-    startMin = starts;
-  } else {
-    const due = parseTimeOfDay(task.due_at);
-    if (due != null) {
-      startMin = Math.max(packStart, due - duration);
-    } else {
-      startMin = packStart;
-    }
-  }
-
-  if (day.getTime() === today.getTime()) {
-    const nowMin = minutesFromMidnight(now);
-    if (startMin + duration <= nowMin) {
-      // Entirely in the past today — roll to tomorrow overdue if original date was today/past.
-      day = addDays(today, 1);
-      startMin = PACK_START_MINUTES;
-      placeDuration(byDay, task, day, startMin, duration, getPackEnd, now, true);
-      return;
-    }
-    if (startMin < nowMin) startMin = nowMin;
-  }
-
-  if (startMin < packStart) startMin = packStart;
-  if (startMin >= packEnd) {
-    day = addDays(day, 1);
-    startMin = PACK_START_MINUTES;
-    placeDuration(
-      byDay,
-      task,
-      day,
-      startMin,
-      duration,
-      getPackEnd,
-      now,
-      forceOverdue || isPlacementOverdue(task, day),
-    );
+  if (scheduled.getTime() < today.getTime()) {
+    overdueTasks.push(task);
     return;
   }
 
-  placeDuration(
-    byDay,
-    task,
-    day,
-    startMin,
-    duration,
-    getPackEnd,
-    now,
-    forceOverdue || isPlacementOverdue(task, day),
-  );
+  const packEnd = getPackEnd(scheduled);
+  const packStart = packStartForDay(scheduled, now, packEnd);
+  let startMin = resolveTimedStartMin(task, packStart);
+  const endMin = startMin + duration;
+
+  if (scheduled.getTime() === today.getTime() && endMin <= nowMin) {
+    overdueTasks.push(task);
+    return;
+  }
+
+  if (scheduled.getTime() === today.getTime() && startMin < nowMin) {
+    startMin = nowMin;
+  }
+
+  pushBlock(byDay, scheduled, task, startMin, startMin + duration, 0, false);
 }
 
 function occupiedIntervalsForDay(byDay: Map<string, PackBlock[]>, key: string): Interval[] {
@@ -392,13 +374,12 @@ function placeSoftBatchEvenly(
 function packSoftTasks(
   byDay: Map<string, PackBlock[]>,
   dateOnlyByDay: Map<string, ComposerDraft[]>,
-  pastDateOnly: ComposerDraft[],
   undated: ComposerDraft[],
   now: Date,
   getPackEnd: (day: Date) => number,
+  overdueTasks: ComposerDraft[],
 ) {
   const undatedQueue = [...undated].sort(compareSoftPriority);
-  const pastQueue = [...pastDateOnly].sort(compareSoftPriority);
   const dateOnlyQueues = new Map<string, ComposerDraft[]>();
   for (const [key, list] of dateOnlyByDay) {
     dateOnlyQueues.set(key, [...list].sort(compareSoftPriority));
@@ -409,7 +390,6 @@ function packSoftTasks(
 
   const hasRemaining = () =>
     undatedQueue.length > 0 ||
-    pastQueue.length > 0 ||
     [...dateOnlyQueues.values()].some((list) => list.length > 0);
 
   while (hasRemaining() && guard < 1000) {
@@ -445,35 +425,22 @@ function packSoftTasks(
       }
     };
 
-    // Prefer date-only for D, then past date-only, then undated — then spread evenly.
+    // Prefer date-only for D, then undated — then spread evenly.
     takeFitting(sameDayQueue, false);
-    takeFitting(pastQueue, true);
     takeFitting(undatedQueue, false);
 
     if (fitted.length === 0) {
-      // Nothing fits whole; force the next candidate so packing can progress.
-      const oversized =
-        sameDayQueue.length > 0
-          ? { queue: sameDayQueue, forceOverdue: true }
-          : pastQueue.length > 0
-            ? { queue: pastQueue, forceOverdue: true }
-            : undatedQueue.length > 0
-              ? { queue: undatedQueue, forceOverdue: false }
-              : null;
-      if (oversized) {
-        const task = oversized.queue.shift()!;
+      // Nothing fits whole; undated may force-place / spill days. Date-only → overdue.
+      if (sameDayQueue.length > 0) {
+        overdueTasks.push(sameDayQueue.shift()!);
+        dateOnlyQueues.set(key, sameDayQueue);
+        continue;
+      }
+      if (undatedQueue.length > 0) {
+        const task = undatedQueue.shift()!;
         const minutes = taskDurationMinutes(task);
         if (free[0]) {
-          placeDuration(
-            byDay,
-            task,
-            day,
-            free[0].start,
-            minutes,
-            getPackEnd,
-            now,
-            oversized.forceOverdue || isPlacementOverdue(task, day),
-          );
+          placeDuration(byDay, task, day, free[0].start, minutes, getPackEnd, now, false);
         } else {
           placeDuration(
             byDay,
@@ -483,7 +450,7 @@ function packSoftTasks(
             minutes,
             getPackEnd,
             now,
-            true,
+            false,
           );
         }
       }
@@ -494,16 +461,28 @@ function packSoftTasks(
 
     placeSoftBatchEvenly(byDay, day, fitted, free, freeTotal, packStart, getPackEnd, now);
 
-    // Remaining same-day date-only could not fit after undated took leftover capacity → spill overdue.
+    // Remaining same-day date-only could not fit → overdue group (do not reschedule).
     while (sameDayQueue.length > 0) {
-      const task = sameDayQueue.shift()!;
-      const minutes = taskDurationMinutes(task);
-      placeDuration(byDay, task, addDays(day, 1), PACK_START_MINUTES, minutes, getPackEnd, now, true);
+      overdueTasks.push(sameDayQueue.shift()!);
     }
 
     dateOnlyQueues.set(key, sameDayQueue);
     day = addDays(day, 1);
   }
+}
+
+function sortOverdueTasks(tasks: ComposerDraft[]): ComposerDraft[] {
+  return [...tasks].sort((a, b) => {
+    const dateA = a.date ?? "";
+    const dateB = b.date ?? "";
+    if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+    const timeA =
+      parseTimeOfDay(a.starts_at) ?? parseTimeOfDay(a.due_at) ?? Number.POSITIVE_INFINITY;
+    const timeB =
+      parseTimeOfDay(b.starts_at) ?? parseTimeOfDay(b.due_at) ?? Number.POSITIVE_INFINITY;
+    if (timeA !== timeB) return timeA - timeB;
+    return compareSoftPriority(a, b);
+  });
 }
 
 function buildHourMarkers(visibleStartMin: number): CalendarDayLayout["hourMarkers"] {
@@ -521,19 +500,24 @@ function buildHourMarkers(visibleStartMin: number): CalendarDayLayout["hourMarke
   return markers;
 }
 
+export type CalendarTasksLayout = {
+  days: CalendarDayLayout[];
+  overdueTasks: ComposerDraft[];
+};
+
 export function layoutCalendarTasks(
   tasks: ComposerDraft[],
   now: Date,
   getTargetTimeForDay: (day: Date) => string,
-): CalendarDayLayout[] {
+): CalendarTasksLayout {
   const getPackEnd = (day: Date) => packWindowEndMinutes(getTargetTimeForDay(day));
   const todayStart = toStartOfDay(now);
   const nowMin = minutesFromMidnight(now);
   const byDay = new Map<string, PackBlock[]>();
+  const overdueTasks: ComposerDraft[] = [];
 
   const timed: ComposerDraft[] = [];
   const dateOnlyByDay = new Map<string, ComposerDraft[]>();
-  const pastDateOnly: ComposerDraft[] = [];
   const undated: ComposerDraft[] = [];
 
   for (const task of tasks) {
@@ -548,7 +532,7 @@ export function layoutCalendarTasks(
       continue;
     }
     if (scheduled.getTime() < todayStart.getTime()) {
-      pastDateOnly.push(task);
+      overdueTasks.push(task);
     } else {
       const key = dayKey(scheduled);
       const list = dateOnlyByDay.get(key) ?? [];
@@ -575,10 +559,10 @@ export function layoutCalendarTasks(
   });
 
   for (const task of timed) {
-    placeTimedTask(byDay, task, now, getPackEnd);
+    placeTimedTask(byDay, task, now, getPackEnd, overdueTasks);
   }
 
-  packSoftTasks(byDay, dateOnlyByDay, pastDateOnly, undated, now, getPackEnd);
+  packSoftTasks(byDay, dateOnlyByDay, undated, now, getPackEnd, overdueTasks);
 
   const keys = [...byDay.keys()].sort();
   const lastKey = keys.length > 0 ? keys[keys.length - 1] : dayKey(todayStart);
@@ -632,7 +616,10 @@ export function layoutCalendarTasks(
     });
   }
 
-  return layouts;
+  return {
+    days: layouts,
+    overdueTasks: sortOverdueTasks(overdueTasks),
+  };
 }
 
 export function formatHourLabel(hour: number): string {
