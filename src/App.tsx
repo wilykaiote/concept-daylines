@@ -216,6 +216,21 @@ function CalendarIcon() {
   );
 }
 
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M5 12.5 10 17.5 19 7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function TimelineIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -761,6 +776,7 @@ function App() {
   const [taskDate, setTaskDate] = useState("");
   const [taskStartsAt, setTaskStartsAt] = useState("");
   const [taskDueAt, setTaskDueAt] = useState("");
+  const [taskTimeMode, setTaskTimeMode] = useState<"starts_at" | "due_at">("starts_at");
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
@@ -1289,6 +1305,7 @@ function App() {
     setTaskDate("");
     setTaskStartsAt("");
     setTaskDueAt("");
+    setTaskTimeMode("starts_at");
     setTaskToolHint(null);
     setEditingTaskId(null);
     setEditTaskBaseline(null);
@@ -1379,6 +1396,7 @@ function App() {
     setTaskDate(nextDate ?? "");
     setTaskStartsAt(nextStartsAt ?? "");
     setTaskDueAt(nextDueAt ?? "");
+    setTaskTimeMode(nextDueAt && !nextStartsAt ? "due_at" : "starts_at");
     setTaskToolHint(null);
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
@@ -1403,21 +1421,34 @@ function App() {
     }
   };
 
-  const setTaskStartsAtValue = (value: string) => {
+  const setTaskTimeValue = (value: string) => {
     const next = value.trim();
-    setTaskStartsAt(next);
+    if (taskTimeMode === "starts_at") {
+      setTaskStartsAt(next);
+      setTaskDueAt("");
+    } else {
+      setTaskDueAt(next);
+      setTaskStartsAt("");
+    }
     if (next && !taskDate.trim()) {
       setTaskDate(dayKey(new Date(countdownNow)));
     }
   };
 
-  const setTaskDueAtValue = (value: string) => {
-    const next = value.trim();
-    setTaskDueAt(next);
-    if (next && !taskDate.trim()) {
-      setTaskDate(dayKey(new Date(countdownNow)));
+  const setTaskTimeModeValue = (mode: "starts_at" | "due_at") => {
+    if (mode === taskTimeMode) return;
+    const currentTime = taskTimeMode === "starts_at" ? taskStartsAt : taskDueAt;
+    setTaskTimeMode(mode);
+    if (mode === "starts_at") {
+      setTaskStartsAt(currentTime);
+      setTaskDueAt("");
+    } else {
+      setTaskDueAt(currentTime);
+      setTaskStartsAt("");
     }
   };
+
+  const taskTimeValue = taskTimeMode === "starts_at" ? taskStartsAt : taskDueAt;
 
   const selectView = (id: ActiveView) => {
     setActiveView(id);
@@ -3133,12 +3164,12 @@ function App() {
                   open={taskToolHint != null}
                   anchorRef={taskToolHintAnchorRef}
                   menuRef={taskToolHintMenuRef}
-                  className={`app-composer-tool-hint${taskToolHint === "Due Date" ? " is-due-date" : ""}`}
+                  className={`app-composer-tool-hint${taskToolHint === "Date & Time" ? " is-due-date" : ""}`}
                   aria-label={taskToolHint ?? "Tool info"}
                 >
-                  {taskToolHint === "Due Date" ? (
+                  {taskToolHint === "Date & Time" ? (
                     <>
-                      <p className="app-due-date-title">Due Date</p>
+                      <p className="app-due-date-title">Date &amp; Time</p>
                       <div className="app-due-date-divider" aria-hidden="true" />
                       <div className="app-due-date-fields">
                         <label className="app-due-date-field">
@@ -3151,23 +3182,36 @@ function App() {
                           />
                         </label>
                         <label className="app-due-date-field">
-                          Starts
+                          Time
                           <input
                             type="time"
-                            value={taskStartsAt}
-                            onChange={(event) => setTaskStartsAtValue(event.target.value)}
-                            aria-label="Starts at"
+                            value={taskTimeValue}
+                            onChange={(event) => setTaskTimeValue(event.target.value)}
+                            aria-label="Task time"
                           />
                         </label>
-                        <label className="app-due-date-field">
-                          Due
-                          <input
-                            type="time"
-                            value={taskDueAt}
-                            onChange={(event) => setTaskDueAtValue(event.target.value)}
-                            aria-label="Due at"
-                          />
-                        </label>
+                        <div
+                          className="app-due-date-mode"
+                          role="group"
+                          aria-label="Time meaning"
+                        >
+                          <button
+                            type="button"
+                            className={`app-due-date-mode-button${taskTimeMode === "starts_at" ? " is-active" : ""}`}
+                            aria-pressed={taskTimeMode === "starts_at"}
+                            onClick={() => setTaskTimeModeValue("starts_at")}
+                          >
+                            Starts at
+                          </button>
+                          <button
+                            type="button"
+                            className={`app-due-date-mode-button${taskTimeMode === "due_at" ? " is-active" : ""}`}
+                            aria-pressed={taskTimeMode === "due_at"}
+                            onClick={() => setTaskTimeModeValue("due_at")}
+                          >
+                            Due date
+                          </button>
+                        </div>
                       </div>
                       <div className="app-due-date-actions">
                         <button
@@ -3177,6 +3221,14 @@ function App() {
                           disabled={!dueDateActivated && !composerStartsAt && !composerDueAt}
                         >
                           Clear
+                        </button>
+                        <button
+                          type="button"
+                          className="app-due-date-confirm"
+                          aria-label="Done"
+                          onClick={closeTaskToolHint}
+                        >
+                          <CheckIcon />
                         </button>
                       </div>
                     </>
@@ -3188,11 +3240,11 @@ function App() {
                   <button
                     ref={dueDateButtonRef}
                     type="button"
-                    className={`app-composer-tool${taskToolHint === "Due Date" ? " is-open" : ""}`}
-                    aria-label="Due Date"
-                    aria-expanded={taskToolHint === "Due Date"}
+                    className={`app-composer-tool${taskToolHint === "Date & Time" ? " is-open" : ""}`}
+                    aria-label="Date & Time"
+                    aria-expanded={taskToolHint === "Date & Time"}
                     tabIndex={collapsed ? -1 : 0}
-                    onClick={(event) => openTaskToolHint(event.currentTarget, "Due Date")}
+                    onClick={(event) => openTaskToolHint(event.currentTarget, "Date & Time")}
                   >
                     <CalendarIcon />
                   </button>
