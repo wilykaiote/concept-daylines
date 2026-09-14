@@ -592,6 +592,13 @@ export function layoutCalendarTasks(
       });
     }
 
+    blocks.sort(
+      (a, b) =>
+        a.startMin - b.startMin ||
+        a.endMin - b.endMin ||
+        (a.taskId ?? a.key).localeCompare(b.taskId ?? b.key),
+    );
+
     layouts.push({
       date: d,
       dayKey: key,

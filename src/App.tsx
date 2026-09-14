@@ -972,6 +972,7 @@ function App() {
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const composerRef = useRef<HTMLFormElement>(null);
   const mainRef = useRef<HTMLElement>(null);
+  const overdueSectionRef = useRef<HTMLElement>(null);
   const twinelineChromeRef = useRef<HTMLDivElement>(null);
   const twinelineSlotRef = useRef<HTMLDivElement>(null);
   const twinelineHeaderRef = useRef<HTMLElement>(null);
@@ -2005,14 +2006,16 @@ function App() {
     if (!slide || !slot || activeView !== "dayline") return;
 
     const syncSlotHeight = () => {
-      slot.style.height = `${slide.offsetHeight}px`;
+      const height = slide.offsetHeight;
+      slot.style.height = `${height}px`;
+      mainRef.current?.style.setProperty("--twineline-chrome-height", `${height}px`);
     };
     syncSlotHeight();
 
     const observer = new ResizeObserver(syncSlotHeight);
     observer.observe(slide);
     return () => observer.disconnect();
-  }, [activeView, calendarOpen, timePickerOpen, scheduleOverflowCount, weekdayDayCount]);
+  }, [activeView, calendarOpen, timePickerOpen, scheduleOverflowCount, weekdayDayCount, overdueSectionOpen, overdueTasks.length]);
 
   useEffect(() => {
     const end = addDays(todayStart, weekdayDayCount - 1);
@@ -2773,49 +2776,53 @@ function App() {
                 </div>
               </>
             )}
+            {!calendarOpen && overdueTasks.length > 0 && (
+              <section
+                ref={overdueSectionRef}
+                className="task-overdue-section"
+                aria-label="Overdue tasks"
+              >
+                <button
+                  type="button"
+                  className={`task-day-label task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
+                  aria-expanded={overdueSectionOpen}
+                  onClick={() => setOverdueSectionOpen((open) => !open)}
+                >
+                  <span>Overdue</span>
+                  <span className="task-overdue-toggle-action">
+                    <span className="task-overdue-toggle-reschedule">Reschedule</span>
+                    <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                      {overdueSectionOpen ? "∨" : ">"}
+                    </span>
+                  </span>
+                </button>
+                {overdueSectionOpen && (
+                  <ul className="task-day-tasks task-overdue-tasks">
+                    {overdueTasks.map((task) => (
+                      <CompactTaskRow
+                        key={task.id ?? task.title}
+                        task={task}
+                        overdue
+                        editing={editingTaskId === task.id}
+                        highlighted={isTaskHighlighted(task.id)}
+                        now={new Date(countdownNow)}
+                        onComplete={() => completeTask(task.id)}
+                        onEdit={() => {
+                          if (task.id) {
+                            setFocusedOverflowTaskIds(null);
+                            setFocusedTaskId(task.id);
+                          }
+                          editTask(task);
+                        }}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
               </div>
             </header>
           </div>
-        )}
-        {activeView === "dayline" && overdueTasks.length > 0 && (
-          <section className="task-overdue-section" aria-label="Overdue tasks">
-            <button
-              type="button"
-              className={`task-day-label task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
-              aria-expanded={overdueSectionOpen}
-              onClick={() => setOverdueSectionOpen((open) => !open)}
-            >
-              <span>Overdue</span>
-              <span className="task-overdue-toggle-action">
-                <span className="task-overdue-toggle-reschedule">Reschedule</span>
-                <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                  {overdueSectionOpen ? "∨" : ">"}
-                </span>
-              </span>
-            </button>
-            {overdueSectionOpen && (
-              <ul className="task-day-tasks task-overdue-tasks">
-                {overdueTasks.map((task) => (
-                  <CompactTaskRow
-                    key={task.id ?? task.title}
-                    task={task}
-                    overdue
-                    editing={editingTaskId === task.id}
-                    highlighted={isTaskHighlighted(task.id)}
-                    now={new Date(countdownNow)}
-                    onComplete={() => completeTask(task.id)}
-                    onEdit={() => {
-                      if (task.id) {
-                        setFocusedOverflowTaskIds(null);
-                        setFocusedTaskId(task.id);
-                      }
-                      editTask(task);
-                    }}
-                  />
-                ))}
-              </ul>
-            )}
-          </section>
         )}
         {tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
