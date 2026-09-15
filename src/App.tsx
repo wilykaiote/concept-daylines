@@ -39,6 +39,7 @@ import {
   packWindowEndMinutes,
   parseTaskDate,
   PX_PER_MINUTE,
+  isAnchoredTaskMissed,
 } from "./calendarTimeline";
 
 function CloseIcon() {
@@ -677,7 +678,7 @@ function dayOrdinal(day: number): string {
 }
 
 function formatTaskClockLabel(hhmm: string): string | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(hhmm.trim());
   if (!match) return null;
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
@@ -828,6 +829,7 @@ function ComposerOverlayMenu({
   menuRef,
   align = "start",
   className = "",
+  role = "menu",
   "aria-label": ariaLabel,
   children,
 }: {
@@ -836,6 +838,7 @@ function ComposerOverlayMenu({
   menuRef: RefObject<HTMLDivElement | null>;
   align?: OverlayMenuAlign;
   className?: string;
+  role?: "menu" | "dialog";
   "aria-label": string;
   children: ReactNode;
 }) {
@@ -901,7 +904,7 @@ function ComposerOverlayMenu({
     <div
       ref={menuRef}
       className={`app-attach-menu app-overlay-menu${className ? ` ${className}` : ""}`}
-      role="menu"
+      role={role}
       aria-label={ariaLabel}
       style={
         coords
@@ -1014,6 +1017,14 @@ function App() {
   const taskToolHintMenuRef = useRef<HTMLDivElement>(null);
   const taskToolHintAnchorRef = useRef<HTMLElement | null>(null);
   const dueDateButtonRef = useRef<HTMLButtonElement>(null);
+  const taskDateInputRef = useRef<HTMLInputElement>(null);
+  const taskTimeInputRef = useRef<HTMLInputElement>(null);
+  const scheduleDraftRef = useRef<{
+    date: string | null;
+    starts_at: string | null;
+    due_at: string | null;
+    mode: "starts_at" | "due_at";
+  }>({ date: null, starts_at: null, due_at: null, mode: "starts_at" });
   const parentTaskButtonRef = useRef<HTMLButtonElement>(null);
   const urgencyButtonRef = useRef<HTMLButtonElement>(null);
   const impactButtonRef = useRef<HTMLButtonElement>(null);
@@ -1465,14 +1476,81 @@ function App() {
     setTaskStartsAt("");
     setTaskDueAt("");
     setTaskTimeMode("starts_at");
+    syncScheduleDraftRef({
+      date: null,
+      starts_at: null,
+      due_at: null,
+      mode: "starts_at",
+    });
     setTaskToolHint(null);
     setEditingTaskId(null);
     setEditTaskBaseline(null);
     setComposerSavePromptOpen(false);
   };
 
+  const syncScheduleDraftRef = (
+    next: Partial<{
+      date: string | null;
+      starts_at: string | null;
+      due_at: string | null;
+      mode: "starts_at" | "due_at";
+    }>,
+  ) => {
+    scheduleDraftRef.current = { ...scheduleDraftRef.current, ...next };
+  };
+
+  /** Prefer live input values so native date/time pickers commit even if React state lags. */
+  const resolveComposerSchedule = () => {
+    const draft = scheduleDraftRef.current;
+    const mode = draft.mode;
+    const dateInput = taskDateInputRef.current;
+    const timeInput = taskTimeInputRef.current;
+
+    // When the Date & Time fields are mounted, trust them — including empty
+    // (do not resurrect a stale time/date from React state via ??).
+    let date = dateInput
+      ? normalizeOptionalField(dateInput.value)
+      : normalizeOptionalField(draft.date) ?? normalizeOptionalField(taskDate);
+
+    let time = timeInput
+      ? normalizeOptionalField(timeInput.value)?.slice(0, 5) ?? null
+      : mode === "starts_at"
+        ? normalizeOptionalField(draft.starts_at) ?? normalizeOptionalField(taskStartsAt)
+        : normalizeOptionalField(draft.due_at) ?? normalizeOptionalField(taskDueAt);
+
+    if (time && !date) {
+      date = dayKey(new Date(countdownNow));
+    }
+    if (!date) {
+      time = null;
+    }
+
+    const starts_at = mode === "starts_at" ? time : null;
+    const due_at = mode === "due_at" ? time : null;
+    syncScheduleDraftRef({ date, starts_at, due_at, mode });
+    return { date, starts_at, due_at };
+  };
+
+  const closeTaskToolHint = () => {
+    // Flush native date/time values before unmounting the Date & Time popover.
+    if (taskDateInputRef.current || taskTimeInputRef.current) {
+      const schedule = resolveComposerSchedule();
+      setTaskDate(schedule.date ?? "");
+      setTaskStartsAt(schedule.starts_at ?? "");
+      setTaskDueAt(schedule.due_at ?? "");
+    }
+    setTaskToolHint(null);
+  };
+
   const openTaskToolHint = (anchor: HTMLElement | null, title: string) => {
     if (!anchor) return;
+    // Flush schedule fields if Date & Time is currently mounted (toggle/switch tip).
+    if (taskDateInputRef.current || taskTimeInputRef.current) {
+      const schedule = resolveComposerSchedule();
+      setTaskDate(schedule.date ?? "");
+      setTaskStartsAt(schedule.starts_at ?? "");
+      setTaskDueAt(schedule.due_at ?? "");
+    }
     taskToolHintAnchorRef.current = anchor;
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
@@ -1481,8 +1559,6 @@ function App() {
     setImpactMenuOpen(false);
     setTaskToolHint((current) => (current === title ? null : title));
   };
-
-  const closeTaskToolHint = () => setTaskToolHint(null);
 
   const composerDate = normalizeOptionalField(taskDate);
   const composerStartsAt = normalizeOptionalField(taskStartsAt);
@@ -1555,7 +1631,14 @@ function App() {
     setTaskDate(nextDate ?? "");
     setTaskStartsAt(nextStartsAt ?? "");
     setTaskDueAt(nextDueAt ?? "");
-    setTaskTimeMode(nextDueAt && !nextStartsAt ? "due_at" : "starts_at");
+    const nextMode = nextDueAt && !nextStartsAt ? "due_at" : "starts_at";
+    setTaskTimeMode(nextMode);
+    syncScheduleDraftRef({
+      date: nextDate,
+      starts_at: nextStartsAt,
+      due_at: nextDueAt,
+      mode: nextMode,
+    });
     setTaskToolHint(null);
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
@@ -1565,10 +1648,55 @@ function App() {
     setCollapsed(false);
   };
 
+  const applyComposerScheduleToEditingTask = () => {
+    if (!editingTaskId) return;
+    const schedule = resolveComposerSchedule();
+    setTaskDate(schedule.date ?? "");
+    setTaskStartsAt(schedule.starts_at ?? "");
+    setTaskDueAt(schedule.due_at ?? "");
+    setTasks((current) =>
+      current.map((task) =>
+        task.id === editingTaskId
+          ? {
+              ...task,
+              date: schedule.date,
+              starts_at: schedule.starts_at,
+              due_at: schedule.due_at,
+            }
+          : task,
+      ),
+    );
+    setEditTaskBaseline((baseline) =>
+      baseline
+        ? {
+            ...baseline,
+            date: schedule.date,
+            starts_at: schedule.starts_at,
+            due_at: schedule.due_at,
+          }
+        : baseline,
+    );
+    if (
+      isAnchoredTaskMissed(
+        {
+          date: schedule.date,
+          starts_at: schedule.starts_at,
+          due_at: schedule.due_at,
+          est_duration: estDurationMinutes,
+        } as ComposerDraft,
+        new Date(countdownNow),
+        todayPackEnd,
+      )
+    ) {
+      setOverdueSectionOpen(true);
+    }
+  };
+
   const clearTaskDueDate = () => {
     setTaskDate("");
     setTaskStartsAt("");
     setTaskDueAt("");
+    syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
   };
 
   const setTaskDateValue = (value: string) => {
@@ -1577,19 +1705,34 @@ function App() {
     if (!next) {
       setTaskStartsAt("");
       setTaskDueAt("");
+      syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
+      return;
     }
+    syncScheduleDraftRef({ date: next });
   };
 
   const setTaskTimeValue = (value: string) => {
-    const next = value.trim();
+    // Browsers may emit HH:mm:ss; packing accepts that, but keep inputs as HH:mm.
+    const next = value.trim().slice(0, 5);
+    let nextDate = taskDate.trim();
     if (taskTimeMode === "starts_at") {
       setTaskStartsAt(next);
       setTaskDueAt("");
+      syncScheduleDraftRef({
+        starts_at: next || null,
+        due_at: null,
+        date: next && !nextDate ? dayKey(new Date(countdownNow)) : normalizeOptionalField(nextDate),
+      });
     } else {
       setTaskDueAt(next);
       setTaskStartsAt("");
+      syncScheduleDraftRef({
+        due_at: next || null,
+        starts_at: null,
+        date: next && !nextDate ? dayKey(new Date(countdownNow)) : normalizeOptionalField(nextDate),
+      });
     }
-    if (next && !taskDate.trim()) {
+    if (next && !nextDate) {
       setTaskDate(dayKey(new Date(countdownNow)));
     }
   };
@@ -1601,9 +1744,19 @@ function App() {
     if (mode === "starts_at") {
       setTaskStartsAt(currentTime);
       setTaskDueAt("");
+      syncScheduleDraftRef({
+        mode,
+        starts_at: normalizeOptionalField(currentTime),
+        due_at: null,
+      });
     } else {
       setTaskDueAt(currentTime);
       setTaskStartsAt("");
+      syncScheduleDraftRef({
+        mode,
+        due_at: normalizeOptionalField(currentTime),
+        starts_at: null,
+      });
     }
   };
 
@@ -1665,18 +1818,25 @@ function App() {
   };
 
   const saveComposerChanges = () => {
+    const schedule = resolveComposerSchedule();
+    setTaskDate(schedule.date ?? "");
+    setTaskStartsAt(schedule.starts_at ?? "");
+    setTaskDueAt(schedule.due_at ?? "");
     const draft = buildComposerDraft({
       title: content,
       type: composeKind,
       est_duration: estDurationMinutes,
       urgency,
       impact,
-      date: composerDate,
-      starts_at: composerStartsAt,
-      due_at: composerDueAt,
+      date: schedule.date,
+      starts_at: schedule.starts_at,
+      due_at: schedule.due_at,
     });
     if (draft) {
       submitComposerDraft[composeKind](draft);
+      if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd)) {
+        setOverdueSectionOpen(true);
+      }
     }
     closeComposer();
   };
@@ -2230,6 +2390,20 @@ function App() {
       if (impactMenuRef.current?.contains(target)) return;
       if (taskToolHintMenuRef.current?.contains(target)) return;
 
+      // Native date/time pickers render outside the popover; keep Date & Time open
+      // while those inputs are focused so the selection can commit.
+      if (taskToolHint === "Date & Time") {
+        const active = document.activeElement;
+        if (
+          active === taskDateInputRef.current ||
+          active === taskTimeInputRef.current ||
+          target === taskDateInputRef.current ||
+          target === taskTimeInputRef.current
+        ) {
+          return;
+        }
+      }
+
       // Edit form: close on outside click, but let the click reach tasks/buttons.
       // Create form: swallow the outside click so it only dismisses the composer.
       const allowClickThrough = editingTaskId != null;
@@ -2368,6 +2542,17 @@ function App() {
       if (!(target instanceof Node)) return;
       if (taskToolHintMenuRef.current?.contains(target)) return;
       if (taskToolHintAnchorRef.current?.contains(target)) return;
+      if (taskToolHint === "Date & Time") {
+        const active = document.activeElement;
+        if (
+          active === taskDateInputRef.current ||
+          active === taskTimeInputRef.current ||
+          target === taskDateInputRef.current ||
+          target === taskTimeInputRef.current
+        ) {
+          return;
+        }
+      }
       closeTaskToolHint();
     };
 
@@ -3007,19 +3192,26 @@ function App() {
         onSubmit={(e) => {
           e.preventDefault();
           if (searchOpen) return;
+          const schedule = resolveComposerSchedule();
+          setTaskDate(schedule.date ?? "");
+          setTaskStartsAt(schedule.starts_at ?? "");
+          setTaskDueAt(schedule.due_at ?? "");
           const draft = buildComposerDraft({
             title: content,
             type: composeKind,
             est_duration: estDurationMinutes,
             urgency,
             impact,
-            date: composerDate,
-            starts_at: composerStartsAt,
-            due_at: composerDueAt,
+            date: schedule.date,
+            starts_at: schedule.starts_at,
+            due_at: schedule.due_at,
           });
           if (!draft) return;
           const wasEditing = editingTaskId != null;
           submitComposerDraft[composeKind](draft);
+          if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd)) {
+            setOverdueSectionOpen(true);
+          }
           resetComposerFields();
           if (wasEditing) setCollapsed(true);
         }}
@@ -3326,6 +3518,7 @@ function App() {
                   open={taskToolHint != null}
                   anchorRef={taskToolHintAnchorRef}
                   menuRef={taskToolHintMenuRef}
+                  role={taskToolHint === "Date & Time" ? "dialog" : "menu"}
                   className={`app-composer-tool-hint${taskToolHint === "Date & Time" ? " is-due-date" : ""}`}
                   aria-label={taskToolHint ?? "Tool info"}
                 >
@@ -3337,18 +3530,22 @@ function App() {
                         <label className="app-due-date-field">
                           Date
                           <input
+                            ref={taskDateInputRef}
                             type="date"
                             value={taskDate}
                             onChange={(event) => setTaskDateValue(event.target.value)}
+                            onInput={(event) => setTaskDateValue(event.currentTarget.value)}
                             aria-label="Task date"
                           />
                         </label>
                         <label className="app-due-date-field">
                           Time
                           <input
+                            ref={taskTimeInputRef}
                             type="time"
                             value={taskTimeValue}
                             onChange={(event) => setTaskTimeValue(event.target.value)}
+                            onInput={(event) => setTaskTimeValue(event.currentTarget.value)}
                             aria-label="Task time"
                           />
                         </label>
@@ -3379,7 +3576,23 @@ function App() {
                         <button
                           type="button"
                           className="app-due-date-clear"
-                          onClick={clearTaskDueDate}
+                          onClick={() => {
+                            clearTaskDueDate();
+                            if (editingTaskId) {
+                              setTasks((current) =>
+                                current.map((task) =>
+                                  task.id === editingTaskId
+                                    ? { ...task, date: null, starts_at: null, due_at: null }
+                                    : task,
+                                ),
+                              );
+                              setEditTaskBaseline((baseline) =>
+                                baseline
+                                  ? { ...baseline, date: null, starts_at: null, due_at: null }
+                                  : baseline,
+                              );
+                            }
+                          }}
                           disabled={!dueDateActivated && !composerStartsAt && !composerDueAt}
                         >
                           Clear
@@ -3388,7 +3601,10 @@ function App() {
                           type="button"
                           className="app-due-date-confirm"
                           aria-label="Done"
-                          onClick={closeTaskToolHint}
+                          onClick={() => {
+                            applyComposerScheduleToEditingTask();
+                            closeTaskToolHint();
+                          }}
                         >
                           <CheckIcon />
                         </button>

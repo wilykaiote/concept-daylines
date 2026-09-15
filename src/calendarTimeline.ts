@@ -111,16 +111,43 @@ export function parseTaskDate(value: string | null | undefined): Date | null {
   return date;
 }
 
-/** Parse `HH:mm` into minutes from midnight. */
+/** Parse `HH:mm` or `HH:mm:ss` into minutes from midnight. */
 export function parseTimeOfDay(value: string | null | undefined): number | null {
   if (!value) return null;
-  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(value.trim());
   if (!match) return null;
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return hours * 60 + minutes;
+}
+
+/** True when a dated task's calendar day/time has already been missed. */
+export function isAnchoredTaskMissed(
+  task: ComposerDraft,
+  now: Date,
+  packEndMinutes?: number,
+): boolean {
+  const scheduled = parseTaskDate(task.date);
+  if (!scheduled) return false;
+  const today = toStartOfDay(now);
+  if (scheduled.getTime() < today.getTime()) return true;
+  if (scheduled.getTime() > today.getTime()) return false;
+
+  const starts = parseTimeOfDay(task.starts_at);
+  const due = parseTimeOfDay(task.due_at);
+  if (starts == null && due == null) {
+    // Date-only today: missed once the day's pack window has closed.
+    if (packEndMinutes == null) return false;
+    return packStartForDay(today, now, packEndMinutes) >= packEndMinutes;
+  }
+
+  const duration = taskDurationMinutes(task);
+  const nowMin = minutesFromMidnight(now);
+  const startMin = starts != null ? starts : Math.max(0, (due as number) - duration);
+  const endMin = starts != null ? startMin + duration : (due as number);
+  return endMin <= nowMin || startMin < nowMin;
 }
 
 const URGENCY_RANK: Record<string, number> = {
@@ -158,7 +185,9 @@ type TaskKind = "timed" | "dateOnly" | "undated";
 function classifyTask(task: ComposerDraft): TaskKind {
   const date = parseTaskDate(task.date);
   if (!date) return "undated";
-  if (task.starts_at || task.due_at) return "timed";
+  if (parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null) {
+    return "timed";
+  }
   return "dateOnly";
 }
 
@@ -270,30 +299,16 @@ function placeTimedTask(
 ) {
   const scheduled = parseTaskDate(task.date);
   if (!scheduled) return;
-  const today = toStartOfDay(now);
-  const duration = taskDurationMinutes(task);
-  const nowMin = minutesFromMidnight(now);
 
-  if (scheduled.getTime() < today.getTime()) {
+  if (isAnchoredTaskMissed(task, now)) {
     overdueTasks.push(task);
     return;
   }
 
   const packEnd = getPackEnd(scheduled);
   const packStart = packStartForDay(scheduled, now, packEnd);
-  let startMin = resolveTimedStartMin(task, packStart);
-  const endMin = startMin + duration;
-
-  if (scheduled.getTime() === today.getTime() && endMin <= nowMin) {
-    overdueTasks.push(task);
-    return;
-  }
-
-  if (scheduled.getTime() === today.getTime() && startMin < nowMin) {
-    startMin = nowMin;
-  }
-
-  pushBlock(byDay, scheduled, task, startMin, startMin + duration, 0, false);
+  const startMin = resolveTimedStartMin(task, packStart);
+  pushBlock(byDay, scheduled, task, startMin, startMin + taskDurationMinutes(task), 0, false);
 }
 
 function occupiedIntervalsForDay(byDay: Map<string, PackBlock[]>, key: string): Interval[] {
@@ -392,12 +407,22 @@ function packSoftTasks(
     undatedQueue.length > 0 ||
     [...dateOnlyQueues.values()].some((list) => list.length > 0);
 
+  const drainDateOnlyToOverdue = (key: string) => {
+    const stranded = dateOnlyQueues.get(key) ?? [];
+    while (stranded.length > 0) {
+      overdueTasks.push(stranded.shift()!);
+    }
+    dateOnlyQueues.set(key, stranded);
+  };
+
   while (hasRemaining() && guard < 1000) {
     guard += 1;
     const key = dayKey(day);
     const packEnd = getPackEnd(day);
     const packStart = packStartForDay(day, now, packEnd);
     if (packStart >= packEnd) {
+      // Pack window closed for this day — date-only tasks cannot be placed.
+      drainDateOnlyToOverdue(key);
       day = addDays(day, 1);
       continue;
     }
@@ -405,6 +430,7 @@ function packSoftTasks(
     const free = freeIntervals(packStart, packEnd, occupiedIntervalsForDay(byDay, key));
     const freeTotal = free.reduce((sum, interval) => sum + (interval.end - interval.start), 0);
     if (freeTotal <= 0) {
+      drainDateOnlyToOverdue(key);
       day = addDays(day, 1);
       continue;
     }
@@ -469,6 +495,16 @@ function packSoftTasks(
     dateOnlyQueues.set(key, sameDayQueue);
     day = addDays(day, 1);
   }
+
+  // Anything still queued for today-or-earlier could not be placed.
+  const todayKey = dayKey(toStartOfDay(now));
+  for (const [key, list] of dateOnlyQueues) {
+    if (list.length === 0) continue;
+    if (key <= todayKey) {
+      while (list.length > 0) overdueTasks.push(list.shift()!);
+      dateOnlyQueues.set(key, list);
+    }
+  }
 }
 
 function sortOverdueTasks(tasks: ComposerDraft[]): ComposerDraft[] {
@@ -531,7 +567,12 @@ export function layoutCalendarTasks(
       timed.push(task);
       continue;
     }
-    if (scheduled.getTime() < todayStart.getTime()) {
+    const dayPackEnd = getPackEnd(scheduled);
+    if (
+      scheduled.getTime() < todayStart.getTime() ||
+      (scheduled.getTime() === todayStart.getTime() &&
+        packStartForDay(scheduled, now, dayPackEnd) >= dayPackEnd)
+    ) {
       overdueTasks.push(task);
     } else {
       const key = dayKey(scheduled);
@@ -621,6 +662,34 @@ export function layoutCalendarTasks(
       blocks: [],
       hourMarkers: buildHourMarkers(visibleStartMin),
     });
+  }
+
+  // Safety: any missed dated task that never got a block still belongs in Overdue.
+  const placedIds = new Set<string>();
+  for (const blocks of byDay.values()) {
+    for (const block of blocks) {
+      if (block.taskId) placedIds.add(block.taskId);
+    }
+  }
+  const overdueIds = new Set(
+    overdueTasks.map((task) => task.id).filter((id): id is string => !!id),
+  );
+  for (const task of tasks) {
+    if (!task.id || placedIds.has(task.id) || overdueIds.has(task.id)) continue;
+    if (isAnchoredTaskMissed(task, now, getPackEnd(todayStart))) {
+      overdueTasks.push(task);
+      overdueIds.add(task.id);
+      continue;
+    }
+    // Date-only today-or-earlier that the soft packer never placed still belongs
+    // in Overdue rather than vanishing.
+    if (classifyTask(task) === "dateOnly") {
+      const scheduled = parseTaskDate(task.date);
+      if (scheduled && scheduled.getTime() <= todayStart.getTime()) {
+        overdueTasks.push(task);
+        overdueIds.add(task.id);
+      }
+    }
   }
 
   return {
