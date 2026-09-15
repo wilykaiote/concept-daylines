@@ -669,29 +669,14 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 4px;
   margin: 0 calc(var(--space) * -1);
+  margin-bottom: 10px;
   padding-inline: var(--space);
   background: var(--bg);
 }
 
 .task-overdue-tasks {
-  max-height: calc(100dvh - 12.5rem - var(--safe-top) - var(--safe-bottom));
   margin-bottom: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
-}
-
-.task-overdue-scroll-end {
-  list-style: none;
-  flex: 0 0 auto;
-  height: calc(var(--tray-pill) + 28px + var(--safe-bottom));
-  margin: 0;
-  padding: 0;
-  pointer-events: none;
 }
 
 .task-overdue-toggle {
@@ -700,9 +685,10 @@
   justify-content: space-between;
   gap: 8px;
   width: 100%;
+  margin: 0;
   padding: 2px 0;
   border: 0;
-  background: transparent;
+  background: var(--bg);
   color: var(--text-h);
   font: inherit;
   font-size: 0.95rem;

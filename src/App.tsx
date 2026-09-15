@@ -983,7 +983,6 @@ function App() {
   const composerRef = useRef<HTMLFormElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const overdueSectionRef = useRef<HTMLElement>(null);
-  const overdueTasksRef = useRef<HTMLUListElement>(null);
   const twinelineChromeRef = useRef<HTMLDivElement>(null);
   const twinelineSlotRef = useRef<HTMLDivElement>(null);
   const twinelineHeaderRef = useRef<HTMLElement>(null);
@@ -1926,42 +1925,6 @@ function App() {
   };
 
   useEffect(() => {
-    const section = overdueSectionRef.current;
-    const list = overdueTasksRef.current;
-    list?.style.removeProperty("--task-overdue-max-height");
-    if (!section || !overdueSectionOpen || overdueTasks.length === 0) return;
-
-    const stopBackgroundScroll = (event: WheelEvent) => {
-      if (!section.contains(event.target as Node)) return;
-
-      if (!list || !overdueSectionOpen) {
-        event.preventDefault();
-        return;
-      }
-
-      // Wheel on the header / padding: don't move the timeline behind.
-      if (!list.contains(event.target as Node)) {
-        event.preventDefault();
-        return;
-      }
-
-      const canScroll = list.scrollHeight > list.clientHeight + 1;
-      if (!canScroll) {
-        event.preventDefault();
-        return;
-      }
-      const atTop = list.scrollTop <= 0;
-      const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 1;
-      if ((event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom)) {
-        event.preventDefault();
-      }
-    };
-
-    section.addEventListener("wheel", stopBackgroundScroll, { passive: false });
-    return () => section.removeEventListener("wheel", stopBackgroundScroll);
-  }, [overdueSectionOpen, overdueTasks.length]);
-
-  useEffect(() => {
     if (activeView !== "dayline") return;
     const id = window.setInterval(() => setCountdownNow(Date.now()), 1000);
     return () => window.clearInterval(id);
@@ -2222,7 +2185,7 @@ function App() {
     const observer = new ResizeObserver(syncSlotHeight);
     observer.observe(slide);
     return () => observer.disconnect();
-  }, [activeView, calendarOpen, timePickerOpen, scheduleOverflowCount, weekdayDayCount, overdueSectionOpen, overdueTasks.length]);
+  }, [activeView, calendarOpen, timePickerOpen, scheduleOverflowCount, weekdayDayCount, overdueTasks.length]);
 
   useEffect(() => {
     const end = addDays(todayStart, weekdayDayCount - 1);
@@ -2957,53 +2920,54 @@ function App() {
               </>
             )}
             {!calendarOpen && overdueTasks.length > 0 && (
-              <section
-                ref={overdueSectionRef}
-                className="task-overdue-section"
-                aria-label="Overdue tasks"
+              <button
+                type="button"
+                className={`task-day-label task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
+                aria-expanded={overdueSectionOpen}
+                aria-controls="task-overdue-list"
+                onClick={() => setOverdueSectionOpen((open) => !open)}
               >
-                <button
-                  type="button"
-                  className={`task-day-label task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
-                  aria-expanded={overdueSectionOpen}
-                  onClick={() => setOverdueSectionOpen((open) => !open)}
-                >
-                  <span>Overdue</span>
-                  <span className="task-overdue-toggle-action">
-                    <span className="task-overdue-toggle-reschedule">Reschedule</span>
-                    <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                      {overdueSectionOpen ? "∨" : ">"}
-                    </span>
+                <span>Overdue</span>
+                <span className="task-overdue-toggle-action">
+                  <span className="task-overdue-toggle-reschedule">Reschedule</span>
+                  <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                    {overdueSectionOpen ? "∨" : ">"}
                   </span>
-                </button>
-                {overdueSectionOpen && (
-                  <ul ref={overdueTasksRef} className="task-day-tasks task-overdue-tasks">
-                    {overdueTasks.map((task) => (
-                      <CompactTaskRow
-                        key={task.id ?? task.title}
-                        task={task}
-                        overdue
-                        editing={editingTaskId === task.id}
-                        highlighted={isTaskHighlighted(task.id)}
-                        now={new Date(countdownNow)}
-                        onComplete={() => completeTask(task.id)}
-                        onEdit={() => {
-                          if (task.id) {
-                            setFocusedOverflowTaskIds(null);
-                            setFocusedTaskId(task.id);
-                          }
-                          editTask(task);
-                        }}
-                      />
-                    ))}
-                    <li className="task-overdue-scroll-end" aria-hidden="true" />
-                  </ul>
-                )}
-              </section>
+                </span>
+              </button>
             )}
               </div>
             </header>
           </div>
+        )}
+        {activeView === "dayline" && !calendarOpen && overdueTasks.length > 0 && overdueSectionOpen && (
+          <section
+            ref={overdueSectionRef}
+            id="task-overdue-list"
+            className="task-overdue-section"
+            aria-label="Overdue tasks"
+          >
+            <ul className="task-day-tasks task-overdue-tasks">
+              {overdueTasks.map((task) => (
+                <CompactTaskRow
+                  key={task.id ?? task.title}
+                  task={task}
+                  overdue
+                  editing={editingTaskId === task.id}
+                  highlighted={isTaskHighlighted(task.id)}
+                  now={new Date(countdownNow)}
+                  onComplete={() => completeTask(task.id)}
+                  onEdit={() => {
+                    if (task.id) {
+                      setFocusedOverflowTaskIds(null);
+                      setFocusedTaskId(task.id);
+                    }
+                    editTask(task);
+                  }}
+                />
+              ))}
+            </ul>
+          </section>
         )}
         {tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
