@@ -3,6 +3,7 @@ import type { ComposerDraft } from "./composer";
 const TASKS_STORAGE_KEY = "twineline.tasks";
 const TARGET_TIME_STORAGE_KEY = "twineline.targetTime";
 const TARGET_TIME_OVERRIDES_STORAGE_KEY = "twineline.targetTimeOverrides";
+const DAY_SNOOZE_STORAGE_KEY = "twineline.daySnooze";
 const DEFAULT_TARGET_TIME = "17:00";
 
 function isComposerDraft(value: unknown): value is ComposerDraft {
@@ -73,6 +74,27 @@ export function loadTargetTimeOverrides(): Record<string, string> {
 export function saveTargetTimeOverrides(overrides: Record<string, string>): void {
   try {
     localStorage.setItem(TARGET_TIME_OVERRIDES_STORAGE_KEY, JSON.stringify(overrides));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+/** True when `dayKey` (YYYY-MM-DD) is currently snoozed. */
+export function loadDaySnooze(dayKey: string): boolean {
+  try {
+    const raw = localStorage.getItem(DAY_SNOOZE_STORAGE_KEY);
+    return raw === dayKey;
+  } catch {
+    return false;
+  }
+}
+
+export function saveDaySnooze(dayKey: string, snoozed: boolean): void {
+  try {
+    if (snoozed) localStorage.setItem(DAY_SNOOZE_STORAGE_KEY, dayKey);
+    else if (localStorage.getItem(DAY_SNOOZE_STORAGE_KEY) === dayKey) {
+      localStorage.removeItem(DAY_SNOOZE_STORAGE_KEY);
+    }
   } catch {
     // Ignore quota / private-mode write failures.
   }

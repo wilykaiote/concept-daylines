@@ -4,18 +4,18 @@ import "./App.css";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
   buildMonthCalendarDays,
-  buildTargetTime,
   formatCountdown,
   formatMonthYearLabel,
   formatTargetTimeLabel,
   formatTwinelineDateLabel,
+  loadDaySnooze,
   loadTargetTime,
   loadTargetTimeOverrides,
   loadTasks,
   msUntilTargetTime,
-  parseTargetTimeParts,
   resolveTargetTime,
   sameCalendarDay,
+  saveDaySnooze,
   saveTargetTime,
   saveTargetTimeOverrides,
   saveTasks,
@@ -23,7 +23,6 @@ import {
   targetTimeDayKey,
   toStartOfDay,
   WEEKDAY_BUTTONS,
-  type TargetTimePeriod,
 } from "./taskStorage";
 import { buildScheduleLayoutForWindow } from "./schedule";
 import {
@@ -41,6 +40,11 @@ import {
   PX_PER_MINUTE,
   isAnchoredTaskMissed,
 } from "./calendarTimeline";
+
+/** Soft tasks with no calendar day — hidden while the day is snoozed. */
+function isUndatedTask(task: ComposerDraft): boolean {
+  return parseTaskDate(task.date) == null;
+}
 
 function CloseIcon() {
   return (
@@ -973,9 +977,13 @@ function App() {
   const [timeSavePromptOpen, setTimeSavePromptOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => toStartOfDay(new Date()));
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  const [daySnoozed, setDaySnoozed] = useState(() =>
+    loadDaySnooze(dayKey(toStartOfDay(new Date()))),
+  );
   const composerRef = useRef<HTMLFormElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const overdueSectionRef = useRef<HTMLElement>(null);
+  const overdueTasksRef = useRef<HTMLUListElement>(null);
   const twinelineChromeRef = useRef<HTMLDivElement>(null);
   const twinelineSlotRef = useRef<HTMLDivElement>(null);
   const twinelineHeaderRef = useRef<HTMLElement>(null);
@@ -1019,6 +1027,7 @@ function App() {
   const dueDateButtonRef = useRef<HTMLButtonElement>(null);
   const taskDateInputRef = useRef<HTMLInputElement>(null);
   const taskTimeInputRef = useRef<HTMLInputElement>(null);
+  const targetTimeInputRef = useRef<HTMLInputElement>(null);
   const scheduleDraftRef = useRef<{
     date: string | null;
     starts_at: string | null;
@@ -1062,11 +1071,15 @@ function App() {
   const outsideTaskWindow =
     nowMinutes < PACK_START_MINUTES || nowMinutes >= todayPackEnd;
   const targetTimeLabel = formatTargetTimeLabel(timePickerOpen ? targetTime : todayTargetTime);
-  const targetTimeParts = parseTargetTimeParts(targetTime);
+  const tasksForCalendar = daySnoozed ? tasks.filter((task) => !isUndatedTask(task)) : tasks;
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const weekdayDays = buildDayRange(todayStart, weekdayDayCount);
-  const calendarTasksLayout = layoutCalendarTasks(tasks, new Date(countdownNow), getTargetTimeForDay);
+  const calendarTasksLayout = layoutCalendarTasks(
+    tasksForCalendar,
+    new Date(countdownNow),
+    getTargetTimeForDay,
+  );
   const calendarTaskLayout = calendarTasksLayout.days;
   const overdueTasks = calendarTasksLayout.overdueTasks;
   const calendarLayoutSpanKey =
@@ -1253,22 +1266,10 @@ function App() {
     finishCloseTimePicker();
   };
 
-  const updateTargetTimeParts = (patch: Partial<typeof targetTimeParts>) => {
-    setTargetTime(buildTargetTime({ ...targetTimeParts, ...patch }));
-  };
-
-  const stepTargetHour = (direction: 1 | -1) => {
-    const nextHour = ((targetTimeParts.hour - 1 + direction + 12) % 12) + 1;
-    updateTargetTimeParts({ hour: nextHour });
-  };
-
-  const stepTargetMinute = (direction: 1 | -1) => {
-    const nextMinute = (targetTimeParts.minute + direction * 5 + 60) % 60;
-    updateTargetTimeParts({ minute: nextMinute });
-  };
-
-  const setTargetPeriod = (period: TargetTimePeriod) => {
-    updateTargetTimeParts({ period });
+  const setTargetTimeValue = (value: string) => {
+    const next = value.trim().slice(0, 5);
+    if (!/^\d{2}:\d{2}$/.test(next)) return;
+    setTargetTime(next);
   };
 
   const scrollTaskIntoView = (
@@ -1913,6 +1914,52 @@ function App() {
   useEffect(() => {
     saveTargetTimeOverrides(targetTimeOverrides);
   }, [targetTimeOverrides]);
+
+  const todayKey = dayKey(todayStart);
+  useEffect(() => {
+    setDaySnoozed(loadDaySnooze(todayKey));
+  }, [todayKey]);
+
+  const setDaySnoozedPreference = (snoozed: boolean) => {
+    setDaySnoozed(snoozed);
+    saveDaySnooze(todayKey, snoozed);
+  };
+
+  useEffect(() => {
+    const section = overdueSectionRef.current;
+    const list = overdueTasksRef.current;
+    list?.style.removeProperty("--task-overdue-max-height");
+    if (!section || !overdueSectionOpen || overdueTasks.length === 0) return;
+
+    const stopBackgroundScroll = (event: WheelEvent) => {
+      if (!section.contains(event.target as Node)) return;
+
+      if (!list || !overdueSectionOpen) {
+        event.preventDefault();
+        return;
+      }
+
+      // Wheel on the header / padding: don't move the timeline behind.
+      if (!list.contains(event.target as Node)) {
+        event.preventDefault();
+        return;
+      }
+
+      const canScroll = list.scrollHeight > list.clientHeight + 1;
+      if (!canScroll) {
+        event.preventDefault();
+        return;
+      }
+      const atTop = list.scrollTop <= 0;
+      const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 1;
+      if ((event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom)) {
+        event.preventDefault();
+      }
+    };
+
+    section.addEventListener("wheel", stopBackgroundScroll, { passive: false });
+    return () => section.removeEventListener("wheel", stopBackgroundScroll);
+  }, [overdueSectionOpen, overdueTasks.length]);
 
   useEffect(() => {
     if (activeView !== "dayline") return;
@@ -2603,6 +2650,14 @@ function App() {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (twinelineHeaderRef.current?.contains(target)) return;
+      // Native time pickers render outside the header; keep the panel open while focused.
+      const active = document.activeElement;
+      if (
+        active === targetTimeInputRef.current ||
+        target === targetTimeInputRef.current
+      ) {
+        return;
+      }
       requestCloseTimePicker();
     };
 
@@ -2647,18 +2702,26 @@ function App() {
                 )}
                 <button
                   type="button"
-                  className={`twineline-countdown-button${timePickerOpen ? " is-open" : ""}${outsideTaskWindow && !timePickerOpen ? " is-rest" : ""}`}
+                  className={`twineline-countdown-button${timePickerOpen ? " is-open" : ""}${
+                    daySnoozed || (outsideTaskWindow && !timePickerOpen) ? " is-rest" : ""
+                  }`}
                   aria-label={
                     timePickerOpen
-                      ? `Close target time picker. Currently ${targetTimeLabel}.`
-                      : outsideTaskWindow
-                        ? `Rest time. Outside task window until ${formatMinutesLabel(PACK_START_MINUTES)}. Change target time.`
-                        : `Countdown to ${targetTimeLabel}. Change target time.`
+                      ? daySnoozed
+                        ? "Close target time picker. Day is snoozed."
+                        : `Close target time picker. Currently ${targetTimeLabel}.`
+                      : daySnoozed
+                        ? "Day snoozed. Undated tasks are hidden. Change target time or turn snooze off."
+                        : outsideTaskWindow
+                          ? `Rest time. Outside task window until ${formatMinutesLabel(PACK_START_MINUTES)}. Change target time.`
+                          : `Countdown to ${targetTimeLabel}. Change target time.`
                   }
                   aria-expanded={timePickerOpen}
                   onClick={() => (timePickerOpen ? requestCloseTimePicker() : openTimePicker())}
                 >
-                  {outsideTaskWindow && !timePickerOpen ? (
+                  {daySnoozed ? (
+                    <span className="twineline-countdown-remaining">SNOOZE</span>
+                  ) : outsideTaskWindow && !timePickerOpen ? (
                     <span className="twineline-countdown-remaining">REST</span>
                   ) : (
                     <>
@@ -2731,95 +2794,27 @@ function App() {
             )}
             {timePickerOpen ? (
               <div className="twineline-time-picker" aria-label="Choose target time">
-                <p className="twineline-time-picker-title">Countdown to {targetTimeLabel}</p>
-                <div className="app-duration-unit" role="group" aria-label="AM or PM">
+                <div className="twineline-time-picker-controls">
+                  <span className="twineline-time-picker-label">Countdown To:</span>
+                  <div className="app-due-date-field twineline-time-picker-field">
+                    <input
+                      ref={targetTimeInputRef}
+                      type="time"
+                      value={targetTime}
+                      onChange={(event) => setTargetTimeValue(event.target.value)}
+                      onInput={(event) => setTargetTimeValue(event.currentTarget.value)}
+                      aria-label="Countdown target time"
+                    />
+                  </div>
                   <button
                     type="button"
-                    className={`app-duration-unit-button${targetTimeParts.period === "AM" ? " is-active" : ""}`}
-                    aria-pressed={targetTimeParts.period === "AM"}
-                    onClick={() => setTargetPeriod("AM")}
+                    className={`twineline-snooze-toggle${daySnoozed ? " is-on" : ""}`}
+                    aria-pressed={daySnoozed}
+                    aria-label={daySnoozed ? "Turn off day snooze" : "Snooze the day"}
+                    onClick={() => setDaySnoozedPreference(!daySnoozed)}
                   >
-                    AM
+                    Snooze
                   </button>
-                  <button
-                    type="button"
-                    className={`app-duration-unit-button${targetTimeParts.period === "PM" ? " is-active" : ""}`}
-                    aria-pressed={targetTimeParts.period === "PM"}
-                    onClick={() => setTargetPeriod("PM")}
-                  >
-                    PM
-                  </button>
-                </div>
-                <div className="twineline-time-steppers">
-                  <div className="app-duration-stepper" role="group" aria-label="Hour">
-                    <button
-                      type="button"
-                      className="app-duration-step"
-                      aria-label="Decrease hour"
-                      onClick={() => stepTargetHour(-1)}
-                    >
-                      −
-                    </button>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      className="app-duration-input"
-                      value={String(targetTimeParts.hour)}
-                      aria-label="Hour"
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        if (next === "" || /^\d{1,2}$/.test(next)) {
-                          const parsed = Number.parseInt(next || "0", 10);
-                          if (next === "") return;
-                          if (parsed >= 1 && parsed <= 12) updateTargetTimeParts({ hour: parsed });
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="app-duration-step"
-                      aria-label="Increase hour"
-                      onClick={() => stepTargetHour(1)}
-                    >
-                      +
-                    </button>
-                  </div>
-                  <div className="app-duration-stepper" role="group" aria-label="Minutes">
-                    <button
-                      type="button"
-                      className="app-duration-step"
-                      aria-label="Decrease minutes by 5"
-                      onClick={() => stepTargetMinute(-1)}
-                    >
-                      −
-                    </button>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      className="app-duration-input"
-                      value={String(targetTimeParts.minute).padStart(2, "0")}
-                      aria-label="Minutes"
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        if (next === "" || /^\d{1,2}$/.test(next)) {
-                          const parsed = Number.parseInt(next || "0", 10);
-                          if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 59) {
-                            updateTargetTimeParts({ minute: parsed });
-                          }
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="app-duration-step"
-                      aria-label="Increase minutes by 5"
-                      onClick={() => stepTargetMinute(1)}
-                    >
-                      +
-                    </button>
-                  </div>
                 </div>
                 {timeSavePromptOpen && (
                   <div
@@ -2982,7 +2977,7 @@ function App() {
                   </span>
                 </button>
                 {overdueSectionOpen && (
-                  <ul className="task-day-tasks task-overdue-tasks">
+                  <ul ref={overdueTasksRef} className="task-day-tasks task-overdue-tasks">
                     {overdueTasks.map((task) => (
                       <CompactTaskRow
                         key={task.id ?? task.title}
@@ -3001,6 +2996,7 @@ function App() {
                         }}
                       />
                     ))}
+                    <li className="task-overdue-scroll-end" aria-hidden="true" />
                   </ul>
                 )}
               </section>
