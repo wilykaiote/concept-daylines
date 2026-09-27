@@ -827,6 +827,10 @@
   white-space: nowrap;
 }
 
+.task-row-schedule.is-auto-rescheduled {
+  color: #e8a317;
+}
+
 .task-row-duration {
   color: var(--text);
   flex-shrink: 0;
@@ -1999,13 +2003,97 @@
   background: var(--border);
 }
 
-.app-duration-unit {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 3px;
+.app-duration-unit-triple {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.app-recurring-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.app-recurring-toggle-label {
+  color: var(--text-h);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.app-recurring-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-raised);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.app-recurring-switch.is-on {
+  border-color: color-mix(in srgb, #2f9e5f 55%, var(--border));
+  background: color-mix(in srgb, #2f9e5f 22%, var(--bg));
+}
+
+.app-recurring-switch:focus-visible {
+  outline: 2px solid #2f9e5f;
+  outline-offset: 2px;
+}
+
+.app-recurring-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  transition: transform 0.15s ease;
+}
+
+.app-recurring-switch.is-on .app-recurring-switch-thumb {
+  transform: translateX(20px);
+  background: #2f9e5f;
+}
+
+.app-composer-tool-recurring.is-activated {
+  color: #2f9e5f;
+}
+
+.app-composer-tool-recurring.is-activated.is-open {
+  background: rgba(47, 158, 95, 0.12);
+  color: #2f9e5f;
+}
+
+.app-composer-tool-schedule.is-activated {
+  color: #2f9e5f;
+}
+
+.app-composer-tool-schedule.is-activated.is-open {
+  background: rgba(47, 158, 95, 0.12);
+  color: #2f9e5f;
+}
+
+.app-composer-tool-schedule.is-auto-rescheduled {
+  color: #e8a317;
+}
+
+.app-composer-tool-schedule.is-auto-rescheduled.is-open {
+  background: rgba(232, 163, 23, 0.12);
+  color: #e8a317;
+}
+
+.app-composer-recurring {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .app-duration-unit-button {

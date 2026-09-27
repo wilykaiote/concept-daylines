@@ -575,6 +575,88 @@ function sortOverdueTasks(tasks: ComposerDraft[]): ComposerDraft[] {
   });
 }
 
+const AUTO_RESCHEDULE_LOOKAHEAD_DAYS = 366;
+
+/**
+ * After midnight, move overdue tasks (top → bottom) to the earliest future day
+ * they can fit. Only `date` changes; `starts_at` / `due_at` stay the same.
+ * Marks moved tasks with `auto_rescheduled: true`.
+ */
+export function rescheduleOverdueTasksForNewDay(
+  tasks: ComposerDraft[],
+  now: Date,
+  getTargetTimeForDay: (day: Date) => string,
+  taskGapMinutes: number = DEFAULT_TASK_GAP_MINUTES,
+  getWindowStartTimeForDay: (day: Date) => string = () => "06:00",
+): ComposerDraft[] {
+  const layout = layoutCalendarTasks(
+    tasks,
+    now,
+    getTargetTimeForDay,
+    taskGapMinutes,
+    getWindowStartTimeForDay,
+  );
+  const overdue = layout.overdueTasks;
+  if (overdue.length === 0) return tasks;
+
+  let working = tasks.map((task) => ({ ...task }));
+  const today = toStartOfDay(now);
+  let changed = false;
+
+  for (const overdueTask of overdue) {
+    if (!overdueTask.id) continue;
+    const current = working.find((task) => task.id === overdueTask.id);
+    if (!current) continue;
+
+    let nextDate: string | null = null;
+    for (let offset = 0; offset < AUTO_RESCHEDULE_LOOKAHEAD_DAYS; offset += 1) {
+      const candidateDate = dayKey(addDays(today, offset));
+      const candidateTasks = working.map((task) =>
+        task.id === overdueTask.id
+          ? {
+              ...task,
+              date: candidateDate,
+              // Keep original times; only the date moves.
+              starts_at: current.starts_at,
+              due_at: current.due_at,
+            }
+          : task,
+      );
+      const candidateLayout = layoutCalendarTasks(
+        candidateTasks,
+        now,
+        getTargetTimeForDay,
+        taskGapMinutes,
+        getWindowStartTimeForDay,
+      );
+      const stillOverdue = candidateLayout.overdueTasks.some(
+        (task) => task.id === overdueTask.id,
+      );
+      if (!stillOverdue) {
+        nextDate = candidateDate;
+        break;
+      }
+    }
+
+    if (nextDate == null || nextDate === current.date) continue;
+
+    working = working.map((task) =>
+      task.id === overdueTask.id
+        ? {
+            ...task,
+            date: nextDate,
+            starts_at: current.starts_at,
+            due_at: current.due_at,
+            auto_rescheduled: true,
+          }
+        : task,
+    );
+    changed = true;
+  }
+
+  return changed ? working : tasks;
+}
+
 function buildHourMarkers(visibleStartMin: number): CalendarDayLayout["hourMarkers"] {
   const markers: CalendarDayLayout["hourMarkers"] = [];
   const firstHour = Math.ceil(visibleStartMin / 60);

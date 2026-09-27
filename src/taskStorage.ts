@@ -7,6 +7,7 @@ const WINDOW_START_STORAGE_KEY = "twineline.windowStartTime";
 const WINDOW_START_OVERRIDES_STORAGE_KEY = "twineline.windowStartOverrides";
 const DAY_SNOOZE_STORAGE_KEY = "twineline.daySnooze";
 const TASK_GAP_STORAGE_KEY = "twineline.taskGapMinutes";
+const LAST_AUTO_RESCHEDULE_DAY_KEY = "twineline.lastAutoRescheduleDay";
 const DEFAULT_TARGET_TIME = "17:00";
 const DEFAULT_WINDOW_START_TIME = "06:00";
 const DEFAULT_TASK_GAP_MINUTES = 15;
@@ -177,6 +178,26 @@ export function loadTaskGapMinutes(): number {
 export function saveTaskGapMinutes(minutes: number): void {
   try {
     localStorage.setItem(TASK_GAP_STORAGE_KEY, String(clampTaskGapMinutes(minutes)));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+/** YYYY-MM-DD of the last day midnight auto-reschedule already ran. */
+export function loadLastAutoRescheduleDay(): string | null {
+  try {
+    const raw = localStorage.getItem(LAST_AUTO_RESCHEDULE_DAY_KEY);
+    if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  } catch {
+    // Ignore read failures.
+  }
+  return null;
+}
+
+export function saveLastAutoRescheduleDay(dayKey: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return;
+  try {
+    localStorage.setItem(LAST_AUTO_RESCHEDULE_DAY_KEY, dayKey);
   } catch {
     // Ignore quota / private-mode write failures.
   }

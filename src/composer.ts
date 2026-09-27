@@ -24,6 +24,8 @@ export type ComposerDraft = {
   status: string | null;
   created_at: string | null;
   completed_at: string | null;
+  /** True when date was moved automatically after midnight; cleared when user edits date/time. */
+  auto_rescheduled: boolean | null;
 };
 
 type ComposerDraftOverrides = Partial<
@@ -63,5 +65,6 @@ export function buildComposerDraft({
     status: overrides.status ?? null,
     created_at: new Date().toISOString(),
     completed_at: overrides.completed_at ?? null,
+    auto_rescheduled: overrides.auto_rescheduled ?? null,
   };
 }

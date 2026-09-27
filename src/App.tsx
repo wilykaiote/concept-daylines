@@ -3,12 +3,22 @@ import { createPortal } from "react-dom";
 import "./App.css";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
+  buildNextRecurringTask,
+  clampRecurringCount,
+  DEFAULT_RECURRING_COUNT,
+  DEFAULT_RECURRING_UNIT,
+  formatRecurring,
+  parseRecurring,
+  type RecurringUnit,
+} from "./recurring";
+import {
   buildMonthCalendarDays,
   formatCountdown,
   formatMonthYearLabel,
   formatTargetTimeLabel,
   formatTwinelineDateLabel,
   loadDaySnooze,
+  loadLastAutoRescheduleDay,
   loadTargetTime,
   loadTargetTimeOverrides,
   loadTaskGapMinutes,
@@ -22,6 +32,7 @@ import {
   resolveWindowStartTime,
   sameCalendarDay,
   saveDaySnooze,
+  saveLastAutoRescheduleDay,
   saveTargetTime,
   saveTargetTimeOverrides,
   saveTaskGapMinutes,
@@ -48,6 +59,7 @@ import {
   parseTaskDate,
   PX_PER_MINUTE,
   isAnchoredTaskMissed,
+  rescheduleOverdueTasksForNewDay,
 } from "./calendarTimeline";
 
 /** Soft tasks with no calendar day — hidden while the day is snoozed. */
@@ -800,7 +812,11 @@ function CompactTaskRow({
                 </span>
               )}
               {scheduleLabel != null && (
-                <span className="task-row-schedule">{scheduleLabel}</span>
+                <span
+                  className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
+                >
+                  {scheduleLabel}
+                </span>
               )}
             </div>
             {durationLabel != null && (
@@ -938,6 +954,11 @@ function App() {
   const [composeKindMenuOpen, setComposeKindMenuOpen] = useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = useState(false);
   const [durationActivated, setDurationActivated] = useState(false);
+  const [recurringMenuOpen, setRecurringMenuOpen] = useState(false);
+  const [recurringActivated, setRecurringActivated] = useState(false);
+  const [recurringUnit, setRecurringUnit] = useState<RecurringUnit>(DEFAULT_RECURRING_UNIT);
+  const [recurringCount, setRecurringCount] = useState(DEFAULT_RECURRING_COUNT);
+  const [recurringInput, setRecurringInput] = useState(String(DEFAULT_RECURRING_COUNT));
   const [urgencyMenuOpen, setUrgencyMenuOpen] = useState(false);
   const [urgencyActivated, setUrgencyActivated] = useState(false);
   const [urgency, setUrgency] = useState<UrgencyOption>(DEFAULT_URGENCY);
@@ -948,6 +969,7 @@ function App() {
   const [taskStartsAt, setTaskStartsAt] = useState("");
   const [taskDueAt, setTaskDueAt] = useState("");
   const [taskTimeMode, setTaskTimeMode] = useState<"starts_at" | "due_at">("starts_at");
+  const [composerAutoRescheduled, setComposerAutoRescheduled] = useState(false);
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
@@ -973,6 +995,7 @@ function App() {
     date: string | null;
     starts_at: string | null;
     due_at: string | null;
+    recurring: string | null;
   } | null>(null);
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
@@ -1040,6 +1063,7 @@ function App() {
   const composeAddButtonRef = useRef<HTMLButtonElement>(null);
   const durationMenuRef = useRef<HTMLDivElement>(null);
   const durationButtonRef = useRef<HTMLButtonElement>(null);
+  const recurringMenuRef = useRef<HTMLDivElement>(null);
   const urgencyMenuRef = useRef<HTMLDivElement>(null);
   const impactMenuRef = useRef<HTMLDivElement>(null);
   const taskToolHintMenuRef = useRef<HTMLDivElement>(null);
@@ -1498,21 +1522,22 @@ function App() {
     task: (draft) => {
       setTasks((current) => {
         if (!editingTaskId) return [draft, ...current];
-        return current.map((task) =>
-          task.id === editingTaskId
-            ? {
-                ...task,
-                title: draft.title,
-                type: draft.type,
-                est_duration: draft.est_duration,
-                urgency: draft.urgency,
-                impact: draft.impact,
-                date: draft.date,
-                starts_at: draft.starts_at,
-                due_at: draft.due_at,
-              }
-            : task,
-        );
+        return current.map((task) => {
+          if (task.id !== editingTaskId) return task;
+          return {
+            ...task,
+            title: draft.title,
+            type: draft.type,
+            est_duration: draft.est_duration,
+            urgency: draft.urgency,
+            impact: draft.impact,
+            date: draft.date,
+            starts_at: draft.starts_at,
+            due_at: draft.due_at,
+            recurring: draft.recurring,
+            auto_rescheduled: composerAutoRescheduled ? true : false,
+          };
+        });
       });
     },
     project: (_draft) => {},
@@ -1528,6 +1553,11 @@ function App() {
     setDurationUnit("minutes");
     setDurationMenuOpen(false);
     setDurationActivated(false);
+    setRecurringMenuOpen(false);
+    setRecurringActivated(false);
+    setRecurringUnit(DEFAULT_RECURRING_UNIT);
+    setRecurringCount(DEFAULT_RECURRING_COUNT);
+    setRecurringInput(String(DEFAULT_RECURRING_COUNT));
     setUrgencyMenuOpen(false);
     setUrgencyActivated(false);
     setUrgency(DEFAULT_URGENCY);
@@ -1538,6 +1568,7 @@ function App() {
     setTaskStartsAt("");
     setTaskDueAt("");
     setTaskTimeMode("starts_at");
+    setComposerAutoRescheduled(false);
     syncScheduleDraftRef({
       date: null,
       starts_at: null,
@@ -1617,6 +1648,7 @@ function App() {
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setDurationMenuOpen(false);
+    setRecurringMenuOpen(false);
     setUrgencyMenuOpen(false);
     setImpactMenuOpen(false);
     setTaskToolHint((current) => (current === title ? null : title));
@@ -1626,6 +1658,19 @@ function App() {
   const composerStartsAt = normalizeOptionalField(taskStartsAt);
   const composerDueAt = normalizeOptionalField(taskDueAt);
   const dueDateActivated = composerDate != null;
+  const dueDateButtonClassName = [
+    "app-composer-tool",
+    "app-composer-tool-schedule",
+    dueDateActivated && !composerAutoRescheduled ? "is-activated" : "",
+    dueDateActivated && composerAutoRescheduled ? "is-auto-rescheduled" : "",
+    taskToolHint === "Date & Time" ? "is-open" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const composerRecurring = recurringActivated
+    ? formatRecurring(recurringCount, recurringUnit)
+    : null;
 
   const isEditDirty =
     editingTaskId != null &&
@@ -1636,11 +1681,18 @@ function App() {
       impact !== editTaskBaseline.impact ||
       composerDate !== editTaskBaseline.date ||
       composerStartsAt !== editTaskBaseline.starts_at ||
-      composerDueAt !== editTaskBaseline.due_at);
+      composerDueAt !== editTaskBaseline.due_at ||
+      composerRecurring !== editTaskBaseline.recurring);
 
   const completeTask = (id: string | null) => {
     if (!id) return;
-    setTasks((current) => current.filter((task) => task.id !== id));
+    setTasks((current) => {
+      const completed = current.find((task) => task.id === id);
+      const without = current.filter((task) => task.id !== id);
+      if (!completed) return without;
+      const next = buildNextRecurringTask(completed, new Date(countdownNowRef.current));
+      return next ? [next, ...without] : without;
+    });
     if (editingTaskId === id) {
       resetComposerFields();
       setCollapsed(true);
@@ -1666,6 +1718,7 @@ function App() {
     const nextDate = normalizeOptionalField(task.date);
     const nextStartsAt = normalizeOptionalField(task.starts_at);
     const nextDueAt = normalizeOptionalField(task.due_at);
+    const nextRecurring = parseRecurring(task.recurring);
     setEditingTaskId(task.id);
     setEditTaskBaseline({
       title: task.title,
@@ -1675,6 +1728,9 @@ function App() {
       date: nextDate,
       starts_at: nextStartsAt,
       due_at: nextDueAt,
+      recurring: nextRecurring
+        ? formatRecurring(nextRecurring.count, nextRecurring.unit)
+        : null,
     });
     setComposerSavePromptOpen(false);
     setComposeKind("task");
@@ -1684,6 +1740,18 @@ function App() {
     setDurationInput(String(Math.round(minutes)));
     setDurationActivated(task.est_duration != null && task.est_duration > 0);
     setDurationMenuOpen(false);
+    setRecurringMenuOpen(false);
+    if (nextRecurring) {
+      setRecurringActivated(true);
+      setRecurringUnit(nextRecurring.unit);
+      setRecurringCount(nextRecurring.count);
+      setRecurringInput(String(nextRecurring.count));
+    } else {
+      setRecurringActivated(false);
+      setRecurringUnit(DEFAULT_RECURRING_UNIT);
+      setRecurringCount(DEFAULT_RECURRING_COUNT);
+      setRecurringInput(String(DEFAULT_RECURRING_COUNT));
+    }
     setUrgency(nextUrgency);
     setUrgencyActivated(task.urgency != null);
     setUrgencyMenuOpen(false);
@@ -1693,6 +1761,7 @@ function App() {
     setTaskDate(nextDate ?? "");
     setTaskStartsAt(nextStartsAt ?? "");
     setTaskDueAt(nextDueAt ?? "");
+    setComposerAutoRescheduled(task.auto_rescheduled === true);
     const nextMode = nextDueAt && !nextStartsAt ? "due_at" : "starts_at";
     setTaskTimeMode(nextMode);
     syncScheduleDraftRef({
@@ -1716,6 +1785,7 @@ function App() {
     setTaskDate(schedule.date ?? "");
     setTaskStartsAt(schedule.starts_at ?? "");
     setTaskDueAt(schedule.due_at ?? "");
+    setComposerAutoRescheduled(false);
     setTasks((current) =>
       current.map((task) =>
         task.id === editingTaskId
@@ -1724,6 +1794,7 @@ function App() {
               date: schedule.date,
               starts_at: schedule.starts_at,
               due_at: schedule.due_at,
+              auto_rescheduled: false,
             }
           : task,
       ),
@@ -1759,12 +1830,14 @@ function App() {
     setTaskDate("");
     setTaskStartsAt("");
     setTaskDueAt("");
+    setComposerAutoRescheduled(false);
     syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
   };
 
   const setTaskDateValue = (value: string) => {
     const next = value.trim();
     setTaskDate(next);
+    setComposerAutoRescheduled(false);
     if (!next) {
       setTaskStartsAt("");
       setTaskDueAt("");
@@ -1778,6 +1851,7 @@ function App() {
     // Browsers may emit HH:mm:ss; packing accepts that, but keep inputs as HH:mm.
     const next = value.trim().slice(0, 5);
     let nextDate = taskDate.trim();
+    setComposerAutoRescheduled(false);
     if (taskTimeMode === "starts_at") {
       setTaskStartsAt(next);
       setTaskDueAt("");
@@ -1851,6 +1925,7 @@ function App() {
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setDurationMenuOpen(false);
+    setRecurringMenuOpen(false);
     setUrgencyMenuOpen(false);
     setImpactMenuOpen(false);
     closeTaskToolHint();
@@ -1867,6 +1942,7 @@ function App() {
       setAttachMenuOpen(false);
       setComposeKindMenuOpen(false);
       setDurationMenuOpen(false);
+      setRecurringMenuOpen(false);
       setUrgencyMenuOpen(false);
       setImpactMenuOpen(false);
       closeTaskToolHint();
@@ -1894,6 +1970,7 @@ function App() {
       date: schedule.date,
       starts_at: schedule.starts_at,
       due_at: schedule.due_at,
+      recurring: composerRecurring,
     });
     if (draft) {
       submitComposerDraft[composeKind](draft);
@@ -1937,6 +2014,38 @@ function App() {
     if (unit === durationUnit) return;
     setDurationUnit(unit);
     syncDurationInput(estDurationMinutes, unit);
+  };
+
+  const syncRecurringInput = (count: number) => {
+    setRecurringInput(String(clampRecurringCount(count)));
+  };
+
+  const commitRecurringInput = (raw: string) => {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) {
+      syncRecurringInput(recurringCount);
+      return;
+    }
+    const next = clampRecurringCount(parsed);
+    setRecurringCount(next);
+    syncRecurringInput(next);
+  };
+
+  const stepRecurring = (direction: 1 | -1) => {
+    const next = clampRecurringCount(recurringCount + direction);
+    setRecurringCount(next);
+    syncRecurringInput(next);
+  };
+
+  const setRecurringUnitValue = (unit: RecurringUnit) => {
+    setRecurringUnit(unit);
+  };
+
+  const setRecurringEnabled = (enabled: boolean) => {
+    setRecurringActivated(enabled);
+    if (!enabled) return;
+    setRecurringCount((count) => clampRecurringCount(count));
+    syncRecurringInput(clampRecurringCount(recurringCount));
   };
 
   const stepImpact = (direction: 1 | -1) => {
@@ -2032,9 +2141,45 @@ function App() {
     setTaskAggressionMenuOpen(true);
   };
 
+  const packingConfigRef = useRef({
+    getTargetTimeForDay,
+    getWindowStartTimeForDay,
+    taskGapMinutes,
+  });
+  packingConfigRef.current = {
+    getTargetTimeForDay,
+    getWindowStartTimeForDay,
+    taskGapMinutes,
+  };
+  const lastAutoRescheduleDayRef = useRef<string | null>(loadLastAutoRescheduleDay());
+
   useEffect(() => {
     if (activeView !== "dayline") return;
-    const id = window.setInterval(() => setCountdownNow(Date.now()), 1000);
+
+    const tick = () => {
+      const nowMs = Date.now();
+      setCountdownNow(nowMs);
+      const todayKey = dayKey(toStartOfDay(new Date(nowMs)));
+      const lastKey = lastAutoRescheduleDayRef.current;
+      if (lastKey === todayKey) return;
+
+      // Calendar day advanced (midnight) or first run after a prior day.
+      lastAutoRescheduleDayRef.current = todayKey;
+      saveLastAutoRescheduleDay(todayKey);
+      const config = packingConfigRef.current;
+      setTasks((current) =>
+        rescheduleOverdueTasksForNewDay(
+          current,
+          new Date(nowMs),
+          config.getTargetTimeForDay,
+          config.taskGapMinutes,
+          config.getWindowStartTimeForDay,
+        ),
+      );
+    };
+
+    tick();
+    const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [activeView]);
 
@@ -2504,6 +2649,7 @@ function App() {
       if (attachMenuRef.current?.contains(target)) return;
       if (composeKindMenuRef.current?.contains(target)) return;
       if (durationMenuRef.current?.contains(target)) return;
+      if (recurringMenuRef.current?.contains(target)) return;
       if (urgencyMenuRef.current?.contains(target)) return;
       if (impactMenuRef.current?.contains(target)) return;
       if (taskToolHintMenuRef.current?.contains(target)) return;
@@ -2546,6 +2692,7 @@ function App() {
         attachMenuOpen ||
         composeKindMenuOpen ||
         durationMenuOpen ||
+        recurringMenuOpen ||
         urgencyMenuOpen ||
         impactMenuOpen ||
         taskToolHint != null
@@ -2553,6 +2700,7 @@ function App() {
         setAttachMenuOpen(false);
         setComposeKindMenuOpen(false);
         setDurationMenuOpen(false);
+        setRecurringMenuOpen(false);
         setUrgencyMenuOpen(false);
         setImpactMenuOpen(false);
         closeTaskToolHint();
@@ -2569,6 +2717,7 @@ function App() {
     attachMenuOpen,
     composeKindMenuOpen,
     durationMenuOpen,
+    recurringMenuOpen,
     urgencyMenuOpen,
     impactMenuOpen,
     taskToolHint,
@@ -2621,6 +2770,21 @@ function App() {
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [durationMenuOpen]);
+
+  useEffect(() => {
+    if (!recurringMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (recurringMenuRef.current?.contains(target)) return;
+      if (cycleButtonRef.current?.contains(target)) return;
+      setRecurringMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [recurringMenuOpen]);
 
   useEffect(() => {
     if (!urgencyMenuOpen) return;
@@ -3418,6 +3582,7 @@ function App() {
             date: schedule.date,
             starts_at: schedule.starts_at,
             due_at: schedule.due_at,
+            recurring: composerRecurring,
           });
           if (!draft) return;
           const wasEditing = editingTaskId != null;
@@ -3795,7 +3960,13 @@ function App() {
                               setTasks((current) =>
                                 current.map((task) =>
                                   task.id === editingTaskId
-                                    ? { ...task, date: null, starts_at: null, due_at: null }
+                                    ? {
+                                        ...task,
+                                        date: null,
+                                        starts_at: null,
+                                        due_at: null,
+                                        auto_rescheduled: false,
+                                      }
                                     : task,
                                 ),
                               );
@@ -3833,10 +4004,10 @@ function App() {
                   </button>
                 )}
                 {composeKind === "project" && (
-                  <button
+                    <button
                     ref={dueDateButtonRef}
                     type="button"
-                    className={`app-composer-tool${taskToolHint === "Date & Time" ? " is-open" : ""}`}
+                    className={dueDateButtonClassName}
                     aria-label="Date & Time"
                     aria-expanded={taskToolHint === "Date & Time"}
                     tabIndex={collapsed ? -1 : 0}
@@ -3858,23 +4029,113 @@ function App() {
                     >
                       <ParentTaskIcon />
                     </button>
-                    <button
-                      ref={cycleButtonRef}
-                      type="button"
-                      className={`app-composer-tool${taskToolHint === "Recurring or Cycle/After" ? " is-open" : ""}`}
-                      aria-label="Recurring or Cycle/After"
-                      aria-expanded={taskToolHint === "Recurring or Cycle/After"}
-                      tabIndex={collapsed ? -1 : 0}
-                      onClick={(event) =>
-                        openTaskToolHint(event.currentTarget, "Recurring or Cycle/After")
-                      }
-                    >
-                      <CycleIcon />
-                    </button>
+                    <div className="app-composer-recurring">
+                      <ComposerOverlayMenu
+                        open={recurringMenuOpen}
+                        anchorRef={cycleButtonRef}
+                        menuRef={recurringMenuRef}
+                        className="app-duration-menu app-recurring-menu"
+                        aria-label="Repeat Every"
+                      >
+                        <p className="app-duration-title">Repeat Every...</p>
+                        <div className="app-duration-divider" aria-hidden="true" />
+                        <div
+                          className="app-duration-unit app-duration-unit-triple"
+                          role="group"
+                          aria-label="Repeat unit"
+                        >
+                          {(
+                            [
+                              { id: "day", label: "Days" },
+                              { id: "week", label: "Weeks" },
+                              { id: "month", label: "Months" },
+                            ] as const
+                          ).map(({ id, label }) => (
+                            <button
+                              key={id}
+                              type="button"
+                              className={`app-duration-unit-button${recurringUnit === id ? " is-active" : ""}`}
+                              aria-pressed={recurringUnit === id}
+                              onClick={() => setRecurringUnitValue(id)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="app-duration-stepper">
+                          <button
+                            type="button"
+                            className="app-duration-step"
+                            aria-label="Decrease repeat interval"
+                            onClick={() => stepRecurring(-1)}
+                          >
+                            −
+                          </button>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            className="app-duration-input"
+                            value={recurringInput}
+                            aria-label="Repeat interval"
+                            onChange={(event) => setRecurringInput(event.target.value)}
+                            onBlur={() => commitRecurringInput(recurringInput)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                commitRecurringInput(recurringInput);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="app-duration-step"
+                            aria-label="Increase repeat interval"
+                            onClick={() => stepRecurring(1)}
+                          >
+                            +
+                          </button>
+                        </div>
+                        <div className="app-recurring-toggle-row">
+                          <span className="app-recurring-toggle-label" id="app-recurring-toggle-label">
+                            Repeat
+                          </span>
+                          <button
+                            type="button"
+                            className={`app-recurring-switch${recurringActivated ? " is-on" : ""}`}
+                            role="switch"
+                            aria-checked={recurringActivated}
+                            aria-labelledby="app-recurring-toggle-label"
+                            onClick={() => setRecurringEnabled(!recurringActivated)}
+                          >
+                            <span className="app-recurring-switch-thumb" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </ComposerOverlayMenu>
+                      <button
+                        ref={cycleButtonRef}
+                        type="button"
+                        className={`app-composer-tool app-composer-tool-recurring${recurringActivated ? " is-activated" : ""}${recurringMenuOpen ? " is-open" : ""}`}
+                        aria-label="Repeat"
+                        aria-expanded={recurringMenuOpen}
+                        tabIndex={collapsed ? -1 : 0}
+                        onClick={() => {
+                          setAttachMenuOpen(false);
+                          setComposeKindMenuOpen(false);
+                          setDurationMenuOpen(false);
+                          setUrgencyMenuOpen(false);
+                          setImpactMenuOpen(false);
+                          closeTaskToolHint();
+                          setRecurringMenuOpen((open) => !open);
+                        }}
+                      >
+                        <CycleIcon />
+                      </button>
+                    </div>
                     <button
                       ref={dueDateButtonRef}
                       type="button"
-                      className={`app-composer-tool${taskToolHint === "Date & Time" ? " is-open" : ""}`}
+                      className={dueDateButtonClassName}
                       aria-label="Date & Time"
                       aria-expanded={taskToolHint === "Date & Time"}
                       tabIndex={collapsed ? -1 : 0}
@@ -3938,6 +4199,7 @@ function App() {
                           setAttachMenuOpen(false);
                           setComposeKindMenuOpen(false);
                           setDurationMenuOpen(false);
+                          setRecurringMenuOpen(false);
                           setUrgencyMenuOpen(false);
                           closeTaskToolHint();
                           setImpactActivated(true);
@@ -3985,6 +4247,7 @@ function App() {
                           setAttachMenuOpen(false);
                           setComposeKindMenuOpen(false);
                           setDurationMenuOpen(false);
+                          setRecurringMenuOpen(false);
                           setImpactMenuOpen(false);
                           closeTaskToolHint();
                           setUrgencyActivated(true);
@@ -4078,6 +4341,7 @@ function App() {
                       onClick={() => {
                         setAttachMenuOpen(false);
                         setComposeKindMenuOpen(false);
+                        setRecurringMenuOpen(false);
                         setUrgencyMenuOpen(false);
                         setImpactMenuOpen(false);
                         closeTaskToolHint();
