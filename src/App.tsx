@@ -2965,7 +2965,7 @@ function App() {
                     </button>
                     <button
                       type="button"
-                      className={`app-attach-menu-item${activeView === "settings" ? " is-selected" : ""}`}
+                      className="app-attach-menu-item"
                       role="menuitem"
                       onClick={() => {
                         setSettingsMenuOpen(false);
