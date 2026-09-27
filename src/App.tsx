@@ -13,16 +13,21 @@ import {
   loadTargetTimeOverrides,
   loadTaskGapMinutes,
   loadTasks,
+  loadWindowStartOverrides,
+  loadWindowStartTime,
   MAX_TASK_GAP_MINUTES,
   MIN_TASK_GAP_MINUTES,
   msUntilTargetTime,
   resolveTargetTime,
+  resolveWindowStartTime,
   sameCalendarDay,
   saveDaySnooze,
   saveTargetTime,
   saveTargetTimeOverrides,
   saveTaskGapMinutes,
   saveTasks,
+  saveWindowStartOverrides,
+  saveWindowStartTime,
   shiftMonth,
   targetTimeDayKey,
   toStartOfDay,
@@ -38,8 +43,8 @@ import {
   layoutCalendarTasks,
   minutesFromMidnight,
   MINUTES_PER_DAY,
-  PACK_START_MINUTES,
   packWindowEndMinutes,
+  packWindowStartMinutes,
   parseTaskDate,
   PX_PER_MINUTE,
   isAnchoredTaskMissed,
@@ -977,11 +982,19 @@ function App() {
   const [targetTime, setTargetTime] = useState(() =>
     resolveTargetTime(toStartOfDay(new Date()), loadTargetTime(), loadTargetTimeOverrides()),
   );
+  const [defaultWindowStartTime, setDefaultWindowStartTime] = useState(() => loadWindowStartTime());
+  const [windowStartOverrides, setWindowStartOverrides] = useState(() => loadWindowStartOverrides());
+  const [windowStartTime, setWindowStartTime] = useState(() =>
+    resolveWindowStartTime(toStartOfDay(new Date()), loadWindowStartTime(), loadWindowStartOverrides()),
+  );
   const [selectedDay, setSelectedDay] = useState(() => toStartOfDay(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [overdueSectionOpen, setOverdueSectionOpen] = useState(true);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
-  const [timePickerBaseline, setTimePickerBaseline] = useState<string | null>(null);
+  const [timePickerBaseline, setTimePickerBaseline] = useState<{
+    target: string;
+    windowStart: string;
+  } | null>(null);
   const [timeSavePromptOpen, setTimeSavePromptOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => toStartOfDay(new Date()));
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
@@ -1035,6 +1048,7 @@ function App() {
   const taskDateInputRef = useRef<HTMLInputElement>(null);
   const taskTimeInputRef = useRef<HTMLInputElement>(null);
   const targetTimeInputRef = useRef<HTMLInputElement>(null);
+  const windowStartInputRef = useRef<HTMLInputElement>(null);
   const scheduleDraftRef = useRef<{
     date: string | null;
     starts_at: string | null;
@@ -1073,13 +1087,19 @@ function App() {
     if (timePickerOpen && sameCalendarDay(day, selectedDay)) return targetTime;
     return resolveTargetTime(day, defaultTargetTime, targetTimeOverrides);
   };
+  const getWindowStartTimeForDay = (day: Date) => {
+    if (timePickerOpen && sameCalendarDay(day, selectedDay)) return windowStartTime;
+    return resolveWindowStartTime(day, defaultWindowStartTime, windowStartOverrides);
+  };
   const todayTargetTime = getTargetTimeForDay(todayStart);
+  const todayWindowStartTime = getWindowStartTimeForDay(todayStart);
+  const todayWindowStartMinutes = packWindowStartMinutes(todayWindowStartTime);
   const countdownMs = msUntilTargetTime(todayTargetTime, new Date(countdownNow));
   const countdownRemaining = formatCountdown(countdownMs);
   const nowMinutes = minutesFromMidnight(new Date(countdownNow));
-  const todayPackEnd = packWindowEndMinutes(todayTargetTime);
+  const todayPackEnd = packWindowEndMinutes(todayTargetTime, todayWindowStartMinutes);
   const outsideTaskWindow =
-    nowMinutes < PACK_START_MINUTES || nowMinutes >= todayPackEnd;
+    nowMinutes < todayWindowStartMinutes || nowMinutes >= todayPackEnd;
   const targetTimeLabel = formatTargetTimeLabel(timePickerOpen ? targetTime : todayTargetTime);
   const tasksForCalendar = daySnoozed ? tasks.filter((task) => !isUndatedTask(task)) : tasks;
   const calendarDays = buildMonthCalendarDays(calendarMonth);
@@ -1090,6 +1110,7 @@ function App() {
     new Date(countdownNow),
     getTargetTimeForDay,
     taskGapMinutes,
+    getWindowStartTimeForDay,
   );
   const calendarTaskLayout = calendarTasksLayout.days;
   const overdueTasks = calendarTasksLayout.overdueTasks;
@@ -1101,12 +1122,16 @@ function App() {
   const selectedDayKey = dayKey(selectedDay);
   const selectedDayLayout = calendarLayoutByKey.get(selectedDayKey);
   const selectedDayTargetTime = getTargetTimeForDay(selectedDay);
+  const selectedDayWindowStartMinutes = packWindowStartMinutes(
+    getWindowStartTimeForDay(selectedDay),
+  );
   const selectedPackEnd =
-    selectedDayLayout?.packEndMin ?? packWindowEndMinutes(selectedDayTargetTime);
+    selectedDayLayout?.packEndMin ??
+    packWindowEndMinutes(selectedDayTargetTime, selectedDayWindowStartMinutes);
   const selectedIsToday = sameCalendarDay(selectedDay, todayStart);
   const selectedWindowStart = selectedIsToday
-    ? Math.min(selectedPackEnd, Math.max(PACK_START_MINUTES, nowMinutes))
-    : PACK_START_MINUTES;
+    ? Math.min(selectedPackEnd, Math.max(selectedDayWindowStartMinutes, nowMinutes))
+    : selectedDayWindowStartMinutes;
   const selectedDayBlocks = (selectedDayLayout?.blocks ?? []).map((block) => ({
     startMin: block.startMin,
     endMin: block.endMin,
@@ -1149,8 +1174,9 @@ function App() {
       if (existing) return existing;
       const isToday = sameCalendarDay(date, todayStart);
       const visibleStartMin = isToday ? minutesFromMidnight(nowDate) : 0;
-      const packEnd = packWindowEndMinutes(getTargetTimeForDay(date));
-      const markerStart = PACK_START_MINUTES;
+      const windowStart = packWindowStartMinutes(getWindowStartTimeForDay(date));
+      const packEnd = packWindowEndMinutes(getTargetTimeForDay(date), windowStart);
+      const markerStart = windowStart;
       const windowOpen = markerStart < packEnd;
       const toTop = (absMin: number) => {
         if (absMin < visibleStartMin || absMin > MINUTES_PER_DAY) return null;
@@ -1243,9 +1269,15 @@ function App() {
     setSettingsMenuOpen(false);
     setTaskAggressionMenuOpen(false);
     setTimeSavePromptOpen(false);
-    const resolved = resolveTargetTime(selectedDay, defaultTargetTime, targetTimeOverrides);
-    setTargetTime(resolved);
-    setTimePickerBaseline(resolved);
+    const resolvedTarget = resolveTargetTime(selectedDay, defaultTargetTime, targetTimeOverrides);
+    const resolvedWindowStart = resolveWindowStartTime(
+      selectedDay,
+      defaultWindowStartTime,
+      windowStartOverrides,
+    );
+    setTargetTime(resolvedTarget);
+    setWindowStartTime(resolvedWindowStart);
+    setTimePickerBaseline({ target: resolvedTarget, windowStart: resolvedWindowStart });
     setTimePickerOpen(true);
   };
 
@@ -1255,8 +1287,13 @@ function App() {
     setTimePickerBaseline(null);
   };
 
+  const timePickerIsDirty =
+    timePickerBaseline != null &&
+    (targetTime !== timePickerBaseline.target ||
+      windowStartTime !== timePickerBaseline.windowStart);
+
   const requestCloseTimePicker = () => {
-    if (timePickerBaseline != null && targetTime !== timePickerBaseline) {
+    if (timePickerIsDirty) {
       setTimeSavePromptOpen(true);
       return;
     }
@@ -1264,18 +1301,23 @@ function App() {
   };
 
   const discardTimeChanges = () => {
-    if (timePickerBaseline != null) setTargetTime(timePickerBaseline);
+    if (timePickerBaseline != null) {
+      setTargetTime(timePickerBaseline.target);
+      setWindowStartTime(timePickerBaseline.windowStart);
+    }
     finishCloseTimePicker();
   };
 
   const applyTargetTimeThisDay = () => {
     const key = targetTimeDayKey(selectedDay);
     setTargetTimeOverrides((prev) => ({ ...prev, [key]: targetTime }));
+    setWindowStartOverrides((prev) => ({ ...prev, [key]: windowStartTime }));
     finishCloseTimePicker();
   };
 
   const applyTargetTimeAllFutureDays = () => {
     setDefaultTargetTime(targetTime);
+    setDefaultWindowStartTime(windowStartTime);
     finishCloseTimePicker();
   };
 
@@ -1283,6 +1325,12 @@ function App() {
     const next = value.trim().slice(0, 5);
     if (!/^\d{2}:\d{2}$/.test(next)) return;
     setTargetTime(next);
+  };
+
+  const setWindowStartTimeValue = (value: string) => {
+    const next = value.trim().slice(0, 5);
+    if (!/^\d{2}:\d{2}$/.test(next)) return;
+    setWindowStartTime(next);
   };
 
   const scrollTaskIntoView = (
@@ -1700,6 +1748,7 @@ function App() {
         } as ComposerDraft,
         new Date(countdownNow),
         todayPackEnd,
+        todayWindowStartMinutes,
       )
     ) {
       setOverdueSectionOpen(true);
@@ -1848,7 +1897,7 @@ function App() {
     });
     if (draft) {
       submitComposerDraft[composeKind](draft);
-      if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd)) {
+      if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)) {
         setOverdueSectionOpen(true);
       }
     }
@@ -1931,6 +1980,14 @@ function App() {
   useEffect(() => {
     saveTargetTimeOverrides(targetTimeOverrides);
   }, [targetTimeOverrides]);
+
+  useEffect(() => {
+    saveWindowStartTime(defaultWindowStartTime);
+  }, [defaultWindowStartTime]);
+
+  useEffect(() => {
+    saveWindowStartOverrides(windowStartOverrides);
+  }, [windowStartOverrides]);
 
   const todayKey = dayKey(todayStart);
   useEffect(() => {
@@ -2699,7 +2756,9 @@ function App() {
       const active = document.activeElement;
       if (
         active === targetTimeInputRef.current ||
-        target === targetTimeInputRef.current
+        target === targetTimeInputRef.current ||
+        active === windowStartInputRef.current ||
+        target === windowStartInputRef.current
       ) {
         return;
       }
@@ -2708,7 +2767,7 @@ function App() {
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [timePickerOpen, timeSavePromptOpen, targetTime, timePickerBaseline]);
+  }, [timePickerOpen, timeSavePromptOpen, targetTime, windowStartTime, timePickerBaseline]);
 
   return (
     <div className="app">
@@ -2831,26 +2890,38 @@ function App() {
                 <button
                   type="button"
                   className={`twineline-countdown-button${timePickerOpen ? " is-open" : ""}${
-                    daySnoozed || (outsideTaskWindow && !timePickerOpen) ? " is-rest" : ""
+                    daySnoozed || outsideTaskWindow ? " is-rest" : ""
                   }`}
                   aria-label={
                     timePickerOpen
                       ? daySnoozed
                         ? "Close target time picker. Day is snoozed."
-                        : `Close target time picker. Currently ${targetTimeLabel}.`
+                        : outsideTaskWindow
+                          ? `Close target time picker. Rest time until ${formatMinutesLabel(todayWindowStartMinutes)}.`
+                          : `Close target time picker. Currently ${targetTimeLabel}.`
                       : daySnoozed
                         ? "Day snoozed. Undated tasks are hidden. Change target time or turn snooze off."
                         : outsideTaskWindow
-                          ? `Rest time. Outside task window until ${formatMinutesLabel(PACK_START_MINUTES)}. Change target time.`
+                          ? `Rest time. Outside task window until ${formatMinutesLabel(todayWindowStartMinutes)}. Change target time.`
                           : `Countdown to ${targetTimeLabel}. Change target time.`
                   }
                   aria-expanded={timePickerOpen}
                   onClick={() => (timePickerOpen ? requestCloseTimePicker() : openTimePicker())}
                 >
                   {daySnoozed ? (
-                    <span className="twineline-countdown-remaining">SNOOZE</span>
-                  ) : outsideTaskWindow && !timePickerOpen ? (
-                    <span className="twineline-countdown-remaining">REST</span>
+                    <>
+                      <span className="twineline-countdown-remaining">SNOOZE</span>
+                      <span className="twineline-date-chevron" aria-hidden="true">
+                        {timePickerOpen ? "∨" : ">"}
+                      </span>
+                    </>
+                  ) : outsideTaskWindow ? (
+                    <>
+                      <span className="twineline-countdown-remaining">REST</span>
+                      <span className="twineline-date-chevron" aria-hidden="true">
+                        {timePickerOpen ? "∨" : ">"}
+                      </span>
+                    </>
                   ) : (
                     <>
                       <span className="twineline-countdown-remaining">{countdownRemaining}</span>
@@ -2921,18 +2992,35 @@ function App() {
               </div>
             )}
             {timePickerOpen ? (
-              <div className="twineline-time-picker" aria-label="Choose target time">
+              <div className="twineline-time-picker" aria-label="Choose task window">
+                <div className="twineline-time-picker-heading">Task Window</div>
+                <div className="twineline-time-picker-divider" role="presentation" />
                 <div className="twineline-time-picker-controls">
-                  <span className="twineline-time-picker-label">Countdown To:</span>
-                  <div className="app-due-date-field twineline-time-picker-field">
-                    <input
-                      ref={targetTimeInputRef}
-                      type="time"
-                      value={targetTime}
-                      onChange={(event) => setTargetTimeValue(event.target.value)}
-                      onInput={(event) => setTargetTimeValue(event.currentTarget.value)}
-                      aria-label="Countdown target time"
-                    />
+                  <div className="twineline-time-picker-row">
+                    <span className="twineline-time-picker-label">Begins:</span>
+                    <div className="app-due-date-field twineline-time-picker-field">
+                      <input
+                        ref={windowStartInputRef}
+                        type="time"
+                        value={windowStartTime}
+                        onChange={(event) => setWindowStartTimeValue(event.target.value)}
+                        onInput={(event) => setWindowStartTimeValue(event.currentTarget.value)}
+                        aria-label="Task window start time"
+                      />
+                    </div>
+                  </div>
+                  <div className="twineline-time-picker-row">
+                    <span className="twineline-time-picker-label">Ends:</span>
+                    <div className="app-due-date-field twineline-time-picker-field">
+                      <input
+                        ref={targetTimeInputRef}
+                        type="time"
+                        value={targetTime}
+                        onChange={(event) => setTargetTimeValue(event.target.value)}
+                        onInput={(event) => setTargetTimeValue(event.currentTarget.value)}
+                        aria-label="Task window end time"
+                      />
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -3334,7 +3422,7 @@ function App() {
           if (!draft) return;
           const wasEditing = editingTaskId != null;
           submitComposerDraft[composeKind](draft);
-          if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd)) {
+          if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)) {
             setOverdueSectionOpen(true);
           }
           resetComposerFields();

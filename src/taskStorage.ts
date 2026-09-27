@@ -3,9 +3,12 @@ import type { ComposerDraft } from "./composer";
 const TASKS_STORAGE_KEY = "twineline.tasks";
 const TARGET_TIME_STORAGE_KEY = "twineline.targetTime";
 const TARGET_TIME_OVERRIDES_STORAGE_KEY = "twineline.targetTimeOverrides";
+const WINDOW_START_STORAGE_KEY = "twineline.windowStartTime";
+const WINDOW_START_OVERRIDES_STORAGE_KEY = "twineline.windowStartOverrides";
 const DAY_SNOOZE_STORAGE_KEY = "twineline.daySnooze";
 const TASK_GAP_STORAGE_KEY = "twineline.taskGapMinutes";
 const DEFAULT_TARGET_TIME = "17:00";
+const DEFAULT_WINDOW_START_TIME = "06:00";
 const DEFAULT_TASK_GAP_MINUTES = 15;
 const MIN_TASK_GAP_MINUTES = 0;
 const MAX_TASK_GAP_MINUTES = 180;
@@ -81,6 +84,57 @@ export function saveTargetTimeOverrides(overrides: Record<string, string>): void
   } catch {
     // Ignore quota / private-mode write failures.
   }
+}
+
+export function loadWindowStartTime(): string {
+  try {
+    const raw = localStorage.getItem(WINDOW_START_STORAGE_KEY);
+    if (raw && isTargetTime(raw)) return raw;
+  } catch {
+    // Ignore read failures.
+  }
+  return DEFAULT_WINDOW_START_TIME;
+}
+
+export function saveWindowStartTime(time: string): void {
+  if (!isTargetTime(time)) return;
+  try {
+    localStorage.setItem(WINDOW_START_STORAGE_KEY, time);
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export function loadWindowStartOverrides(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(WINDOW_START_OVERRIDES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const overrides: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "string" && isTargetTime(value)) overrides[key] = value;
+    }
+    return overrides;
+  } catch {
+    return {};
+  }
+}
+
+export function saveWindowStartOverrides(overrides: Record<string, string>): void {
+  try {
+    localStorage.setItem(WINDOW_START_OVERRIDES_STORAGE_KEY, JSON.stringify(overrides));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export function resolveWindowStartTime(
+  day: Date,
+  defaultTime: string,
+  overrides: Record<string, string>,
+): string {
+  return overrides[targetTimeDayKey(day)] ?? defaultTime;
 }
 
 /** True when `dayKey` (YYYY-MM-DD) is currently snoozed. */

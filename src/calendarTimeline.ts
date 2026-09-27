@@ -75,25 +75,39 @@ export function minutesFromMidnight(date: Date): number {
   return date.getHours() * 60 + date.getMinutes();
 }
 
-export function packWindowEndMinutes(targetTime: string): number {
+export function packWindowStartMinutes(startTime: string): number {
+  const parsed = parseTimeOfDay(startTime);
+  if (parsed == null) return PACK_START_MINUTES;
+  return Math.min(MINUTES_PER_DAY - 1, Math.max(0, parsed));
+}
+
+export function packWindowEndMinutes(
+  targetTime: string,
+  windowStartMinutes: number = PACK_START_MINUTES,
+): number {
   const [hoursRaw, minutesRaw] = targetTime.split(":").map(Number);
   const hours = Number.isFinite(hoursRaw) ? hoursRaw : 17;
   const minutes = Number.isFinite(minutesRaw) ? minutesRaw : 0;
   const end = Math.min(MINUTES_PER_DAY, Math.max(0, hours * 60 + minutes));
-  if (end <= PACK_START_MINUTES) return MINUTES_PER_DAY;
+  if (end <= windowStartMinutes) return MINUTES_PER_DAY;
   return end;
 }
 
-/** Packing window start for a day: now on today (at least 6:00), else 6:00. */
-export function packStartForDay(day: Date, now: Date, packEnd: number): number {
+/** Packing window start for a day: now on today (at least window start), else window start. */
+export function packStartForDay(
+  day: Date,
+  now: Date,
+  packEnd: number,
+  windowStartMinutes: number = PACK_START_MINUTES,
+): number {
   const dayStart = toStartOfDay(day);
   const today = toStartOfDay(now);
   if (dayStart.getTime() < today.getTime()) return packEnd;
   if (dayStart.getTime() === today.getTime()) {
     const nowMin = minutesFromMidnight(now);
-    return Math.min(packEnd, Math.max(PACK_START_MINUTES, nowMin));
+    return Math.min(packEnd, Math.max(windowStartMinutes, nowMin));
   }
-  return PACK_START_MINUTES;
+  return windowStartMinutes;
 }
 
 export function parseTaskDateTime(value: string | null | undefined): Date | null {
@@ -130,6 +144,7 @@ export function isAnchoredTaskMissed(
   task: ComposerDraft,
   now: Date,
   packEndMinutes?: number,
+  windowStartMinutes: number = PACK_START_MINUTES,
 ): boolean {
   const scheduled = parseTaskDate(task.date);
   if (!scheduled) return false;
@@ -142,7 +157,7 @@ export function isAnchoredTaskMissed(
   if (starts == null && due == null) {
     // Date-only today: missed once the day's pack window has closed.
     if (packEndMinutes == null) return false;
-    return packStartForDay(today, now, packEndMinutes) >= packEndMinutes;
+    return packStartForDay(today, now, packEndMinutes, windowStartMinutes) >= packEndMinutes;
   }
 
   const duration = taskDurationMinutes(task);
@@ -238,6 +253,7 @@ function placeDuration(
   startMin: number,
   duration: number,
   getPackEnd: (day: Date) => number,
+  getWindowStart: (day: Date) => number,
   now: Date,
   forceOverdue = false,
 ) {
@@ -250,15 +266,15 @@ function placeDuration(
   while (remaining > 0) {
     if (day.getTime() < today.getTime()) {
       day = addDays(day, 1);
-      cursor = PACK_START_MINUTES;
+      cursor = getWindowStart(day);
       continue;
     }
     const packEnd = getPackEnd(day);
-    const packStart = packStartForDay(day, now, packEnd);
+    const packStart = packStartForDay(day, now, packEnd, getWindowStart(day));
     cursor = Math.max(cursor, packStart);
     if (cursor >= packEnd) {
       day = addDays(day, 1);
-      cursor = PACK_START_MINUTES;
+      cursor = getWindowStart(day);
       continue;
     }
     const room = packEnd - cursor;
@@ -270,7 +286,7 @@ function placeDuration(
     cursor += take;
     if (remaining > 0) {
       day = addDays(day, 1);
-      cursor = PACK_START_MINUTES;
+      cursor = getWindowStart(day);
     }
   }
 }
@@ -297,18 +313,19 @@ function placeTimedTask(
   task: ComposerDraft,
   now: Date,
   getPackEnd: (day: Date) => number,
+  getWindowStart: (day: Date) => number,
   overdueTasks: ComposerDraft[],
 ) {
   const scheduled = parseTaskDate(task.date);
   if (!scheduled) return;
 
-  if (isAnchoredTaskMissed(task, now)) {
+  if (isAnchoredTaskMissed(task, now, getPackEnd(scheduled), getWindowStart(scheduled))) {
     overdueTasks.push(task);
     return;
   }
 
   const packEnd = getPackEnd(scheduled);
-  const packStart = packStartForDay(scheduled, now, packEnd);
+  const packStart = packStartForDay(scheduled, now, packEnd, getWindowStart(scheduled));
   const startMin = resolveTimedStartMin(task, packStart);
   pushBlock(byDay, scheduled, task, startMin, startMin + taskDurationMinutes(task), 0, false);
 }
@@ -368,6 +385,7 @@ function placeSoftBatchWithGap(
   free: Interval[],
   packStart: number,
   getPackEnd: (day: Date) => number,
+  getWindowStart: (day: Date) => number,
   now: Date,
   gapMinutes: number,
 ) {
@@ -380,7 +398,17 @@ function placeSoftBatchWithGap(
     if (range) {
       pushBlock(byDay, day, item.task, range.start, range.end, 0, overdue);
     } else {
-      placeDuration(byDay, item.task, day, packStart, item.minutes, getPackEnd, now, overdue);
+      placeDuration(
+        byDay,
+        item.task,
+        day,
+        packStart,
+        item.minutes,
+        getPackEnd,
+        getWindowStart,
+        now,
+        overdue,
+      );
     }
     virtualCursor += item.minutes + gap;
   }
@@ -392,6 +420,7 @@ function packSoftTasks(
   undated: ComposerDraft[],
   now: Date,
   getPackEnd: (day: Date) => number,
+  getWindowStart: (day: Date) => number,
   overdueTasks: ComposerDraft[],
   gapMinutes: number,
 ) {
@@ -421,7 +450,7 @@ function packSoftTasks(
     guard += 1;
     const key = dayKey(day);
     const packEnd = getPackEnd(day);
-    const packStart = packStartForDay(day, now, packEnd);
+    const packStart = packStartForDay(day, now, packEnd, getWindowStart(day));
     if (packStart >= packEnd) {
       // Pack window closed for this day — date-only tasks cannot be placed.
       drainDateOnlyToOverdue(key);
@@ -469,15 +498,27 @@ function packSoftTasks(
         const task = undatedQueue.shift()!;
         const minutes = taskDurationMinutes(task);
         if (free[0]) {
-          placeDuration(byDay, task, day, free[0].start, minutes, getPackEnd, now, false);
-        } else {
           placeDuration(
             byDay,
             task,
-            addDays(day, 1),
-            PACK_START_MINUTES,
+            day,
+            free[0].start,
             minutes,
             getPackEnd,
+            getWindowStart,
+            now,
+            false,
+          );
+        } else {
+          const nextDay = addDays(day, 1);
+          placeDuration(
+            byDay,
+            task,
+            nextDay,
+            getWindowStart(nextDay),
+            minutes,
+            getPackEnd,
+            getWindowStart,
             now,
             false,
           );
@@ -488,7 +529,17 @@ function packSoftTasks(
       continue;
     }
 
-    placeSoftBatchWithGap(byDay, day, fitted, free, packStart, getPackEnd, now, gap);
+    placeSoftBatchWithGap(
+      byDay,
+      day,
+      fitted,
+      free,
+      packStart,
+      getPackEnd,
+      getWindowStart,
+      now,
+      gap,
+    );
 
     // Remaining same-day date-only could not fit → overdue group (do not reschedule).
     while (sameDayQueue.length > 0) {
@@ -549,8 +600,11 @@ export function layoutCalendarTasks(
   now: Date,
   getTargetTimeForDay: (day: Date) => string,
   taskGapMinutes: number = DEFAULT_TASK_GAP_MINUTES,
+  getWindowStartTimeForDay: (day: Date) => string = () => "06:00",
 ): CalendarTasksLayout {
-  const getPackEnd = (day: Date) => packWindowEndMinutes(getTargetTimeForDay(day));
+  const getWindowStart = (day: Date) => packWindowStartMinutes(getWindowStartTimeForDay(day));
+  const getPackEnd = (day: Date) =>
+    packWindowEndMinutes(getTargetTimeForDay(day), getWindowStart(day));
   const gapMinutes =
     Number.isFinite(taskGapMinutes) && taskGapMinutes >= 0
       ? Math.round(taskGapMinutes)
@@ -576,10 +630,11 @@ export function layoutCalendarTasks(
       continue;
     }
     const dayPackEnd = getPackEnd(scheduled);
+    const dayWindowStart = getWindowStart(scheduled);
     if (
       scheduled.getTime() < todayStart.getTime() ||
       (scheduled.getTime() === todayStart.getTime() &&
-        packStartForDay(scheduled, now, dayPackEnd) >= dayPackEnd)
+        packStartForDay(scheduled, now, dayPackEnd, dayWindowStart) >= dayPackEnd)
     ) {
       overdueTasks.push(task);
     } else {
@@ -608,10 +663,19 @@ export function layoutCalendarTasks(
   });
 
   for (const task of timed) {
-    placeTimedTask(byDay, task, now, getPackEnd, overdueTasks);
+    placeTimedTask(byDay, task, now, getPackEnd, getWindowStart, overdueTasks);
   }
 
-  packSoftTasks(byDay, dateOnlyByDay, undated, now, getPackEnd, overdueTasks, gapMinutes);
+  packSoftTasks(
+    byDay,
+    dateOnlyByDay,
+    undated,
+    now,
+    getPackEnd,
+    getWindowStart,
+    overdueTasks,
+    gapMinutes,
+  );
 
   const keys = [...byDay.keys()].sort();
   const lastKey = keys.length > 0 ? keys[keys.length - 1] : dayKey(todayStart);
@@ -653,7 +717,7 @@ export function layoutCalendarTasks(
       dayKey: key,
       visibleStartMin,
       visibleMinutes,
-      ...buildPackWindowMarkers(d, now, packEnd, visibleStartMin),
+      ...buildPackWindowMarkers(d, now, packEnd, visibleStartMin, getWindowStart(d)),
       blocks,
       hourMarkers: buildHourMarkers(visibleStartMin),
     });
@@ -666,7 +730,7 @@ export function layoutCalendarTasks(
       dayKey: dayKey(todayStart),
       visibleStartMin,
       visibleMinutes: Math.max(1, MINUTES_PER_DAY - visibleStartMin),
-      ...buildPackWindowMarkers(todayStart, now, getPackEnd(todayStart), visibleStartMin),
+      ...buildPackWindowMarkers(todayStart, now, getPackEnd(todayStart), visibleStartMin, getWindowStart(todayStart)),
       blocks: [],
       hourMarkers: buildHourMarkers(visibleStartMin),
     });
@@ -684,7 +748,7 @@ export function layoutCalendarTasks(
   );
   for (const task of tasks) {
     if (!task.id || placedIds.has(task.id) || overdueIds.has(task.id)) continue;
-    if (isAnchoredTaskMissed(task, now, getPackEnd(todayStart))) {
+    if (isAnchoredTaskMissed(task, now, getPackEnd(todayStart), getWindowStart(todayStart))) {
       overdueTasks.push(task);
       overdueIds.add(task.id);
       continue;
@@ -728,6 +792,7 @@ function buildPackWindowMarkers(
   now: Date,
   packEnd: number,
   visibleStartMin: number,
+  windowStartMinutes: number = PACK_START_MINUTES,
 ): Pick<
   CalendarDayLayout,
   | "packStartMin"
@@ -739,9 +804,8 @@ function buildPackWindowMarkers(
   | "packBandTopPx"
   | "packBandHeightPx"
 > {
-  // Visual start is always 6:00 — stays at absolute time and scrolls away once past.
-  const markerStart = PACK_START_MINUTES;
-  const packStart = packStartForDay(day, now, packEnd);
+  const markerStart = windowStartMinutes;
+  const packStart = packStartForDay(day, now, packEnd, windowStartMinutes);
   const visibleEnd = MINUTES_PER_DAY;
   const windowOpen = packStart < packEnd || markerStart < packEnd;
 
