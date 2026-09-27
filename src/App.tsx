@@ -23,6 +23,7 @@ import {
   loadTargetTimeOverrides,
   loadTaskGapMinutes,
   loadTasks,
+  loadTodayWindowBaseline,
   loadWindowStartOverrides,
   loadWindowStartTime,
   MAX_TASK_GAP_MINUTES,
@@ -37,12 +38,15 @@ import {
   saveTargetTimeOverrides,
   saveTaskGapMinutes,
   saveTasks,
+  saveTodayWindowBaseline,
   saveWindowStartOverrides,
   saveWindowStartTime,
   shiftMonth,
   targetTimeDayKey,
+  todayWindowSignature,
   toStartOfDay,
   WEEKDAY_BUTTONS,
+  type TodayWindowBaseline,
 } from "./taskStorage";
 import { buildScheduleLayoutForWindow } from "./schedule";
 import {
@@ -60,6 +64,8 @@ import {
   PX_PER_MINUTE,
   isAnchoredTaskMissed,
   rescheduleOverdueTasksForNewDay,
+  collectSoftTaskIdsOnDay,
+  collectPushedFromTodayWindowTasks,
 } from "./calendarTimeline";
 
 /** Soft tasks with no calendar day — hidden while the day is snoozed. */
@@ -1024,6 +1030,9 @@ function App() {
   const [daySnoozed, setDaySnoozed] = useState(() =>
     loadDaySnooze(dayKey(toStartOfDay(new Date()))),
   );
+  const [todayWindowBaseline, setTodayWindowBaseline] = useState<TodayWindowBaseline | null>(() =>
+    loadTodayWindowBaseline(),
+  );
   const composerRef = useRef<HTMLFormElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const overdueSectionRef = useRef<HTMLElement>(null);
@@ -1161,22 +1170,32 @@ function App() {
     endMin: block.endMin,
     task: block.task,
   }));
-  const scheduleOverflowSeen = new Set<string>();
-  const scheduleOverflowTasks = calendarTaskLayout
-    .filter((day) => day.date.getTime() > selectedDay.getTime())
-    .flatMap((day) => day.blocks)
-    .map((block) => block.task)
-    .filter((task) => {
-      const id = task.id ?? task.title;
-      if (scheduleOverflowSeen.has(id)) return false;
-      scheduleOverflowSeen.add(id);
-      return true;
-    });
+  const appliedTodayBegins = resolveWindowStartTime(
+    todayStart,
+    defaultWindowStartTime,
+    windowStartOverrides,
+  );
+  const appliedTodayEnds = resolveTargetTime(todayStart, defaultTargetTime, targetTimeOverrides);
+  const appliedTodayWindowSig = todayWindowSignature(appliedTodayBegins, appliedTodayEnds);
+  const todaySoftResidentIds = collectSoftTaskIdsOnDay(calendarTaskLayout, todayStart);
+  const todaySoftResidentKey = [...todaySoftResidentIds].sort().join(",");
+  const todayKeyStr = dayKey(todayStart);
+  const baselineIds = new Set(
+    todayWindowBaseline?.dayKey === todayKeyStr &&
+      todayWindowBaseline.windowSig === appliedTodayWindowSig
+      ? todayWindowBaseline.taskIds
+      : [],
+  );
+  // Only tasks that lived in today's applied window and were later pushed off today.
+  const scheduleOverflowTasks =
+    selectedIsToday && !outsideTaskWindow
+      ? collectPushedFromTodayWindowTasks(calendarTaskLayout, todayStart, baselineIds)
+      : [];
   const scheduleLayout = buildScheduleLayoutForWindow(
     selectedDayBlocks,
     selectedWindowStart,
     selectedPackEnd,
-    outsideTaskWindow ? [] : scheduleOverflowTasks,
+    scheduleOverflowTasks,
   );
   const { timelineMinutes: scheduleTimelineMinutes, segments: scheduleSegments, overflowTasks } =
     scheduleLayout;
@@ -2097,6 +2116,55 @@ function App() {
   useEffect(() => {
     saveWindowStartOverrides(windowStartOverrides);
   }, [windowStartOverrides]);
+
+  useEffect(() => {
+    const livingIds = new Set(
+      tasks.map((task) => task.id).filter((id): id is string => typeof id === "string"),
+    );
+    const todaySoftIds = todaySoftResidentKey
+      ? todaySoftResidentKey.split(",").filter(Boolean)
+      : [];
+
+    if (
+      todayWindowBaseline == null ||
+      todayWindowBaseline.dayKey !== todayKeyStr ||
+      todayWindowBaseline.windowSig !== appliedTodayWindowSig
+    ) {
+      // New day or new applied task window — snapshot current window residents and reset overflow.
+      const next: TodayWindowBaseline = {
+        dayKey: todayKeyStr,
+        windowSig: appliedTodayWindowSig,
+        taskIds: todaySoftIds.filter((id) => livingIds.has(id)),
+      };
+      setTodayWindowBaseline(next);
+      saveTodayWindowBaseline(next);
+      return;
+    }
+
+    const merged = new Set(
+      todayWindowBaseline.taskIds.filter((id) => livingIds.has(id)),
+    );
+    let changed = merged.size !== todayWindowBaseline.taskIds.length;
+    for (const id of todaySoftIds) {
+      if (!livingIds.has(id) || merged.has(id)) continue;
+      merged.add(id);
+      changed = true;
+    }
+    if (!changed) return;
+
+    const next: TodayWindowBaseline = {
+      ...todayWindowBaseline,
+      taskIds: [...merged],
+    };
+    setTodayWindowBaseline(next);
+    saveTodayWindowBaseline(next);
+  }, [
+    todayKeyStr,
+    appliedTodayWindowSig,
+    todaySoftResidentKey,
+    tasks,
+    todayWindowBaseline,
+  ]);
 
   const todayKey = dayKey(todayStart);
   useEffect(() => {

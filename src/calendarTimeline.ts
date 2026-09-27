@@ -677,6 +677,71 @@ export type CalendarTasksLayout = {
   overdueTasks: ComposerDraft[];
 };
 
+/**
+ * Soft (untimed) task ids currently placed on `day`.
+ */
+export function collectSoftTaskIdsOnDay(
+  days: CalendarDayLayout[],
+  day: Date,
+): Set<string> {
+  const key = dayKey(toStartOfDay(day));
+  const ids = new Set<string>();
+  const dayLayout = days.find((entry) => entry.dayKey === key);
+  if (!dayLayout) return ids;
+
+  for (const block of dayLayout.blocks) {
+    const id = block.task.id;
+    if (!id) continue;
+    if (
+      parseTimeOfDay(block.task.starts_at) != null ||
+      parseTimeOfDay(block.task.due_at) != null
+    ) {
+      continue;
+    }
+    ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * Soft tasks that previously lived in today's window (baseline) and have since
+ * been pushed entirely onto a later day. Future-dated tasks are never included.
+ */
+export function collectPushedFromTodayWindowTasks(
+  days: CalendarDayLayout[],
+  today: Date,
+  baselineIds: ReadonlySet<string>,
+): ComposerDraft[] {
+  const todayStart = toStartOfDay(today);
+  const todayKey = dayKey(todayStart);
+  const todayIds = collectSoftTaskIdsOnDay(days, todayStart);
+  const seen = new Set<string>();
+  const overflow: ComposerDraft[] = [];
+
+  for (const day of days) {
+    if (day.date.getTime() <= todayStart.getTime()) continue;
+    for (const block of day.blocks) {
+      const task = block.task;
+      const id = task.id;
+      if (!id || seen.has(id)) continue;
+      if (!baselineIds.has(id)) continue;
+      if (todayIds.has(id)) continue;
+
+      if (parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null) {
+        continue;
+      }
+
+      const scheduled = parseTaskDate(task.date);
+      if (scheduled != null && dayKey(scheduled) !== todayKey) continue;
+
+      seen.add(id);
+      overflow.push(task);
+    }
+  }
+
+  return overflow;
+}
+
 export function layoutCalendarTasks(
   tasks: ComposerDraft[],
   now: Date,

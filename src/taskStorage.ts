@@ -8,6 +8,7 @@ const WINDOW_START_OVERRIDES_STORAGE_KEY = "twineline.windowStartOverrides";
 const DAY_SNOOZE_STORAGE_KEY = "twineline.daySnooze";
 const TASK_GAP_STORAGE_KEY = "twineline.taskGapMinutes";
 const LAST_AUTO_RESCHEDULE_DAY_KEY = "twineline.lastAutoRescheduleDay";
+const TODAY_WINDOW_BASELINE_KEY = "twineline.todayWindowBaseline";
 const DEFAULT_TARGET_TIME = "17:00";
 const DEFAULT_WINDOW_START_TIME = "06:00";
 const DEFAULT_TASK_GAP_MINUTES = 15;
@@ -201,6 +202,46 @@ export function saveLastAutoRescheduleDay(dayKey: string): void {
   } catch {
     // Ignore quota / private-mode write failures.
   }
+}
+
+export type TodayWindowBaseline = {
+  /** Calendar day the baseline belongs to. */
+  dayKey: string;
+  /** Applied window signature: `${begins}|${ends}`. */
+  windowSig: string;
+  /** Soft task ids that have been residents of today's window. */
+  taskIds: string[];
+};
+
+export function loadTodayWindowBaseline(): TodayWindowBaseline | null {
+  try {
+    const raw = localStorage.getItem(TODAY_WINDOW_BASELINE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const value = parsed as Record<string, unknown>;
+    if (typeof value.dayKey !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.dayKey)) {
+      return null;
+    }
+    if (typeof value.windowSig !== "string") return null;
+    if (!Array.isArray(value.taskIds)) return null;
+    const taskIds = value.taskIds.filter((id): id is string => typeof id === "string");
+    return { dayKey: value.dayKey, windowSig: value.windowSig, taskIds };
+  } catch {
+    return null;
+  }
+}
+
+export function saveTodayWindowBaseline(baseline: TodayWindowBaseline): void {
+  try {
+    localStorage.setItem(TODAY_WINDOW_BASELINE_KEY, JSON.stringify(baseline));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export function todayWindowSignature(begins: string, ends: string): string {
+  return `${begins}|${ends}`;
 }
 
 export { DEFAULT_TASK_GAP_MINUTES, MIN_TASK_GAP_MINUTES, MAX_TASK_GAP_MINUTES };
