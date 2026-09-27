@@ -1935,8 +1935,7 @@ function App() {
     const controls = taskViewControlsRef.current;
     if (!controls) return;
 
-    const composerHidden = composer?.classList.contains("is-chrome-hidden") === true;
-    if (!composer || composerHidden) {
+    if (!composer) {
       controls.style.bottom = "calc(12px + var(--safe-bottom))";
       return;
     }
@@ -1955,6 +1954,7 @@ function App() {
       return;
     }
 
+    // FAB stays visible while chrome-hidden, so keep the view toggle above it.
     controls.style.bottom = `${composer.offsetHeight + 10}px`;
   };
 
