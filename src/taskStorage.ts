@@ -4,7 +4,11 @@ const TASKS_STORAGE_KEY = "twineline.tasks";
 const TARGET_TIME_STORAGE_KEY = "twineline.targetTime";
 const TARGET_TIME_OVERRIDES_STORAGE_KEY = "twineline.targetTimeOverrides";
 const DAY_SNOOZE_STORAGE_KEY = "twineline.daySnooze";
+const TASK_GAP_STORAGE_KEY = "twineline.taskGapMinutes";
 const DEFAULT_TARGET_TIME = "17:00";
+const DEFAULT_TASK_GAP_MINUTES = 15;
+const MIN_TASK_GAP_MINUTES = 0;
+const MAX_TASK_GAP_MINUTES = 180;
 
 function isComposerDraft(value: unknown): value is ComposerDraft {
   if (!value || typeof value !== "object") return false;
@@ -99,6 +103,32 @@ export function saveDaySnooze(dayKey: string, snoozed: boolean): void {
     // Ignore quota / private-mode write failures.
   }
 }
+
+function clampTaskGapMinutes(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_TASK_GAP_MINUTES;
+  return Math.min(MAX_TASK_GAP_MINUTES, Math.max(MIN_TASK_GAP_MINUTES, Math.round(value)));
+}
+
+/** Master soft-pack gap between tasks, in minutes. */
+export function loadTaskGapMinutes(): number {
+  try {
+    const raw = localStorage.getItem(TASK_GAP_STORAGE_KEY);
+    if (raw == null) return DEFAULT_TASK_GAP_MINUTES;
+    return clampTaskGapMinutes(Number(raw));
+  } catch {
+    return DEFAULT_TASK_GAP_MINUTES;
+  }
+}
+
+export function saveTaskGapMinutes(minutes: number): void {
+  try {
+    localStorage.setItem(TASK_GAP_STORAGE_KEY, String(clampTaskGapMinutes(minutes)));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export { DEFAULT_TASK_GAP_MINUTES, MIN_TASK_GAP_MINUTES, MAX_TASK_GAP_MINUTES };
 
 /** YYYY-MM-DD key for per-day target time overrides. */
 export function targetTimeDayKey(date: Date): string {

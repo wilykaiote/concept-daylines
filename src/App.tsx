@@ -11,13 +11,17 @@ import {
   loadDaySnooze,
   loadTargetTime,
   loadTargetTimeOverrides,
+  loadTaskGapMinutes,
   loadTasks,
+  MAX_TASK_GAP_MINUTES,
+  MIN_TASK_GAP_MINUTES,
   msUntilTargetTime,
   resolveTargetTime,
   sameCalendarDay,
   saveDaySnooze,
   saveTargetTime,
   saveTargetTimeOverrides,
+  saveTaskGapMinutes,
   saveTasks,
   shiftMonth,
   targetTimeDayKey,
@@ -944,6 +948,10 @@ function App() {
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
   const [durationInput, setDurationInput] = useState("15");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
+  const [taskAggressionMenuOpen, setTaskAggressionMenuOpen] = useState(false);
+  const [taskGapMinutes, setTaskGapMinutes] = useState(() => loadTaskGapMinutes());
+  const [taskGapInput, setTaskGapInput] = useState(() => String(loadTaskGapMinutes()));
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
   const aiEnabled = false;
   const [activeView, setActiveView] = useState<ActiveView>("dayline");
@@ -1040,6 +1048,9 @@ function App() {
   const toolsCenterRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const taskAggressionMenuRef = useRef<HTMLDivElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
   const taskViewControlsRef = useRef<HTMLDivElement>(null);
@@ -1078,6 +1089,7 @@ function App() {
     tasksForCalendar,
     new Date(countdownNow),
     getTargetTimeForDay,
+    taskGapMinutes,
   );
   const calendarTaskLayout = calendarTasksLayout.days;
   const overdueTasks = calendarTasksLayout.overdueTasks;
@@ -1228,6 +1240,8 @@ function App() {
 
   const openTimePicker = () => {
     setCalendarOpen(false);
+    setSettingsMenuOpen(false);
+    setTaskAggressionMenuOpen(false);
     setTimeSavePromptOpen(false);
     const resolved = resolveTargetTime(selectedDay, defaultTargetTime, targetTimeOverrides);
     setTargetTime(resolved);
@@ -1907,6 +1921,10 @@ function App() {
   }, [tasks]);
 
   useEffect(() => {
+    saveTaskGapMinutes(taskGapMinutes);
+  }, [taskGapMinutes]);
+
+  useEffect(() => {
     saveTargetTime(defaultTargetTime);
   }, [defaultTargetTime]);
 
@@ -1922,6 +1940,39 @@ function App() {
   const setDaySnoozedPreference = (snoozed: boolean) => {
     setDaySnoozed(snoozed);
     saveDaySnooze(todayKey, snoozed);
+  };
+
+  const commitTaskGapInput = (raw: string) => {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) {
+      setTaskGapInput(String(taskGapMinutes));
+      return;
+    }
+    const next = Math.min(MAX_TASK_GAP_MINUTES, Math.max(MIN_TASK_GAP_MINUTES, parsed));
+    setTaskGapMinutes(next);
+    setTaskGapInput(String(next));
+  };
+
+  const stepTaskGap = (direction: 1 | -1) => {
+    const next = Math.min(
+      MAX_TASK_GAP_MINUTES,
+      Math.max(MIN_TASK_GAP_MINUTES, taskGapMinutes + direction * 5),
+    );
+    setTaskGapMinutes(next);
+    setTaskGapInput(String(next));
+  };
+
+  const openSettingsMenu = () => {
+    setTaskAggressionMenuOpen(false);
+    setTimePickerOpen(false);
+    setMoreMenuOpen(false);
+    setSettingsMenuOpen((open) => !open);
+  };
+
+  const openTaskAggressionMenu = () => {
+    setSettingsMenuOpen(false);
+    setTaskGapInput(String(taskGapMinutes));
+    setTaskAggressionMenuOpen(true);
   };
 
   useEffect(() => {
@@ -2586,6 +2637,37 @@ function App() {
   }, [moreMenuOpen]);
 
   useEffect(() => {
+    if (!settingsMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (settingsMenuRef.current?.contains(target)) return;
+      if (settingsButtonRef.current?.contains(target)) return;
+      if (taskAggressionMenuRef.current?.contains(target)) return;
+      setSettingsMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [settingsMenuOpen]);
+
+  useEffect(() => {
+    if (!taskAggressionMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (taskAggressionMenuRef.current?.contains(target)) return;
+      if (settingsButtonRef.current?.contains(target)) return;
+      setTaskAggressionMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [taskAggressionMenuOpen]);
+
+  useEffect(() => {
     if (!focusedTaskId && !focusedOverflowTaskIds?.length) return;
 
     const onPointerDown = (event: PointerEvent) => {
@@ -2641,14 +2723,97 @@ function App() {
               <div className="twineline-countdown-slide" ref={twinelineSlideRef}>
             {!calendarOpen && (
               <div className="twineline-countdown-bar">
-                <button
-                  type="button"
-                  className="twineline-settings"
-                  aria-label={SETTINGS_OPTION.label}
-                  onClick={() => selectView("settings")}
-                >
-                  <SETTINGS_OPTION.Icon />
-                </button>
+                <div className="twineline-settings-wrap">
+                  <ComposerOverlayMenu
+                    open={settingsMenuOpen}
+                    anchorRef={settingsButtonRef}
+                    menuRef={settingsMenuRef}
+                    className="app-tray-more-menu twineline-settings-menu"
+                    aria-label="Settings"
+                  >
+                    <button
+                      type="button"
+                      className="app-attach-menu-item"
+                      role="menuitem"
+                      onClick={openTaskAggressionMenu}
+                    >
+                      <ClockIcon />
+                      <span>Task Aggression</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`app-attach-menu-item${activeView === "settings" ? " is-selected" : ""}`}
+                      role="menuitem"
+                      onClick={() => {
+                        setSettingsMenuOpen(false);
+                        selectView("settings");
+                      }}
+                    >
+                      <SETTINGS_OPTION.Icon />
+                      <span>{SETTINGS_OPTION.label}</span>
+                    </button>
+                  </ComposerOverlayMenu>
+                  <ComposerOverlayMenu
+                    open={taskAggressionMenuOpen}
+                    anchorRef={settingsButtonRef}
+                    menuRef={taskAggressionMenuRef}
+                    className="app-duration-menu twineline-task-aggression-menu"
+                    role="dialog"
+                    aria-label="Time Between Tasks"
+                  >
+                    <p className="app-duration-title">Time Between Tasks</p>
+                    <div className="app-duration-divider" aria-hidden="true" />
+                    <div className="app-duration-stepper" role="group" aria-label="Minutes between tasks">
+                      <button
+                        type="button"
+                        className="app-duration-step"
+                        aria-label="Decrease by 5 minutes"
+                        onClick={() => stepTaskGap(-1)}
+                      >
+                        −
+                      </button>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        className="app-duration-input"
+                        value={taskGapInput}
+                        aria-label="Minutes between tasks"
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          if (next === "" || /^\d*$/.test(next)) setTaskGapInput(next);
+                        }}
+                        onBlur={() => commitTaskGapInput(taskGapInput)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            commitTaskGapInput(taskGapInput);
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="app-duration-step"
+                        aria-label="Increase by 5 minutes"
+                        onClick={() => stepTaskGap(1)}
+                      >
+                        +
+                      </button>
+                    </div>
+                    <p className="twineline-task-aggression-unit">Minutes</p>
+                  </ComposerOverlayMenu>
+                  <button
+                    ref={settingsButtonRef}
+                    type="button"
+                    className={`twineline-settings${settingsMenuOpen || taskAggressionMenuOpen ? " is-open" : ""}`}
+                    aria-label={SETTINGS_OPTION.label}
+                    aria-expanded={settingsMenuOpen || taskAggressionMenuOpen}
+                    onClick={openSettingsMenu}
+                  >
+                    <SETTINGS_OPTION.Icon />
+                  </button>
+                </div>
                 {!timePickerOpen && (
                   <button
                     type="button"

@@ -6,6 +6,8 @@ export const PX_PER_MINUTE = 1;
 export const MINUTES_PER_DAY = 24 * 60;
 export const DAY_HEIGHT_PX = MINUTES_PER_DAY * PX_PER_MINUTE;
 export const DEFAULT_TASK_MINUTES = 15;
+/** Soft-pack gap between consecutive untimed tasks (master “Time Between Tasks”). */
+export const DEFAULT_TASK_GAP_MINUTES = 15;
 /** Minimum block height so title + complete control fit with no extra padding. */
 export const MIN_BLOCK_HEIGHT_PX = 16;
 
@@ -359,20 +361,18 @@ function realRangeFromVirtual(
   return null;
 }
 
-function placeSoftBatchEvenly(
+function placeSoftBatchWithGap(
   byDay: Map<string, PackBlock[]>,
   day: Date,
   fitted: Array<{ task: ComposerDraft; minutes: number; forceOverdue: boolean }>,
   free: Interval[],
-  freeTotal: number,
   packStart: number,
   getPackEnd: (day: Date) => number,
   now: Date,
+  gapMinutes: number,
 ) {
-  const used = fitted.reduce((sum, item) => sum + item.minutes, 0);
-  const slack = Math.max(0, freeTotal - used);
-  const gap = slack / (fitted.length + 1);
-  let virtualCursor = gap;
+  const gap = Math.max(0, gapMinutes);
+  let virtualCursor = 0;
 
   for (const item of fitted) {
     const overdue = item.forceOverdue || isPlacementOverdue(item.task, day);
@@ -393,6 +393,7 @@ function packSoftTasks(
   now: Date,
   getPackEnd: (day: Date) => number,
   overdueTasks: ComposerDraft[],
+  gapMinutes: number,
 ) {
   const undatedQueue = [...undated].sort(compareSoftPriority);
   const dateOnlyQueues = new Map<string, ComposerDraft[]>();
@@ -402,6 +403,7 @@ function packSoftTasks(
 
   let day = toStartOfDay(now);
   let guard = 0;
+  const gap = Math.max(0, gapMinutes);
 
   const hasRemaining = () =>
     undatedQueue.length > 0 ||
@@ -442,16 +444,17 @@ function packSoftTasks(
     const takeFitting = (queue: ComposerDraft[], forceOverdue: boolean) => {
       while (queue.length > 0) {
         const minutes = taskDurationMinutes(queue[0]);
-        if (used + minutes <= freeTotal) {
+        const nextUsed = used + minutes + (fitted.length > 0 ? gap : 0);
+        if (nextUsed <= freeTotal) {
           fitted.push({ task: queue.shift()!, minutes, forceOverdue });
-          used += minutes;
+          used = nextUsed;
         } else {
           break;
         }
       }
     };
 
-    // Prefer date-only for D, then undated — then spread evenly.
+    // Prefer date-only for D, then undated — spaced by master gap.
     takeFitting(sameDayQueue, false);
     takeFitting(undatedQueue, false);
 
@@ -485,7 +488,7 @@ function packSoftTasks(
       continue;
     }
 
-    placeSoftBatchEvenly(byDay, day, fitted, free, freeTotal, packStart, getPackEnd, now);
+    placeSoftBatchWithGap(byDay, day, fitted, free, packStart, getPackEnd, now, gap);
 
     // Remaining same-day date-only could not fit → overdue group (do not reschedule).
     while (sameDayQueue.length > 0) {
@@ -545,8 +548,13 @@ export function layoutCalendarTasks(
   tasks: ComposerDraft[],
   now: Date,
   getTargetTimeForDay: (day: Date) => string,
+  taskGapMinutes: number = DEFAULT_TASK_GAP_MINUTES,
 ): CalendarTasksLayout {
   const getPackEnd = (day: Date) => packWindowEndMinutes(getTargetTimeForDay(day));
+  const gapMinutes =
+    Number.isFinite(taskGapMinutes) && taskGapMinutes >= 0
+      ? Math.round(taskGapMinutes)
+      : DEFAULT_TASK_GAP_MINUTES;
   const todayStart = toStartOfDay(now);
   const nowMin = minutesFromMidnight(now);
   const byDay = new Map<string, PackBlock[]>();
@@ -603,7 +611,7 @@ export function layoutCalendarTasks(
     placeTimedTask(byDay, task, now, getPackEnd, overdueTasks);
   }
 
-  packSoftTasks(byDay, dateOnlyByDay, undated, now, getPackEnd, overdueTasks);
+  packSoftTasks(byDay, dateOnlyByDay, undated, now, getPackEnd, overdueTasks, gapMinutes);
 
   const keys = [...byDay.keys()].sort();
   const lastKey = keys.length > 0 ? keys[keys.length - 1] : dayKey(todayStart);
