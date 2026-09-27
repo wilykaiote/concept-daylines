@@ -3525,7 +3525,29 @@ function App() {
               onClick={() => {
                 const today = toStartOfDay(new Date(countdownNow));
                 setSelectedDay(today);
-                scrollTimelineToDay(today);
+                const main = mainRef.current;
+                const overdue = overdueSectionRef.current;
+                const showOverdue =
+                  overdueSectionOpen && overdueTasks.length > 0 && overdue instanceof HTMLElement;
+
+                if (main && showOverdue) {
+                  pendingTimelineScrollDayRef.current = null;
+                  timelineScrollSyncLockRef.current = true;
+                  setChromeHidden(false);
+                  const chromeHeight = twinelineChromeRef.current?.offsetHeight ?? 0;
+                  const mainRect = main.getBoundingClientRect();
+                  const overdueRect = overdue.getBoundingClientRect();
+                  const top =
+                    main.scrollTop + (overdueRect.top - mainRect.top) - chromeHeight;
+                  main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+                  window.setTimeout(() => {
+                    timelineScrollSyncLockRef.current = false;
+                    lastScrollTopRef.current = main.scrollTop;
+                  }, 450);
+                } else {
+                  scrollTimelineToDay(today);
+                }
+
                 const strip = weekdayStripRef.current;
                 if (strip) strip.scrollTo({ left: 0, behavior: "smooth" });
               }}
