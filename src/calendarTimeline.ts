@@ -256,6 +256,7 @@ function placeDuration(
   getWindowStart: (day: Date) => number,
   now: Date,
   forceOverdue = false,
+  allowSpill = true,
 ) {
   let remaining = duration;
   let day = toStartOfDay(startDay);
@@ -273,6 +274,7 @@ function placeDuration(
     const packStart = packStartForDay(day, now, packEnd, getWindowStart(day));
     cursor = Math.max(cursor, packStart);
     if (cursor >= packEnd) {
+      if (!allowSpill) break;
       day = addDays(day, 1);
       cursor = getWindowStart(day);
       continue;
@@ -285,6 +287,7 @@ function placeDuration(
     remaining -= take;
     cursor += take;
     if (remaining > 0) {
+      if (!allowSpill) break;
       day = addDays(day, 1);
       cursor = getWindowStart(day);
     }
@@ -408,6 +411,7 @@ function placeSoftBatchWithGap(
         getWindowStart,
         now,
         overdue,
+        false,
       );
     }
     virtualCursor += item.minutes + gap;
@@ -507,6 +511,7 @@ function packSoftTasks(
             getPackEnd,
             getWindowStart,
             now,
+            false,
             false,
           );
         } else {

@@ -1756,6 +1756,12 @@
   line-height: 1;
 }
 
+.app-compose-kind-plus.is-check svg {
+  width: 1em;
+  height: 1em;
+  display: block;
+}
+
 .app-compose-kind-lead-icon {
   width: 1em;
 }

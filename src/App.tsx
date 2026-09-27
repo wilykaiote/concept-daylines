@@ -308,6 +308,27 @@ function NotesIcon() {
   );
 }
 
+function LogIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M7 4h10a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 9h6M9 13h4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function TasksListIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -369,6 +390,57 @@ function ListIcon() {
         strokeWidth="2.4"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+function TendIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 14.5c0-3.2 2.2-5.8 4.8-7.2-.4 3.1-2.2 5.2-4.8 7.2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 14.5c0-3.2-2.2-5.8-4.8-7.2.4 3.1 2.2 5.2 4.8 7.2Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 14.5V21"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M8.5 21h7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function DiscoverIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="m16 16 4.5 4.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <circle cx="11" cy="11" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
 }
@@ -522,6 +594,28 @@ function MoreIcon() {
   );
 }
 
+function ProfileIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle
+        cx="12"
+        cy="8"
+        r="3.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M5.5 19.2c1.4-3.1 3.6-4.7 6.5-4.7s5.1 1.6 6.5 4.7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function SettingsIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -618,8 +712,33 @@ const COMPOSE_KINDS = [
     placeholder: "Describe the outcome of this project...",
     Icon: ListIcon,
   },
+  {
+    id: "routine",
+    label: "Routine",
+    placeholder: "Describe this routine...",
+    Icon: CycleIcon,
+  },
+  {
+    id: "cycle",
+    label: "Cycle",
+    placeholder: "Describe this cycle...",
+    Icon: CycleIcon,
+  },
+  {
+    id: "event",
+    label: "Event",
+    placeholder: "What's the event?",
+    Icon: CalendarIcon,
+  },
+  {
+    id: "list",
+    label: "List",
+    placeholder: "Name this list...",
+    Icon: MenuBarsIcon,
+  },
   { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
   { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ShoppingBagIcon },
+  { id: "log", label: "Log", placeholder: "What happened?", Icon: LogIcon },
   { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
   {
     id: "assistant",
@@ -629,24 +748,37 @@ const COMPOSE_KINDS = [
   },
 ] as const;
 
+/** Compose-type picker order (top → bottom). Excludes AI Assistant. */
+const COMPOSE_KIND_MENU_ITEMS = COMPOSE_KINDS.filter((kind) => kind.id !== "assistant");
+
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
 
-const DAYLINE_TAB = { id: "dayline", label: "Twineline", Icon: TimelineIcon } as const;
+const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
 
 const TRAY_TABS = [
-  { id: "projects", label: "Projects", Icon: ListIcon },
-  { id: "notes", label: "Notes", Icon: NotesIcon },
+  { id: "notes", label: "Tend", Icon: TendIcon, opensTendMenu: true },
+  { id: "routines", label: "Discover", Icon: DiscoverIcon, inertNav: true },
 ] as const;
 
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
-  { id: "routines", label: "Routines", Icon: CycleIcon },
+  { id: "projects", label: "Projects", Icon: ListIcon },
+  { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
   { id: "groceries", label: "Groceries", Icon: FoodIcon },
   { id: "recipes", label: "Recipes", Icon: RecipeIcon },
+  { id: "profile", label: "Profile", Icon: ProfileIcon },
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ] as const;
 
-const MORE_MENU_ITEMS = MORE_OPTIONS.filter((item) => item.id !== "settings");
+const TEND_MENU_ITEMS = [
+  { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
+  { id: "projects", label: "Projects", Icon: ListIcon },
+  { id: "notes", label: "Notes", Icon: NotesIcon },
+  { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
+  { id: "groceries", label: "Groceries", Icon: FoodIcon },
+  { id: "recipes", label: "Recipes", Icon: RecipeIcon },
+  { id: "routines", label: "Routines", Icon: CycleIcon },
+] as const;
 
 const URGENCY_OPTIONS = ["Future", "Later", "Soon", "Now"] as const;
 type UrgencyOption = (typeof URGENCY_OPTIONS)[number];
@@ -846,9 +978,11 @@ const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   tasks: "task",
   notes: "note",
   projects: "project",
+  lists: "list",
   routines: "task",
   groceries: "item",
   recipes: "task",
+  profile: "task",
   settings: "task",
 };
 
@@ -981,6 +1115,7 @@ function App() {
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
   const [durationInput, setDurationInput] = useState("15");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [tendMenuOpen, setTendMenuOpen] = useState(false);
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const [taskAggressionMenuOpen, setTaskAggressionMenuOpen] = useState(false);
   const [taskGapMinutes, setTaskGapMinutes] = useState(() => loadTaskGapMinutes());
@@ -1095,6 +1230,8 @@ function App() {
   const toolsCenterRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const tendButtonRef = useRef<HTMLButtonElement>(null);
+  const tendMenuRef = useRef<HTMLDivElement>(null);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const taskAggressionMenuRef = useRef<HTMLDivElement>(null);
@@ -1110,11 +1247,10 @@ function App() {
   const FabComposeIcon = fabComposeKind.Icon;
 
   const DaylineIcon = DAYLINE_TAB.Icon;
-  const moreMenuItems = MORE_MENU_ITEMS;
-  const visibleTabIds = new Set<ActiveView>(["dayline", ...TRAY_TABS.map((tab) => tab.id)]);
-  const moreButtonActive =
-    moreMenuOpen ||
-    (activeView !== "dayline" && activeView !== "settings" && !visibleTabIds.has(activeView));
+  const tendMenuItems = TEND_MENU_ITEMS;
+  const tendMenuViewIds = new Set<ActiveView>(TEND_MENU_ITEMS.map((item) => item.id));
+  const tendButtonActive = tendMenuOpen || tendMenuViewIds.has(activeView);
+  const moreButtonActive = moreMenuOpen || searchOpen || activeView === "profile";
   const todayStart = toStartOfDay(new Date(countdownNow));
   const getTargetTimeForDay = (day: Date) => {
     if (timePickerOpen && sameCalendarDay(day, selectedDay)) return targetTime;
@@ -1560,8 +1696,13 @@ function App() {
       });
     },
     project: (_draft) => {},
+    routine: (_draft) => {},
+    cycle: (_draft) => {},
+    event: (_draft) => {},
+    list: (_draft) => {},
     note: (_draft) => {},
     item: (_draft) => {},
+    log: (_draft) => {},
     assistant: (_draft) => {},
   };
 
@@ -1924,6 +2065,7 @@ function App() {
       setComposeKind(COMPOSE_KIND_BY_VIEW[id]);
     }
     setMoreMenuOpen(false);
+    setTendMenuOpen(false);
   };
 
   const closeSearch = () => {
@@ -1933,6 +2075,7 @@ function App() {
 
   const openSearch = () => {
     setMoreMenuOpen(false);
+    setTendMenuOpen(false);
     setSearchOpen(true);
   };
 
@@ -2354,7 +2497,7 @@ function App() {
         return;
       }
 
-      if (!collapsed || searchOpen || moreMenuOpen) {
+      if (!collapsed || searchOpen || moreMenuOpen || tendMenuOpen) {
         setChromeHidden(false);
         return;
       }
@@ -2374,7 +2517,7 @@ function App() {
 
     main.addEventListener("scroll", onScroll, { passive: true });
     return () => main.removeEventListener("scroll", onScroll);
-  }, [collapsed, searchOpen, moreMenuOpen, tasksCompact, activeView]);
+  }, [collapsed, searchOpen, moreMenuOpen, tendMenuOpen, tasksCompact, activeView]);
 
   useEffect(() => {
     if (activeView !== "dayline") {
@@ -2481,7 +2624,7 @@ function App() {
   }, [activeView, tasksCompact, timelineDayCount, timelineDays.length, tasks.length]);
 
   useEffect(() => {
-    if (!collapsed || searchOpen || moreMenuOpen) {
+    if (!collapsed || searchOpen || moreMenuOpen || tendMenuOpen) {
       setChromeHidden(false);
     } else {
       const composer = composerRef.current;
@@ -2489,7 +2632,7 @@ function App() {
       composer?.classList.toggle("is-chrome-hidden", hideComposer);
       syncTaskViewControlsBottom();
     }
-  }, [collapsed, searchOpen, moreMenuOpen, activeView]);
+  }, [collapsed, searchOpen, moreMenuOpen, tendMenuOpen, activeView]);
 
   useLayoutEffect(() => {
     const slide = twinelineSlideRef.current;
@@ -2924,6 +3067,21 @@ function App() {
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [moreMenuOpen]);
+
+  useEffect(() => {
+    if (!tendMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (tendMenuRef.current?.contains(target)) return;
+      if (tendButtonRef.current?.contains(target)) return;
+      setTendMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [tendMenuOpen]);
 
   useEffect(() => {
     if (!settingsMenuOpen) return;
@@ -3727,34 +3885,63 @@ function App() {
               className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
               onClick={() => selectView("dayline")}
               tabIndex={collapsed && !searchOpen ? 0 : -1}
-              aria-label="Twineline"
+              aria-label={DAYLINE_TAB.label}
             >
               <DaylineIcon />
               <span>{DAYLINE_TAB.label}</span>
             </button>
-            {TRAY_TABS.map(({ id, label, Icon }) => (
-              <button
-                key={id}
-                type="button"
-                className={`app-tray-tab${trayCompact ? " is-compact" : ""}${activeView === id ? " is-active" : ""}`}
-                onClick={() => selectView(id)}
-                tabIndex={collapsed && !searchOpen ? 0 : -1}
-                aria-label={label}
-              >
-                <Icon />
-                {!trayCompact && <span>{label}</span>}
-              </button>
-            ))}
+            {TRAY_TABS.map(({ id, label, Icon, ...tab }) => {
+              const opensTendMenu = "opensTendMenu" in tab && tab.opensTendMenu === true;
+              const inertNav = "inertNav" in tab && tab.inertNav === true;
+              return (
+                <button
+                  key={id}
+                  ref={opensTendMenu ? tendButtonRef : undefined}
+                  type="button"
+                  className={`app-tray-tab${trayCompact ? " is-compact" : ""}${
+                    opensTendMenu
+                      ? tendButtonActive
+                        ? " is-active"
+                        : ""
+                      : !inertNav && activeView === id
+                        ? " is-active"
+                        : ""
+                  }`}
+                  onClick={() => {
+                    if (opensTendMenu) {
+                      setMoreMenuOpen(false);
+                      setTendMenuOpen((open) => !open);
+                      return;
+                    }
+                    if (inertNav) {
+                      setMoreMenuOpen(false);
+                      setTendMenuOpen(false);
+                      return;
+                    }
+                    setTendMenuOpen(false);
+                    setMoreMenuOpen(false);
+                    selectView(id);
+                  }}
+                  tabIndex={collapsed && !searchOpen ? 0 : -1}
+                  aria-label={label}
+                  aria-expanded={opensTendMenu ? tendMenuOpen : undefined}
+                  aria-haspopup={opensTendMenu ? "menu" : undefined}
+                >
+                  <Icon />
+                  {!trayCompact && <span>{label}</span>}
+                </button>
+              );
+            })}
             <div className="app-tray-more">
               <ComposerOverlayMenu
-                open={moreMenuOpen && !searchOpen}
-                anchorRef={moreButtonRef}
-                menuRef={moreMenuRef}
+                open={tendMenuOpen && !searchOpen}
+                anchorRef={tendButtonRef}
+                menuRef={tendMenuRef}
                 align="end"
                 className="app-tray-more-menu"
-                aria-label="More..."
+                aria-label="Tend"
               >
-                {moreMenuItems.map(({ id, label, Icon }) => (
+                {tendMenuItems.map(({ id, label, Icon }) => (
                   <button
                     key={id}
                     type="button"
@@ -3766,6 +3953,38 @@ function App() {
                     <span>{label}</span>
                   </button>
                 ))}
+              </ComposerOverlayMenu>
+              <ComposerOverlayMenu
+                open={moreMenuOpen && !searchOpen}
+                anchorRef={moreButtonRef}
+                menuRef={moreMenuRef}
+                align="end"
+                className="app-tray-more-menu"
+                aria-label="More..."
+              >
+                <button
+                  type="button"
+                  className={`app-attach-menu-item${activeView === "profile" ? " is-selected" : ""}`}
+                  role="menuitem"
+                  onClick={() => selectView("profile")}
+                >
+                  <ProfileIcon />
+                  <span>Profile</span>
+                </button>
+                <button
+                  type="button"
+                  className="app-attach-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setMoreMenuOpen(false);
+                    setTendMenuOpen(false);
+                    setComposeKind("assistant");
+                    setCollapsed(false);
+                  }}
+                >
+                  <IntelligenceIcon />
+                  <span>AI Assistant</span>
+                </button>
                 <button
                   type="button"
                   className="app-attach-menu-item app-tray-more-search"
@@ -3780,7 +3999,10 @@ function App() {
                 ref={moreButtonRef}
                 type="button"
                 className={`app-tray-more-button${trayCompact ? " is-compact" : ""}${moreButtonActive ? " is-active" : ""}`}
-                onClick={() => setMoreMenuOpen((open) => !open)}
+                onClick={() => {
+                  setTendMenuOpen(false);
+                  setMoreMenuOpen((open) => !open);
+                }}
                 aria-label="More..."
                 aria-expanded={moreMenuOpen}
                 tabIndex={collapsed && !searchOpen ? 0 : -1}
@@ -4454,7 +4676,7 @@ function App() {
                   className="app-compose-kind-menu"
                   aria-label="Compose type"
                 >
-                  {COMPOSE_KINDS.map(({ id, label, Icon }) => (
+                  {COMPOSE_KIND_MENU_ITEMS.map(({ id, label, Icon }) => (
                     <button
                       key={id}
                       type="button"
@@ -4465,18 +4687,13 @@ function App() {
                         setComposeKindMenuOpen(false);
                       }}
                     >
-                      {id === "assistant" ? (
-                        <span className="app-compose-kind-plus app-compose-kind-lead-icon" aria-hidden="true">
-                          <Icon />
-                        </span>
-                      ) : (
-                        <>
-                          <span className="app-compose-kind-plus" aria-hidden="true">
-                            +
-                          </span>
-                          <Icon />
-                        </>
-                      )}
+                      <span
+                        className={`app-compose-kind-plus${id === "log" ? " is-check" : ""}`}
+                        aria-hidden="true"
+                      >
+                        {id === "log" ? <CheckIcon /> : "+"}
+                      </span>
+                      <Icon />
                       <span>{label}</span>
                     </button>
                   ))}
