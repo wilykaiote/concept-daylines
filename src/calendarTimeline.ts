@@ -164,7 +164,8 @@ export function isAnchoredTaskMissed(
   const nowMin = minutesFromMidnight(now);
   const startMin = starts != null ? starts : Math.max(0, (due as number) - duration);
   const endMin = starts != null ? startMin + duration : (due as number);
-  return endMin <= nowMin || startMin < nowMin;
+  // Missed only after the scheduled window ends (start + duration, or due_at).
+  return endMin <= nowMin;
 }
 
 const URGENCY_RANK: Record<string, number> = {
