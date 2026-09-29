@@ -1141,6 +1141,10 @@ function ComposerOverlayMenu({
     updatePosition();
     const frame = requestAnimationFrame(updatePosition);
 
+    const menu = menuRef.current;
+    const resizeObserver = menu ? new ResizeObserver(updatePosition) : null;
+    if (menu) resizeObserver?.observe(menu);
+
     const vv = window.visualViewport;
     vv?.addEventListener("resize", updatePosition);
     vv?.addEventListener("scroll", updatePosition);
@@ -1149,6 +1153,7 @@ function ComposerOverlayMenu({
 
     return () => {
       cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
       vv?.removeEventListener("resize", updatePosition);
       vv?.removeEventListener("scroll", updatePosition);
       window.removeEventListener("resize", updatePosition);
@@ -1182,14 +1187,22 @@ function LoopingScrollList({
   open,
   className = "",
   children,
+  scrollOffsetRef,
+  defaultAnchor,
+  anchorRef,
 }: {
   open: boolean;
   className?: string;
   children: (copy: number) => ReactNode;
+  scrollOffsetRef?: RefObject<number | null>;
+  defaultAnchor?: string;
+  anchorRef?: RefObject<HTMLElement | null>;
 }) {
+  const shellRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const setRef = useRef<HTMLDivElement>(null);
   const adjustingRef = useRef(false);
+  const [maxHeight, setMaxHeight] = useState<number | null>(null);
 
   const loopStride = () => {
     const scroller = scrollerRef.current;
@@ -1200,14 +1213,14 @@ function LoopingScrollList({
     return set.offsetHeight;
   };
 
-  useLayoutEffect(() => {
-    if (!open) return;
+  const persistOffset = () => {
+    if (!scrollOffsetRef) return;
     const scroller = scrollerRef.current;
     if (!scroller) return;
     const stride = loopStride();
     if (stride <= 0) return;
-    scroller.scrollTop = stride;
-  }, [open]);
+    scrollOffsetRef.current = ((scroller.scrollTop % stride) + stride) % stride;
+  };
 
   const normalizeScroll = () => {
     if (adjustingRef.current) return;
@@ -1225,10 +1238,110 @@ function LoopingScrollList({
       scroller.scrollTop = scrollTop - stride;
       adjustingRef.current = false;
     }
+    persistOffset();
   };
 
+  const restoreScroll = () => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const stride = loopStride();
+    if (stride <= 0) return;
+
+    const saved = scrollOffsetRef?.current;
+    if (saved != null) {
+      scroller.scrollTop = stride + saved;
+      return;
+    }
+
+    scroller.scrollTop = stride;
+    if (!defaultAnchor) return;
+    const sets = scroller.querySelectorAll<HTMLElement>(".app-loop-scroll-set");
+    const middle = sets[1];
+    const anchor = middle?.querySelector<HTMLElement>(`[data-loop-anchor="${defaultAnchor}"]`);
+    if (!anchor) return;
+    const delta = anchor.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    scroller.scrollTop += delta;
+    persistOffset();
+  };
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMaxHeight(null);
+      return;
+    }
+
+    const updateFit = () => {
+      const anchor = anchorRef?.current;
+      const shell = shellRef.current;
+      const set = setRef.current;
+      if (!shell) return;
+
+      const vv = window.visualViewport;
+      const viewTop = vv?.offsetTop ?? 0;
+      const viewHeight = vv?.height ?? window.innerHeight;
+      const viewBottom = viewTop + viewHeight;
+      const gap = 10;
+      const pad = 8;
+
+      const menu = shell.closest(".app-attach-menu") as HTMLElement | null;
+      const menuStyle = menu ? getComputedStyle(menu) : null;
+      const menuPadY = menuStyle
+        ? (parseFloat(menuStyle.paddingTop) || 0) + (parseFloat(menuStyle.paddingBottom) || 0)
+        : 12;
+
+      let available = viewHeight - pad * 2 - menuPadY;
+      if (anchor) {
+        const rect = anchor.getBoundingClientRect();
+        const above = rect.top - viewTop - pad - gap - menuPadY;
+        const below = viewBottom - rect.bottom - pad - gap - menuPadY;
+        available = Math.max(above, below);
+      }
+
+      const firstItem = set?.querySelector<HTMLElement>(".app-attach-menu-item");
+      const itemH = firstItem?.offsetHeight || 40;
+      const setStyle = set ? getComputedStyle(set) : null;
+      const itemGap = setStyle ? parseFloat(setStyle.rowGap || setStyle.gap) || 0 : 2;
+      const row = itemH + itemGap;
+      const peek = Math.round(itemH * 0.55);
+      const fitRows = Math.max(2, Math.floor((Math.max(0, available) - peek) / row));
+      const setHeight = set?.offsetHeight ?? 0;
+      const uncapped = fitRows * row + peek - itemGap;
+      // Never expose a full cycle — keep at least a peek of overflow for the loop.
+      const loopCap =
+        setHeight > 0 ? Math.max(row * 2, setHeight - Math.round(itemH * 0.25)) : uncapped;
+      const height = Math.min(Math.max(0, available), uncapped, loopCap);
+
+      setMaxHeight(height);
+    };
+
+    updateFit();
+    const frame = requestAnimationFrame(() => {
+      updateFit();
+      restoreScroll();
+    });
+
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", updateFit);
+    window.addEventListener("resize", updateFit);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      vv?.removeEventListener("resize", updateFit);
+      window.removeEventListener("resize", updateFit);
+    };
+  }, [open, anchorRef, scrollOffsetRef, defaultAnchor]);
+
+  useLayoutEffect(() => {
+    if (!open || maxHeight == null) return;
+    restoreScroll();
+  }, [open, maxHeight, scrollOffsetRef, defaultAnchor]);
+
   return (
-    <div className={`app-loop-scroll-shell${className ? ` ${className}` : ""}`}>
+    <div
+      ref={shellRef}
+      className={`app-loop-scroll-shell${className ? ` ${className}` : ""}`}
+      style={maxHeight != null ? { maxHeight } : undefined}
+    >
       <div
         ref={scrollerRef}
         className="app-loop-scroll"
@@ -1394,6 +1507,7 @@ function App() {
   const toolsCenterRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuScrollOffsetRef = useRef<number | null>(null);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const taskAggressionMenuRef = useRef<HTMLDivElement>(null);
@@ -4117,7 +4231,13 @@ function App() {
                 className="app-tray-more-menu"
                 aria-label="More..."
               >
-                <LoopingScrollList open={moreMenuOpen && !searchOpen} className="app-tray-more-loop">
+                <LoopingScrollList
+                  open={moreMenuOpen && !searchOpen}
+                  className="app-tray-more-loop"
+                  scrollOffsetRef={moreMenuScrollOffsetRef}
+                  defaultAnchor="search"
+                  anchorRef={moreButtonRef}
+                >
                   {(copy) => (
                     <>
                       {moreMenuItems.map(({ id, label, Icon }) => (
@@ -4139,6 +4259,7 @@ function App() {
                         className="app-attach-menu-item app-tray-more-search"
                         role="menuitem"
                         tabIndex={copy === 1 ? 0 : -1}
+                        data-loop-anchor="search"
                         onClick={openSearch}
                       >
                         <SearchIcon />
