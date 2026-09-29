@@ -3743,7 +3743,12 @@ function App() {
       </main>
 
       {activeView === "dayline" && (
-        <div className="task-view-controls" ref={taskViewControlsRef}>
+        <div
+          className={`task-view-controls${collapsed ? "" : " is-hidden"}`}
+          ref={taskViewControlsRef}
+          aria-hidden={!collapsed}
+          {...(!collapsed ? { inert: true } : {})}
+        >
           {showTimelineScrollTop && (
             <button
               type="button"
