@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
@@ -435,15 +435,36 @@ function TendIcon() {
 function DiscoverIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <circle
+        cx="9"
+        cy="8"
+        r="2.4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <circle
+        cx="16.2"
+        cy="8.5"
+        r="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
       <path
-        d="m16 16 4.5 4.5"
+        d="M3.8 18.5c1.1-2.6 2.9-3.9 5.2-3.9s4.1 1.3 5.2 3.9"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
       />
-      <circle cx="11" cy="11" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M13.2 14.8c1.5-.7 3.1-.7 4.6.2 1.5 1.8 2.2 3.5 2.4 3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -544,6 +565,48 @@ function FoodIcon() {
   );
 }
 
+function AppleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 7.2c0-1.6.9-3.2 2.4-3.7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12 7.5c-1.4 0-2.6.4-3.5 1.2C7.2 9.8 6.5 11.4 6.5 13.5c0 3.2 1.8 6.5 5.5 6.5 1.2 0 2.1-.4 2.8-1 .7.6 1.6 1 2.8 1 3.7 0 5.5-3.3 5.5-6.5 0-2.1-.7-3.7-2-4.8-.9-.8-2.1-1.2-3.5-1.2-.9 0-1.7.2-2.3.6-.6-.4-1.4-.6-2.3-.6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function FitnessIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M4.5 9.5v5M7 8v8M17 8v8M19.5 9.5v5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M7 12h10"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function ShoppingBagIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -583,16 +646,6 @@ function RecipeIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  );
-}
-
-function MoreIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="6" r="1.7" fill="currentColor" />
-      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
-      <circle cx="12" cy="18" r="1.7" fill="currentColor" />
     </svg>
   );
 }
@@ -711,7 +764,7 @@ function ComposeAddIcon({ Icon, showPlus = true }: { Icon: () => ReactElement; s
 const COMPOSE_KINDS = [
   {
     id: "project",
-    label: "Project",
+    label: "Outcome",
     placeholder: "Describe the outcome of this project...",
     Icon: ListIcon,
   },
@@ -722,22 +775,16 @@ const COMPOSE_KINDS = [
     Icon: CycleIcon,
   },
   {
-    id: "cycle",
-    label: "Cycle",
-    placeholder: "Describe this cycle...",
-    Icon: CycleIcon,
+    id: "list",
+    label: "List",
+    placeholder: "Name this list...",
+    Icon: MenuBarsIcon,
   },
   {
     id: "event",
     label: "Event",
     placeholder: "What's the event?",
     Icon: CalendarIcon,
-  },
-  {
-    id: "list",
-    label: "List",
-    placeholder: "Name this list...",
-    Icon: MenuBarsIcon,
   },
   { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
   { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ShoppingBagIcon },
@@ -751,10 +798,50 @@ const COMPOSE_KINDS = [
   },
 ] as const;
 
-/** Compose-type picker order (top → bottom). Excludes AI Assistant. */
+/** Compose-type picker order (top → bottom). AI Assistant is rendered separately at the bottom. */
 const COMPOSE_KIND_MENU_ITEMS = COMPOSE_KINDS.filter((kind) => kind.id !== "assistant");
+const ASSISTANT_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "assistant")!;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
+
+const PARENT_LINK_COMPOSE_KINDS = ["event", "note", "item", "log", "task"] as const;
+type ParentLinkComposeKind = (typeof PARENT_LINK_COMPOSE_KINDS)[number];
+
+function isParentLinkComposeKind(kind: ComposeKind): kind is ParentLinkComposeKind {
+  return (PARENT_LINK_COMPOSE_KINDS as readonly string[]).includes(kind);
+}
+
+type ParentOption = { id: string; label: string };
+
+/**
+ * Parent picker choices by compose type.
+ * Each kind gets its own selection list (filled in later).
+ */
+const PARENT_OPTIONS_BY_KIND: Record<ParentLinkComposeKind, readonly ParentOption[]> = {
+  event: [],
+  note: [],
+  item: [],
+  log: [],
+  task: [],
+};
+
+const PARENT_TOOL_TITLE_BY_KIND: Record<ParentLinkComposeKind, string> = {
+  event: "Parent Event",
+  note: "Parent Note",
+  item: "Parent Item",
+  log: "Parent Log",
+  task: "Parent Task",
+};
+
+const PARENT_NEW_LABEL_BY_KIND: Record<ParentLinkComposeKind, string> = {
+  event: "New Event",
+  note: "New Note",
+  item: "New Item",
+  log: "New Log",
+  task: "New Task",
+};
+
+const PARENT_TOOL_HINT = "Parent";
 
 const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
 
@@ -765,22 +852,26 @@ const TRAY_TABS = [
 
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
-  { id: "projects", label: "Projects", Icon: ListIcon },
+  { id: "projects", label: "Outcomes", Icon: ListIcon },
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
   { id: "groceries", label: "Groceries", Icon: FoodIcon },
+  { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
+  { id: "fitness", label: "Fitness", Icon: FitnessIcon },
   { id: "recipes", label: "Recipes", Icon: RecipeIcon },
+  { id: "logs", label: "Logs", Icon: LogIcon },
   { id: "profile", label: "Profile", Icon: ProfileIcon },
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ] as const;
 
 const TEND_MENU_ITEMS = [
+  { id: "profile", label: "Profile", Icon: ProfileIcon },
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
-  { id: "projects", label: "Projects", Icon: ListIcon },
+  { id: "projects", label: "Outcomes", Icon: ListIcon },
+  { id: "routines", label: "Routines", Icon: CycleIcon },
   { id: "notes", label: "Notes", Icon: NotesIcon },
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
-  { id: "groceries", label: "Groceries", Icon: FoodIcon },
-  { id: "recipes", label: "Recipes", Icon: RecipeIcon },
-  { id: "routines", label: "Routines", Icon: CycleIcon },
+  { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
+  { id: "fitness", label: "Fitness", Icon: FitnessIcon },
 ] as const;
 
 const URGENCY_OPTIONS = ["Future", "Later", "Soon", "Now"] as const;
@@ -982,9 +1073,12 @@ const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   notes: "note",
   projects: "project",
   lists: "list",
-  routines: "task",
+  routines: "routine",
   groceries: "item",
+  nutrition: "item",
+  fitness: "task",
   recipes: "task",
+  logs: "log",
   profile: "task",
   settings: "task",
 };
@@ -1117,7 +1211,6 @@ function App() {
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
   const [durationInput, setDurationInput] = useState("15");
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [tendMenuOpen, setTendMenuOpen] = useState(false);
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const [taskAggressionMenuOpen, setTaskAggressionMenuOpen] = useState(false);
@@ -1234,7 +1327,6 @@ function App() {
   const impactButtonRef = useRef<HTMLButtonElement>(null);
   const cycleButtonRef = useRef<HTMLButtonElement>(null);
   const toolsCenterRef = useRef<HTMLDivElement>(null);
-  const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const tendButtonRef = useRef<HTMLButtonElement>(null);
   const tendMenuRef = useRef<HTMLDivElement>(null);
@@ -1255,8 +1347,10 @@ function App() {
   const DaylineIcon = DAYLINE_TAB.Icon;
   const tendMenuItems = TEND_MENU_ITEMS;
   const tendMenuViewIds = new Set<ActiveView>(TEND_MENU_ITEMS.map((item) => item.id));
-  const tendButtonActive = tendMenuOpen || tendMenuViewIds.has(activeView);
-  const moreButtonActive = moreMenuOpen || searchOpen || activeView === "profile";
+  const tendMenuViewSelected = tendMenuViewIds.has(activeView);
+  const tendButtonActive = tendMenuViewSelected;
+  const tendMenuPending = tendMenuOpen && !tendMenuViewSelected;
+  const moreButtonActive = searchOpen;
   const todayStart = toStartOfDay(new Date(countdownNow));
   const getTargetTimeForDay = (day: Date) => {
     if (timePickerOpen && sameCalendarDay(day, selectedDay)) return targetTime;
@@ -1703,7 +1797,6 @@ function App() {
     },
     project: (_draft) => {},
     routine: (_draft) => {},
-    cycle: (_draft) => {},
     event: (_draft) => {},
     list: (_draft) => {},
     note: (_draft) => {},
@@ -1939,7 +2032,6 @@ function App() {
     setTaskToolHint(null);
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
-    setMoreMenuOpen(false);
     setSearchOpen(false);
     setSearchQuery("");
     setCollapsed(false);
@@ -2070,7 +2162,6 @@ function App() {
     if (!content.trim()) {
       setComposeKind(COMPOSE_KIND_BY_VIEW[id]);
     }
-    setMoreMenuOpen(false);
     setTendMenuOpen(false);
   };
 
@@ -2080,7 +2171,6 @@ function App() {
   };
 
   const openSearch = () => {
-    setMoreMenuOpen(false);
     setTendMenuOpen(false);
     setSearchOpen(true);
   };
@@ -2232,7 +2322,6 @@ function App() {
     if (wasEditing || !content.trim()) {
       setComposeKind(COMPOSE_KIND_BY_VIEW[activeView]);
     }
-    setMoreMenuOpen(false);
     setSearchOpen(false);
     setSearchQuery("");
     fabRef.current?.blur();
@@ -2348,7 +2437,6 @@ function App() {
   const openSettingsMenu = () => {
     setTaskAggressionMenuOpen(false);
     setTimePickerOpen(false);
-    setMoreMenuOpen(false);
     setSettingsMenuOpen((open) => !open);
   };
 
@@ -2503,7 +2591,7 @@ function App() {
         return;
       }
 
-      if (!collapsed || searchOpen || moreMenuOpen || tendMenuOpen) {
+      if (!collapsed || searchOpen || tendMenuOpen) {
         setChromeHidden(false);
         return;
       }
@@ -2523,7 +2611,7 @@ function App() {
 
     main.addEventListener("scroll", onScroll, { passive: true });
     return () => main.removeEventListener("scroll", onScroll);
-  }, [collapsed, searchOpen, moreMenuOpen, tendMenuOpen, tasksCompact, activeView]);
+  }, [collapsed, searchOpen, tendMenuOpen, tasksCompact, activeView]);
 
   useEffect(() => {
     if (activeView !== "dayline") {
@@ -2630,7 +2718,7 @@ function App() {
   }, [activeView, tasksCompact, timelineDayCount, timelineDays.length, tasks.length]);
 
   useEffect(() => {
-    if (!collapsed || searchOpen || moreMenuOpen || tendMenuOpen) {
+    if (!collapsed || searchOpen || tendMenuOpen) {
       setChromeHidden(false);
     } else {
       const composer = composerRef.current;
@@ -2638,7 +2726,7 @@ function App() {
       composer?.classList.toggle("is-chrome-hidden", hideComposer);
       syncTaskViewControlsBottom();
     }
-  }, [collapsed, searchOpen, moreMenuOpen, tendMenuOpen, activeView]);
+  }, [collapsed, searchOpen, tendMenuOpen, activeView]);
 
   useLayoutEffect(() => {
     const slide = twinelineSlideRef.current;
@@ -2741,6 +2829,12 @@ function App() {
     });
     return () => cancelAnimationFrame(frame);
   }, [collapsed]);
+
+  useEffect(() => {
+    if (taskToolHint === PARENT_TOOL_HINT && !isParentLinkComposeKind(composeKind)) {
+      setTaskToolHint(null);
+    }
+  }, [composeKind, taskToolHint]);
 
   useLayoutEffect(() => {
     if (collapsed) return;
@@ -3058,21 +3152,6 @@ function App() {
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [taskToolHint]);
-
-  useEffect(() => {
-    if (!moreMenuOpen) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (moreMenuRef.current?.contains(target)) return;
-      if (moreButtonRef.current?.contains(target)) return;
-      setMoreMenuOpen(false);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [moreMenuOpen]);
 
   useEffect(() => {
     if (!tendMenuOpen) return;
@@ -3925,7 +4004,7 @@ function App() {
                   className={`app-tray-more-button${compact ? " is-compact" : ""}`}
                 >
                   <span className="app-tray-more-divider" aria-hidden="true" />
-                  <MoreIcon />
+                  <SearchIcon />
                 </button>
               </div>
             ))}
@@ -3953,24 +4032,23 @@ function App() {
                     opensTendMenu
                       ? tendButtonActive
                         ? " is-active"
-                        : ""
+                        : tendMenuPending
+                          ? " is-menu-open"
+                          : ""
                       : !inertNav && activeView === id
                         ? " is-active"
                         : ""
                   }`}
                   onClick={() => {
                     if (opensTendMenu) {
-                      setMoreMenuOpen(false);
                       setTendMenuOpen((open) => !open);
                       return;
                     }
                     if (inertNav) {
-                      setMoreMenuOpen(false);
                       setTendMenuOpen(false);
                       return;
                     }
                     setTendMenuOpen(false);
-                    setMoreMenuOpen(false);
                     selectView(id);
                   }}
                   tabIndex={collapsed && !searchOpen ? 0 : -1}
@@ -4005,61 +4083,17 @@ function App() {
                   </button>
                 ))}
               </ComposerOverlayMenu>
-              <ComposerOverlayMenu
-                open={moreMenuOpen && !searchOpen}
-                anchorRef={moreButtonRef}
-                menuRef={moreMenuRef}
-                align="end"
-                className="app-tray-more-menu"
-                aria-label="More..."
-              >
-                <button
-                  type="button"
-                  className={`app-attach-menu-item${activeView === "profile" ? " is-selected" : ""}`}
-                  role="menuitem"
-                  onClick={() => selectView("profile")}
-                >
-                  <ProfileIcon />
-                  <span>Profile</span>
-                </button>
-                <button
-                  type="button"
-                  className="app-attach-menu-item"
-                  role="menuitem"
-                  onClick={() => {
-                    setMoreMenuOpen(false);
-                    setTendMenuOpen(false);
-                    setComposeKind("assistant");
-                    setCollapsed(false);
-                  }}
-                >
-                  <IntelligenceIcon />
-                  <span>AI Assistant</span>
-                </button>
-                <button
-                  type="button"
-                  className="app-attach-menu-item app-tray-more-search"
-                  role="menuitem"
-                  onClick={openSearch}
-                >
-                  <SearchIcon />
-                  <span>Search</span>
-                </button>
-              </ComposerOverlayMenu>
               <button
                 ref={moreButtonRef}
                 type="button"
                 className={`app-tray-more-button${trayCompact ? " is-compact" : ""}${moreButtonActive ? " is-active" : ""}`}
-                onClick={() => {
-                  setTendMenuOpen(false);
-                  setMoreMenuOpen((open) => !open);
-                }}
-                aria-label="More..."
-                aria-expanded={moreMenuOpen}
+                onClick={openSearch}
+                aria-label="Search"
+                aria-expanded={searchOpen}
                 tabIndex={collapsed && !searchOpen ? 0 : -1}
               >
                 <span className="app-tray-more-divider" aria-hidden="true" />
-                <MoreIcon />
+                <SearchIcon />
               </button>
             </div>
           </div>
@@ -4357,6 +4391,44 @@ function App() {
                         </button>
                       </div>
                     </>
+                  ) : taskToolHint === PARENT_TOOL_HINT && isParentLinkComposeKind(composeKind) ? (
+                    <>
+                      <p className="app-composer-tool-hint-title">
+                        {PARENT_TOOL_TITLE_BY_KIND[composeKind]}
+                      </p>
+                      <div className="app-duration-divider" aria-hidden="true" />
+                      {PARENT_OPTIONS_BY_KIND[composeKind].length > 0 ? (
+                        PARENT_OPTIONS_BY_KIND[composeKind].map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className="app-attach-menu-item"
+                            role="menuitem"
+                            onClick={() => {
+                              // Selection wiring TBD per compose kind.
+                              closeTaskToolHint();
+                            }}
+                          >
+                            <span>{option.label}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="app-composer-tool-hint-empty">No parent options yet</p>
+                      )}
+                      <div className="app-duration-divider" aria-hidden="true" />
+                      <button
+                        type="button"
+                        className="app-attach-menu-item app-composer-parent-new"
+                        role="menuitem"
+                        onClick={() => {
+                          // Create-new-parent flow TBD per compose kind.
+                          closeTaskToolHint();
+                        }}
+                      >
+                        <PlusIcon />
+                        <span>{PARENT_NEW_LABEL_BY_KIND[composeKind]}</span>
+                      </button>
+                    </>
                   ) : (
                     <p className="app-composer-tool-hint-title">{taskToolHint}</p>
                   )}
@@ -4379,19 +4451,21 @@ function App() {
                     <CalendarIcon />
                   </button>
                 )}
+                {isParentLinkComposeKind(composeKind) && (
+                  <button
+                    ref={parentTaskButtonRef}
+                    type="button"
+                    className={`app-composer-tool${taskToolHint === PARENT_TOOL_HINT ? " is-open" : ""}`}
+                    aria-label={PARENT_TOOL_TITLE_BY_KIND[composeKind]}
+                    aria-expanded={taskToolHint === PARENT_TOOL_HINT}
+                    tabIndex={collapsed ? -1 : 0}
+                    onClick={(event) => openTaskToolHint(event.currentTarget, PARENT_TOOL_HINT)}
+                  >
+                    <ParentTaskIcon />
+                  </button>
+                )}
                 {composeKind === "task" && (
                   <>
-                    <button
-                      ref={parentTaskButtonRef}
-                      type="button"
-                      className={`app-composer-tool${taskToolHint === "Parent Task" ? " is-open" : ""}`}
-                      aria-label="Parent Task"
-                      aria-expanded={taskToolHint === "Parent Task"}
-                      tabIndex={collapsed ? -1 : 0}
-                      onClick={(event) => openTaskToolHint(event.currentTarget, "Parent Task")}
-                    >
-                      <ParentTaskIcon />
-                    </button>
                     <div className="app-composer-recurring">
                       <ComposerOverlayMenu
                         open={recurringMenuOpen}
@@ -4728,26 +4802,43 @@ function App() {
                   aria-label="Compose type"
                 >
                   {COMPOSE_KIND_MENU_ITEMS.map(({ id, label, Icon }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
-                      role="menuitem"
-                      onClick={() => {
-                        setComposeKind(id);
-                        setComposeKindMenuOpen(false);
-                      }}
-                    >
-                      <span
-                        className={`app-compose-kind-plus${id === "log" ? " is-check" : ""}`}
-                        aria-hidden="true"
+                    <Fragment key={id}>
+                      <button
+                        type="button"
+                        className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
+                        role="menuitem"
+                        onClick={() => {
+                          setComposeKind(id);
+                          setComposeKindMenuOpen(false);
+                        }}
                       >
-                        {id === "log" ? <CheckIcon /> : "+"}
-                      </span>
-                      <Icon />
-                      <span>{label}</span>
-                    </button>
+                        <span
+                          className={`app-compose-kind-plus${id === "log" ? " is-check" : ""}`}
+                          aria-hidden="true"
+                        >
+                          {id === "log" ? <CheckIcon /> : "+"}
+                        </span>
+                        <Icon />
+                        <span>{label}</span>
+                      </button>
+                      {id === "list" && (
+                        <div className="app-compose-kind-menu-divider" role="separator" />
+                      )}
+                    </Fragment>
                   ))}
+                  <div className="app-compose-kind-menu-divider" role="separator" />
+                  <button
+                    type="button"
+                    className={`app-attach-menu-item${composeKind === "assistant" ? " is-selected" : ""}`}
+                    role="menuitem"
+                    onClick={() => {
+                      setComposeKind("assistant");
+                      setComposeKindMenuOpen(false);
+                    }}
+                  >
+                    <ASSISTANT_COMPOSE_KIND.Icon />
+                    <span>{ASSISTANT_COMPOSE_KIND.label}</span>
+                  </button>
                 </ComposerOverlayMenu>
                 <button
                   ref={composeKindButtonRef}
@@ -4765,7 +4856,7 @@ function App() {
                   }}
                   tabIndex={collapsed ? -1 : 0}
                 >
-                  <span>{selectedComposeKind.label}</span>
+                  <span>{composeKind === "assistant" ? "Assist" : selectedComposeKind.label}</span>
                 </button>
                 <button
                   ref={composeAddButtonRef}

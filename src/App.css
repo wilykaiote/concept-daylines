@@ -1272,6 +1272,11 @@
   color: var(--accent);
 }
 
+.app-tray-tab.is-menu-open {
+  background: #14151a;
+  color: var(--text-h);
+}
+
 .app-tray-more {
   position: relative;
   display: inline-flex;
@@ -1743,6 +1748,13 @@
 
 .app-compose-kind-menu {
   min-width: 168px;
+}
+
+.app-compose-kind-menu-divider {
+  height: 1px;
+  margin: 6px 12px;
+  background: var(--border);
+  flex-shrink: 0;
 }
 
 .app-compose-kind-plus {
@@ -2225,6 +2237,17 @@
   font-weight: 600;
   text-align: center;
   white-space: nowrap;
+}
+
+.app-composer-tool-hint-empty {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.app-composer-tool-hint .app-composer-parent-new {
+  margin-top: 2px;
 }
 
 .app-composer-tool-hint.is-due-date {
