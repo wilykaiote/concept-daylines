@@ -52,6 +52,7 @@ import { buildScheduleLayoutForWindow } from "./schedule";
 import {
   addDays,
   buildDayRange,
+  buildOutsideCollapsedDayView,
   dayKey,
   formatHourLabel,
   formatMinutesLabel,
@@ -66,6 +67,8 @@ import {
   rescheduleOverdueTasksForNewDay,
   collectSoftTaskIdsOnDay,
   collectPushedFromTodayWindowTasks,
+  type OutsideExpandedFlags,
+  type OutsideRegionId,
 } from "./calendarTimeline";
 
 /** Soft tasks with no calendar day — hidden while the day is snoozed. */
@@ -1184,6 +1187,9 @@ function App() {
   const countdownNowRef = useRef(countdownNow);
   countdownNowRef.current = countdownNow;
   const [tasksCompact, setTasksCompact] = useState(true);
+  const [outsideExpandedByDay, setOutsideExpandedByDay] = useState<
+    Record<string, OutsideExpandedFlags>
+  >({});
   const [timelineRangeStart, setTimelineRangeStart] = useState(() => toStartOfDay(new Date()));
   const [timelineDayCount, setTimelineDayCount] = useState(31);
   const [weekdayDayCount, setWeekdayDayCount] = useState(28);
@@ -3661,7 +3667,25 @@ function App() {
           </div>
         ) : (
           <div className="calendar-timeline">
-            {timelineDays.map((day) => (
+            {timelineDays.map((day) => {
+              const view = buildOutsideCollapsedDayView(
+                day,
+                outsideExpandedByDay[day.dayKey] ?? {},
+              );
+              const toggleOutsideRegion = (region: OutsideRegionId) => {
+                setOutsideExpandedByDay((current) => {
+                  const prev = current[day.dayKey] ?? {};
+                  const nextOpen = !prev[region];
+                  return {
+                    ...current,
+                    [day.dayKey]: {
+                      ...prev,
+                      [region]: nextOpen,
+                    },
+                  };
+                });
+              };
+              return (
               <section
                 key={day.dayKey}
                 className="calendar-timeline-day"
@@ -3672,40 +3696,61 @@ function App() {
                 </div>
                 <div
                   className="calendar-timeline-body"
-                  style={{ height: Math.max(PX_PER_MINUTE, day.visibleMinutes * PX_PER_MINUTE) }}
+                  style={{ height: Math.max(PX_PER_MINUTE, view.visibleDisplayPx) }}
                 >
                   <div className="calendar-timeline-hours" aria-hidden="true">
-                    {day.hourMarkers.map(({ hour, label, topPx }) => (
+                    {view.hourMarkers.map(({ hour, label, topPx }) => (
                       <div key={hour} className="calendar-timeline-hour" style={{ top: topPx }}>
                         <span>{label}</span>
                       </div>
                     ))}
                   </div>
                   <div className="calendar-timeline-track">
-                    {day.hourMarkers.map(({ hour, topPx }) => (
+                    {view.hourMarkers.map(({ hour, topPx }) => (
                       <div
                         key={`line-${hour}`}
                         className="calendar-timeline-hour-line"
                         style={{ top: topPx }}
                       />
                     ))}
-                    {day.packStartTopPx != null && (
+                    {view.packStartTopPx != null && (
                       <div
                         className="calendar-timeline-pack-marker is-start"
-                        style={{ top: day.packStartTopPx }}
+                        style={{ top: view.packStartTopPx }}
                       >
                         <span className="calendar-timeline-pack-marker-label">{day.packStartLabel}</span>
                       </div>
                     )}
-                    {day.packEndTopPx != null && (
+                    {view.packEndTopPx != null && (
                       <div
                         className="calendar-timeline-pack-marker is-end"
-                        style={{ top: day.packEndTopPx }}
+                        style={{ top: view.packEndTopPx }}
                       >
                         <span className="calendar-timeline-pack-marker-label">{day.packEndLabel}</span>
                       </div>
                     )}
-                    {day.blocks.map((block) => (
+                    {view.stubs.map((stub) => (
+                      <button
+                        key={`${stub.region}-${stub.collapsed ? "expand" : "collapse"}`}
+                        type="button"
+                        className={`calendar-timeline-outside-stub${stub.collapsed ? " is-collapsed" : " is-expanded"} is-${stub.region}`}
+                        style={{ top: stub.topPx, height: stub.heightPx }}
+                        aria-expanded={!stub.collapsed}
+                        aria-label={
+                          stub.collapsed
+                            ? stub.region === "before"
+                              ? `Expand time before task window (${stub.label})`
+                              : `Expand time after task window (${stub.label})`
+                            : stub.region === "before"
+                              ? "Collapse time before task window"
+                              : "Collapse time after task window"
+                        }
+                        onClick={() => toggleOutsideRegion(stub.region)}
+                      >
+                        <span className="calendar-timeline-outside-stub-label">{stub.label}</span>
+                      </button>
+                    ))}
+                    {view.blocks.map((block) => (
                       <div
                         key={block.key}
                         data-task-id={block.taskId ?? undefined}
@@ -3737,7 +3782,8 @@ function App() {
                   </div>
                 </div>
               </section>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>

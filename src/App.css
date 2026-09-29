@@ -2647,6 +2647,64 @@
   transform: translateY(calc(-100% - 2px));
 }
 
+.calendar-timeline-outside-stub {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--bg-raised) 88%, var(--border));
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 80%, transparent);
+  cursor: pointer;
+  font: inherit;
+}
+
+.calendar-timeline-outside-stub.is-collapsed {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--bg-raised) 92%, var(--border)),
+    color-mix(in srgb, var(--bg-raised) 92%, var(--border)) 6px,
+    color-mix(in srgb, var(--bg) 96%, var(--border)) 6px,
+    color-mix(in srgb, var(--bg) 96%, var(--border)) 12px
+  );
+}
+
+.calendar-timeline-outside-stub.is-expanded {
+  background: transparent;
+  box-shadow: none;
+  justify-content: flex-end;
+}
+
+.calendar-timeline-outside-stub:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.calendar-timeline-outside-stub-label {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text-h);
+  font-size: 0.68rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.calendar-timeline-outside-stub.is-expanded .calendar-timeline-outside-stub-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
 .calendar-timeline-block {
   position: absolute;
   left: 6px;

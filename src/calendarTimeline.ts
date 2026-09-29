@@ -985,3 +985,291 @@ export const HOUR_MARKERS = Array.from({ length: 24 }, (_, hour) => ({
   label: formatHourLabel(hour),
   topPx: hour * 60 * PX_PER_MINUTE,
 }));
+
+/** Fixed height for a collapsed before/after stub in expanded timeline view. */
+export const OUTSIDE_COLLAPSE_STUB_PX = 32;
+/** Height of the collapse control shown on an expanded outside region edge. */
+export const OUTSIDE_COLLAPSE_CONTROL_PX = 24;
+
+export type OutsideRegionId = "before" | "after";
+
+export type OutsideExpandedFlags = {
+  before?: boolean;
+  after?: boolean;
+};
+
+export type OutsideCollapseStub = {
+  region: OutsideRegionId;
+  /** True when the outside region is collapsed into a stub. */
+  collapsed: boolean;
+  startMin: number;
+  endMin: number;
+  collapsedMinutes: number;
+  topPx: number;
+  heightPx: number;
+  label: string;
+};
+
+export type OutsideCollapsedDayView = {
+  visibleDisplayPx: number;
+  blocks: CalendarTaskBlock[];
+  hourMarkers: Array<{ hour: number; label: string; topPx: number }>;
+  packStartTopPx: number | null;
+  packEndTopPx: number | null;
+  stubs: OutsideCollapseStub[];
+};
+
+type DisplaySegment = {
+  region: "before" | "window" | "after";
+  start: number;
+  end: number;
+  open: boolean;
+  /** Anchored task forces this outside region open (no user collapse). */
+  forcedOpen: boolean;
+};
+
+function isAnchoredTaskBlock(block: CalendarTaskBlock): boolean {
+  return (
+    parseTimeOfDay(block.task.starts_at) != null ||
+    parseTimeOfDay(block.task.due_at) != null
+  );
+}
+
+function regionOverlapsAnchored(
+  blocks: CalendarTaskBlock[],
+  start: number,
+  end: number,
+): boolean {
+  if (end <= start) return false;
+  return blocks.some(
+    (block) =>
+      isAnchoredTaskBlock(block) && block.startMin < end && block.endMin > start,
+  );
+}
+
+function formatCollapsedDurationLabel(minutes: number): string {
+  const total = Math.max(0, Math.round(minutes));
+  if (total < 60) return `${total}m`;
+  const hours = Math.floor(total / 60);
+  const rem = total % 60;
+  return rem === 0 ? `${hours}h` : `${hours}h ${rem}m`;
+}
+
+function segmentDisplayHeight(seg: DisplaySegment): number {
+  if (seg.end <= seg.start) return 0;
+  if (seg.open) return (seg.end - seg.start) * PX_PER_MINUTE;
+  return OUTSIDE_COLLAPSE_STUB_PX;
+}
+
+function mapAbsMinToTop(absMin: number, segments: DisplaySegment[]): number {
+  let y = 0;
+  for (const seg of segments) {
+    if (seg.end <= seg.start) continue;
+    if (absMin <= seg.start) return y;
+    if (absMin >= seg.end) {
+      y += segmentDisplayHeight(seg);
+      continue;
+    }
+    if (seg.open) {
+      return y + (absMin - seg.start) * PX_PER_MINUTE;
+    }
+    return y;
+  }
+  return y;
+}
+
+function mapAbsRangeToDisplay(
+  startMin: number,
+  endMin: number,
+  segments: DisplaySegment[],
+): { topPx: number; heightPx: number } | null {
+  if (endMin <= startMin) return null;
+  let topPx: number | null = null;
+  let bottomPx = 0;
+  let y = 0;
+
+  for (const seg of segments) {
+    if (seg.end <= seg.start) continue;
+    const segHeight = segmentDisplayHeight(seg);
+    const overlapStart = Math.max(startMin, seg.start);
+    const overlapEnd = Math.min(endMin, seg.end);
+    if (overlapEnd > overlapStart && seg.open) {
+      const localTop = y + (overlapStart - seg.start) * PX_PER_MINUTE;
+      const localBottom = y + (overlapEnd - seg.start) * PX_PER_MINUTE;
+      if (topPx == null) topPx = localTop;
+      bottomPx = localBottom;
+    }
+    y += segHeight;
+  }
+
+  if (topPx == null || bottomPx <= topPx) return null;
+  return {
+    topPx,
+    heightPx: Math.max(MIN_BLOCK_HEIGHT_PX, bottomPx - topPx),
+  };
+}
+
+/**
+ * Remap a day layout so time outside the task window is collapsed into stubs,
+ * unless the user expanded that region or an anchored task overlaps it.
+ */
+export function buildOutsideCollapsedDayView(
+  day: CalendarDayLayout,
+  expanded: OutsideExpandedFlags = {},
+): OutsideCollapsedDayView {
+  const visibleStart = day.visibleStartMin;
+  const visibleEnd = visibleStart + day.visibleMinutes;
+  const windowStart = day.packStartMin;
+  const windowEnd = day.packEndMin;
+  const windowOpen = windowStart < windowEnd;
+
+  if (!windowOpen || visibleEnd <= visibleStart) {
+    return {
+      visibleDisplayPx: Math.max(PX_PER_MINUTE, day.visibleMinutes * PX_PER_MINUTE),
+      blocks: day.blocks,
+      hourMarkers: day.hourMarkers,
+      packStartTopPx: day.packStartTopPx,
+      packEndTopPx: day.packEndTopPx,
+      stubs: [],
+    };
+  }
+
+  const beforeStart = visibleStart;
+  const beforeEnd = Math.min(Math.max(windowStart, visibleStart), visibleEnd);
+  const midStart = Math.min(Math.max(windowStart, visibleStart), visibleEnd);
+  const midEnd = Math.min(Math.max(windowEnd, visibleStart), visibleEnd);
+  const afterStart = Math.min(Math.max(windowEnd, visibleStart), visibleEnd);
+  const afterEnd = visibleEnd;
+
+  const beforeForced = regionOverlapsAnchored(day.blocks, beforeStart, beforeEnd);
+  const afterForced = regionOverlapsAnchored(day.blocks, afterStart, afterEnd);
+  const beforeOpen = beforeEnd > beforeStart && (expanded.before === true || beforeForced);
+  const afterOpen = afterEnd > afterStart && (expanded.after === true || afterForced);
+
+  const segments: DisplaySegment[] = [];
+  if (beforeEnd > beforeStart) {
+    segments.push({
+      region: "before",
+      start: beforeStart,
+      end: beforeEnd,
+      open: beforeOpen,
+      forcedOpen: beforeForced,
+    });
+  }
+  if (midEnd > midStart) {
+    segments.push({
+      region: "window",
+      start: midStart,
+      end: midEnd,
+      open: true,
+      forcedOpen: false,
+    });
+  }
+  if (afterEnd > afterStart) {
+    segments.push({
+      region: "after",
+      start: afterStart,
+      end: afterEnd,
+      open: afterOpen,
+      forcedOpen: afterForced,
+    });
+  }
+
+  let visibleDisplayPx = 0;
+  for (const seg of segments) {
+    visibleDisplayPx += segmentDisplayHeight(seg);
+  }
+  visibleDisplayPx = Math.max(PX_PER_MINUTE, visibleDisplayPx);
+
+  const blocks: CalendarTaskBlock[] = [];
+  for (const block of day.blocks) {
+    const mapped = mapAbsRangeToDisplay(block.startMin, block.endMin, segments);
+    if (!mapped) continue;
+    blocks.push({
+      ...block,
+      topPx: mapped.topPx,
+      heightPx: mapped.heightPx,
+    });
+  }
+
+  const hourMarkers: OutsideCollapsedDayView["hourMarkers"] = [];
+  const firstHour = Math.ceil(visibleStart / 60);
+  for (let hour = firstHour; hour < 24; hour += 1) {
+    const absTop = hour * 60;
+    if (absTop < visibleStart || absTop > visibleEnd) continue;
+    const host = segments.find((seg) => absTop >= seg.start && absTop < seg.end);
+    if (host && !host.open) continue;
+    // Allow hour exactly at visibleEnd only if needed — skip (= end of day).
+    if (absTop === visibleEnd) continue;
+    hourMarkers.push({
+      hour,
+      label: formatHourLabel(hour),
+      topPx: mapAbsMinToTop(absTop, segments),
+    });
+  }
+
+  const packStartTopPx =
+    windowStart >= visibleStart && windowStart <= visibleEnd
+      ? mapAbsMinToTop(windowStart, segments)
+      : null;
+  const packEndTopPx =
+    windowEnd >= visibleStart && windowEnd <= visibleEnd
+      ? mapAbsMinToTop(windowEnd, segments)
+      : null;
+
+  const stubs: OutsideCollapseStub[] = [];
+  for (const seg of segments) {
+    if (seg.region === "window") continue;
+    const minutes = seg.end - seg.start;
+    if (minutes <= 0) continue;
+
+    if (!seg.open) {
+      const topPx = mapAbsMinToTop(seg.start, segments);
+      stubs.push({
+        region: seg.region,
+        collapsed: true,
+        startMin: seg.start,
+        endMin: seg.end,
+        collapsedMinutes: minutes,
+        topPx,
+        heightPx: OUTSIDE_COLLAPSE_STUB_PX,
+        label:
+          seg.region === "before"
+            ? `↑ ${formatCollapsedDurationLabel(minutes)}`
+            : `↓ ${formatCollapsedDurationLabel(minutes)}`,
+      });
+      continue;
+    }
+
+    // Expanded by user (not forced by anchored task): show collapse control at edge.
+    if (seg.forcedOpen || !(seg.region === "before" ? expanded.before : expanded.after)) {
+      continue;
+    }
+
+    const edgeAbs = seg.region === "before" ? seg.end : seg.start;
+    const edgeTop = mapAbsMinToTop(edgeAbs, segments);
+    const topPx =
+      seg.region === "before"
+        ? Math.max(0, edgeTop - OUTSIDE_COLLAPSE_CONTROL_PX)
+        : edgeTop;
+    stubs.push({
+      region: seg.region,
+      collapsed: false,
+      startMin: seg.start,
+      endMin: seg.end,
+      collapsedMinutes: minutes,
+      topPx,
+      heightPx: OUTSIDE_COLLAPSE_CONTROL_PX,
+      label: "Collapse",
+    });
+  }
+
+  return {
+    visibleDisplayPx,
+    blocks,
+    hourMarkers,
+    packStartTopPx,
+    packEndTopPx,
+    stubs,
+  };
+}
