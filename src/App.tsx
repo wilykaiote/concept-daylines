@@ -397,36 +397,15 @@ function ListIcon() {
   );
 }
 
-function TendIcon() {
+function HomeIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
-        d="M12 14.5c0-3.2 2.2-5.8 4.8-7.2-.4 3.1-2.2 5.2-4.8 7.2Z"
+        d="M4.5 10.5 12 4.5l7.5 6V20a1.5 1.5 0 0 1-1.5 1.5h-4.2v-6.2H10.2V21.5H6A1.5 1.5 0 0 1 4.5 20v-9.5Z"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinejoin="round"
-      />
-      <path
-        d="M12 14.5c0-3.2-2.2-5.8-4.8-7.2.4 3.1 2.2 5.2 4.8 7.2Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 14.5V21"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M8.5 21h7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -650,6 +629,16 @@ function RecipeIcon() {
   );
 }
 
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="6" r="1.7" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+      <circle cx="12" cy="18" r="1.7" fill="currentColor" />
+    </svg>
+  );
+}
+
 function ProfileIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -844,9 +833,11 @@ const PARENT_NEW_LABEL_BY_KIND: Record<ParentLinkComposeKind, string> = {
 const PARENT_TOOL_HINT = "Parent";
 
 const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
+const HOME_TAB = { id: "home", label: "Home", Icon: HomeIcon } as const;
+const NOTES_TAB = { id: "notes", label: "Notes", Icon: NotesIcon } as const;
 
 const TRAY_TABS = [
-  { id: "notes", label: "Tend", Icon: TendIcon, opensTendMenu: true },
+  HOME_TAB,
   { id: "routines", label: "Discover", Icon: DiscoverIcon, inertNav: true },
 ] as const;
 
@@ -868,7 +859,7 @@ const TEND_MENU_ITEMS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
   { id: "projects", label: "Outcomes", Icon: ListIcon },
   { id: "routines", label: "Routines", Icon: CycleIcon },
-  { id: "notes", label: "Notes", Icon: NotesIcon },
+  NOTES_TAB,
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
   { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
   { id: "fitness", label: "Fitness", Icon: FitnessIcon },
@@ -1063,12 +1054,13 @@ function CompactTaskRow({
 
 const SETTINGS_OPTION = MORE_OPTIONS.find((item) => item.id === "settings")!;
 
-const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, ...MORE_OPTIONS] as const;
+const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, NOTES_TAB, ...MORE_OPTIONS] as const;
 
 type ActiveView = (typeof NAV_ITEMS)[number]["id"];
 
 const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   dayline: "task",
+  home: "task",
   tasks: "task",
   notes: "note",
   projects: "project",
@@ -1184,6 +1176,79 @@ function ComposerOverlayMenu({
   );
 }
 
+const LOOP_SCROLL_COPIES = 3;
+
+function LoopingScrollList({
+  open,
+  className = "",
+  children,
+}: {
+  open: boolean;
+  className?: string;
+  children: (copy: number) => ReactNode;
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const setRef = useRef<HTMLDivElement>(null);
+  const adjustingRef = useRef(false);
+
+  const loopStride = () => {
+    const scroller = scrollerRef.current;
+    const set = setRef.current;
+    if (!scroller || !set) return 0;
+    const next = set.nextElementSibling as HTMLElement | null;
+    if (next) return next.offsetTop - set.offsetTop;
+    return set.offsetHeight;
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const stride = loopStride();
+    if (stride <= 0) return;
+    scroller.scrollTop = stride;
+  }, [open]);
+
+  const normalizeScroll = () => {
+    if (adjustingRef.current) return;
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const stride = loopStride();
+    if (stride <= 0) return;
+    const { scrollTop } = scroller;
+    if (scrollTop < stride * 0.5) {
+      adjustingRef.current = true;
+      scroller.scrollTop = scrollTop + stride;
+      adjustingRef.current = false;
+    } else if (scrollTop >= stride * 1.5) {
+      adjustingRef.current = true;
+      scroller.scrollTop = scrollTop - stride;
+      adjustingRef.current = false;
+    }
+  };
+
+  return (
+    <div className={`app-loop-scroll-shell${className ? ` ${className}` : ""}`}>
+      <div
+        ref={scrollerRef}
+        className="app-loop-scroll"
+        onScroll={normalizeScroll}
+      >
+        {Array.from({ length: LOOP_SCROLL_COPIES }, (_, copy) => (
+          <div
+            key={copy}
+            ref={copy === 0 ? setRef : undefined}
+            className="app-loop-scroll-set"
+            aria-hidden={copy !== 1}
+          >
+            {children(copy)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [content, setContent] = useState("");
   const [collapsed, setCollapsed] = useState(true);
@@ -1211,7 +1276,7 @@ function App() {
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
   const [durationInput, setDurationInput] = useState("15");
-  const [tendMenuOpen, setTendMenuOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const [taskAggressionMenuOpen, setTaskAggressionMenuOpen] = useState(false);
   const [taskGapMinutes, setTaskGapMinutes] = useState(() => loadTaskGapMinutes());
@@ -1328,8 +1393,7 @@ function App() {
   const cycleButtonRef = useRef<HTMLButtonElement>(null);
   const toolsCenterRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
-  const tendButtonRef = useRef<HTMLButtonElement>(null);
-  const tendMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
   const taskAggressionMenuRef = useRef<HTMLDivElement>(null);
@@ -1345,12 +1409,11 @@ function App() {
   const FabComposeIcon = fabComposeKind.Icon;
 
   const DaylineIcon = DAYLINE_TAB.Icon;
-  const tendMenuItems = TEND_MENU_ITEMS;
-  const tendMenuViewIds = new Set<ActiveView>(TEND_MENU_ITEMS.map((item) => item.id));
-  const tendMenuViewSelected = tendMenuViewIds.has(activeView);
-  const tendButtonActive = tendMenuViewSelected;
-  const tendMenuPending = tendMenuOpen && !tendMenuViewSelected;
-  const moreButtonActive = searchOpen;
+  const moreMenuItems = TEND_MENU_ITEMS;
+  const moreMenuViewIds = new Set<ActiveView>(TEND_MENU_ITEMS.map((item) => item.id));
+  const moreMenuViewSelected = moreMenuViewIds.has(activeView);
+  const moreMenuPending = moreMenuOpen && !moreMenuViewSelected;
+  const moreButtonActive = moreMenuViewSelected;
   const todayStart = toStartOfDay(new Date(countdownNow));
   const getTargetTimeForDay = (day: Date) => {
     if (timePickerOpen && sameCalendarDay(day, selectedDay)) return targetTime;
@@ -2162,7 +2225,7 @@ function App() {
     if (!content.trim()) {
       setComposeKind(COMPOSE_KIND_BY_VIEW[id]);
     }
-    setTendMenuOpen(false);
+    setMoreMenuOpen(false);
   };
 
   const closeSearch = () => {
@@ -2171,7 +2234,7 @@ function App() {
   };
 
   const openSearch = () => {
-    setTendMenuOpen(false);
+    setMoreMenuOpen(false);
     setSearchOpen(true);
   };
 
@@ -2591,7 +2654,7 @@ function App() {
         return;
       }
 
-      if (!collapsed || searchOpen || tendMenuOpen) {
+      if (!collapsed || searchOpen || moreMenuOpen) {
         setChromeHidden(false);
         return;
       }
@@ -2611,7 +2674,7 @@ function App() {
 
     main.addEventListener("scroll", onScroll, { passive: true });
     return () => main.removeEventListener("scroll", onScroll);
-  }, [collapsed, searchOpen, tendMenuOpen, tasksCompact, activeView]);
+  }, [collapsed, searchOpen, moreMenuOpen, tasksCompact, activeView]);
 
   useEffect(() => {
     if (activeView !== "dayline") {
@@ -2718,7 +2781,7 @@ function App() {
   }, [activeView, tasksCompact, timelineDayCount, timelineDays.length, tasks.length]);
 
   useEffect(() => {
-    if (!collapsed || searchOpen || tendMenuOpen) {
+    if (!collapsed || searchOpen || moreMenuOpen) {
       setChromeHidden(false);
     } else {
       const composer = composerRef.current;
@@ -2726,7 +2789,7 @@ function App() {
       composer?.classList.toggle("is-chrome-hidden", hideComposer);
       syncTaskViewControlsBottom();
     }
-  }, [collapsed, searchOpen, tendMenuOpen, activeView]);
+  }, [collapsed, searchOpen, moreMenuOpen, activeView]);
 
   useLayoutEffect(() => {
     const slide = twinelineSlideRef.current;
@@ -3154,19 +3217,19 @@ function App() {
   }, [taskToolHint]);
 
   useEffect(() => {
-    if (!tendMenuOpen) return;
+    if (!moreMenuOpen) return;
 
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (tendMenuRef.current?.contains(target)) return;
-      if (tendButtonRef.current?.contains(target)) return;
-      setTendMenuOpen(false);
+      if (moreMenuRef.current?.contains(target)) return;
+      if (moreButtonRef.current?.contains(target)) return;
+      setMoreMenuOpen(false);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [tendMenuOpen]);
+  }, [moreMenuOpen]);
 
   useEffect(() => {
     if (!settingsMenuOpen) return;
@@ -4004,12 +4067,37 @@ function App() {
                   className={`app-tray-more-button${compact ? " is-compact" : ""}`}
                 >
                   <span className="app-tray-more-divider" aria-hidden="true" />
-                  <SearchIcon />
+                  <MoreIcon />
                 </button>
               </div>
             ))}
           </div>
           <div className="app-tray-tabs ui-outer-fade" aria-hidden={!collapsed || searchOpen}>
+            {TRAY_TABS.map(({ id, label, Icon, ...tab }) => {
+              const inertNav = "inertNav" in tab && tab.inertNav === true;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={`app-tray-tab${trayCompact ? " is-compact" : ""}${
+                    !inertNav && activeView === id ? " is-active" : ""
+                  }`}
+                  onClick={() => {
+                    if (inertNav) {
+                      setMoreMenuOpen(false);
+                      return;
+                    }
+                    setMoreMenuOpen(false);
+                    selectView(id);
+                  }}
+                  tabIndex={collapsed && !searchOpen ? 0 : -1}
+                  aria-label={label}
+                >
+                  <Icon />
+                  {!trayCompact && <span>{label}</span>}
+                </button>
+              );
+            })}
             <button
               type="button"
               className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
@@ -4020,80 +4108,68 @@ function App() {
               <DaylineIcon />
               <span>{DAYLINE_TAB.label}</span>
             </button>
-            {TRAY_TABS.map(({ id, label, Icon, ...tab }) => {
-              const opensTendMenu = "opensTendMenu" in tab && tab.opensTendMenu === true;
-              const inertNav = "inertNav" in tab && tab.inertNav === true;
-              return (
-                <button
-                  key={id}
-                  ref={opensTendMenu ? tendButtonRef : undefined}
-                  type="button"
-                  className={`app-tray-tab${trayCompact ? " is-compact" : ""}${
-                    opensTendMenu
-                      ? tendButtonActive
-                        ? " is-active"
-                        : tendMenuPending
-                          ? " is-menu-open"
-                          : ""
-                      : !inertNav && activeView === id
-                        ? " is-active"
-                        : ""
-                  }`}
-                  onClick={() => {
-                    if (opensTendMenu) {
-                      setTendMenuOpen((open) => !open);
-                      return;
-                    }
-                    if (inertNav) {
-                      setTendMenuOpen(false);
-                      return;
-                    }
-                    setTendMenuOpen(false);
-                    selectView(id);
-                  }}
-                  tabIndex={collapsed && !searchOpen ? 0 : -1}
-                  aria-label={label}
-                  aria-expanded={opensTendMenu ? tendMenuOpen : undefined}
-                  aria-haspopup={opensTendMenu ? "menu" : undefined}
-                >
-                  <Icon />
-                  {!trayCompact && <span>{label}</span>}
-                </button>
-              );
-            })}
             <div className="app-tray-more">
               <ComposerOverlayMenu
-                open={tendMenuOpen && !searchOpen}
-                anchorRef={tendButtonRef}
-                menuRef={tendMenuRef}
+                open={moreMenuOpen && !searchOpen}
+                anchorRef={moreButtonRef}
+                menuRef={moreMenuRef}
                 align="end"
                 className="app-tray-more-menu"
-                aria-label="Tend"
+                aria-label="More..."
               >
-                {tendMenuItems.map(({ id, label, Icon }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
-                    role="menuitem"
-                    onClick={() => selectView(id)}
-                  >
-                    <Icon />
-                    <span>{label}</span>
-                  </button>
-                ))}
+                <LoopingScrollList open={moreMenuOpen && !searchOpen} className="app-tray-more-loop">
+                  {(copy) => (
+                    <>
+                      {moreMenuItems.map(({ id, label, Icon }) => (
+                        <button
+                          key={`${copy}-${id}`}
+                          type="button"
+                          className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
+                          role="menuitem"
+                          tabIndex={copy === 1 ? 0 : -1}
+                          onClick={() => selectView(id)}
+                        >
+                          <Icon />
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                      <button
+                        key={`${copy}-search`}
+                        type="button"
+                        className="app-attach-menu-item app-tray-more-search"
+                        role="menuitem"
+                        tabIndex={copy === 1 ? 0 : -1}
+                        onClick={openSearch}
+                      >
+                        <SearchIcon />
+                        <span>Search</span>
+                      </button>
+                      <div
+                        key={`${copy}-seam`}
+                        className="app-tray-more-loop-seam"
+                        role="separator"
+                        aria-label="End of menu"
+                      />
+                    </>
+                  )}
+                </LoopingScrollList>
               </ComposerOverlayMenu>
               <button
                 ref={moreButtonRef}
                 type="button"
-                className={`app-tray-more-button${trayCompact ? " is-compact" : ""}${moreButtonActive ? " is-active" : ""}`}
-                onClick={openSearch}
-                aria-label="Search"
-                aria-expanded={searchOpen}
+                className={`app-tray-more-button${trayCompact ? " is-compact" : ""}${
+                  moreButtonActive ? " is-active" : moreMenuPending ? " is-menu-open" : ""
+                }`}
+                onClick={() => {
+                  setMoreMenuOpen((open) => !open);
+                }}
+                aria-label="More..."
+                aria-expanded={moreMenuOpen}
+                aria-haspopup="menu"
                 tabIndex={collapsed && !searchOpen ? 0 : -1}
               >
                 <span className="app-tray-more-divider" aria-hidden="true" />
-                <SearchIcon />
+                <MoreIcon />
               </button>
             </div>
           </div>

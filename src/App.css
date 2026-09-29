@@ -1134,6 +1134,60 @@
   padding-top: 10px;
 }
 
+.app-loop-scroll-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.app-loop-scroll-shell::before,
+.app-loop-scroll-shell::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: 28px;
+  pointer-events: none;
+}
+
+.app-loop-scroll-shell::before {
+  top: 0;
+  background: linear-gradient(to bottom, var(--bg) 0%, transparent 100%);
+}
+
+.app-loop-scroll-shell::after {
+  bottom: 0;
+  background: linear-gradient(to top, var(--bg) 0%, transparent 100%);
+}
+
+.app-loop-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: inherit;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-loop-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.app-loop-scroll-set {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-tray-more-loop {
+  /* Clip mid-row so the next item peeks through the fade */
+  max-height: calc(4 * 42px + 22px);
+}
+
 .twineline-settings-wrap {
   grid-column: 1;
   justify-self: start;
@@ -1183,10 +1237,25 @@
   text-transform: uppercase;
 }
 
-.app-tray-more-search {
-  margin-top: 4px;
-  border-top: 1px solid var(--border);
-  border-radius: 0 0 10px 10px;
+.app-tray-more-loop-seam {
+  flex-shrink: 0;
+  height: 1px;
+  margin: 10px 12px;
+  background: var(--border);
+  position: relative;
+}
+
+.app-tray-more-loop-seam::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 3px var(--bg);
 }
 
 .app-composer-dock {
@@ -1321,6 +1390,11 @@
 
 .app-tray-more-button.is-active {
   color: var(--accent);
+}
+
+.app-tray-more-button.is-menu-open {
+  background: #14151a;
+  color: var(--text-h);
 }
 
 .app-tray-more-button:focus-visible {
