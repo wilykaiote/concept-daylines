@@ -4,6 +4,7 @@ import "./App.css";
 import { HomeView } from "./HomeView";
 import { DiscoverView } from "./DiscoverView";
 import { SettingsView } from "./SettingsView";
+import { RoutinesView } from "./RoutinesView";
 import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
@@ -27,6 +28,7 @@ import {
   loadTargetTimeOverrides,
   loadTaskGapMinutes,
   loadTasks,
+  loadRoutines,
   loadTodayWindowBaseline,
   loadWindowStartOverrides,
   loadWindowStartTime,
@@ -42,6 +44,7 @@ import {
   saveTargetTimeOverrides,
   saveTaskGapMinutes,
   saveTasks,
+  saveRoutines,
   saveTodayWindowBaseline,
   saveWindowStartOverrides,
   saveWindowStartTime,
@@ -498,6 +501,39 @@ function ParentTaskIcon() {
   );
 }
 
+function ChildBranchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6 4.5v6.2c0 1.3 1 2.3 2.3 2.3H12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M18 4.5v6.2c0 1.3-1 2.3-2.3 2.3H12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 13v4.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <circle cx="6" cy="4.5" r="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="18" cy="4.5" r="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="19.2" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
 function UrgencyIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -813,7 +849,7 @@ const COMPOSE_KINDS = [
   {
     id: "routine",
     label: "Routine",
-    placeholder: "Describe this routine...",
+    placeholder: "Name this routine...",
     Icon: CycleIcon,
   },
   {
@@ -845,45 +881,28 @@ const COMPOSE_KIND_MENU_ITEMS = COMPOSE_KINDS.filter((kind) => kind.id !== "assi
 const ASSISTANT_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "assistant")!;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
+type LinkRelation = "parent" | "child";
 
-const PARENT_LINK_COMPOSE_KINDS = ["event", "note", "item", "log", "task"] as const;
-type ParentLinkComposeKind = (typeof PARENT_LINK_COMPOSE_KINDS)[number];
+/** Hierarchy link tool — available on every non-assistant compose type. */
+const LINK_TOOL_COMPOSE_KINDS = COMPOSE_KIND_MENU_ITEMS.map((kind) => kind.id);
+type LinkToolComposeKind = (typeof LINK_TOOL_COMPOSE_KINDS)[number];
 
-function isParentLinkComposeKind(kind: ComposeKind): kind is ParentLinkComposeKind {
-  return (PARENT_LINK_COMPOSE_KINDS as readonly string[]).includes(kind);
+function isLinkToolComposeKind(kind: ComposeKind): kind is LinkToolComposeKind {
+  return (LINK_TOOL_COMPOSE_KINDS as readonly string[]).includes(kind);
 }
 
-type ParentOption = { id: string; label: string };
-
-/**
- * Parent picker choices by compose type.
- * Each kind gets its own selection list (filled in later).
- */
-const PARENT_OPTIONS_BY_KIND: Record<ParentLinkComposeKind, readonly ParentOption[]> = {
-  event: [],
-  note: [],
-  item: [],
-  log: [],
-  task: [],
+const LINK_TOOL_TITLE_BY_KIND: Record<LinkToolComposeKind, string> = {
+  project: "Link Outcome",
+  routine: "Link Routine",
+  list: "Link List",
+  event: "Link Event",
+  note: "Link Note",
+  item: "Link Item",
+  log: "Link Log",
+  task: "Link Task",
 };
 
-const PARENT_TOOL_TITLE_BY_KIND: Record<ParentLinkComposeKind, string> = {
-  event: "Parent Event",
-  note: "Parent Note",
-  item: "Parent Item",
-  log: "Parent Log",
-  task: "Parent Task",
-};
-
-const PARENT_NEW_LABEL_BY_KIND: Record<ParentLinkComposeKind, string> = {
-  event: "New Event",
-  note: "New Note",
-  item: "New Item",
-  log: "New Log",
-  task: "New Task",
-};
-
-const PARENT_TOOL_HINT = "Parent";
+const LINK_TOOL_HINT = "Link";
 
 const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
 const HOME_TAB = { id: "home", label: "Home", Icon: HomeIcon } as const;
@@ -1022,6 +1041,7 @@ function CompactTaskRow({
   editing,
   highlighted,
   now,
+  parentTitle,
   onComplete,
   onEdit,
 }: {
@@ -1030,6 +1050,7 @@ function CompactTaskRow({
   editing: boolean;
   highlighted: boolean;
   now: Date;
+  parentTitle?: string | null;
   onComplete: () => void;
   onEdit: () => void;
 }) {
@@ -1042,6 +1063,7 @@ function CompactTaskRow({
     impactValue != null ? Math.min(100, Math.max(0, (impactValue / IMPACT_MAX) * 100)) : null;
   const durationLabel = formatTaskDurationLabel(task.est_duration);
   const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
+  const resolvedParentTitle = normalizeOptionalField(parentTitle);
   const hasMeta =
     urgencyLabel != null ||
     impactValue != null ||
@@ -1065,7 +1087,15 @@ function CompactTaskRow({
         onClick={onEdit}
         aria-label={`Edit task ${task.title}`}
       >
-        <p className="task-row-title">{task.title}</p>
+        <div className="task-row-heading">
+          <p className="task-row-title">{task.title}</p>
+          {resolvedParentTitle != null && (
+            <div className="task-row-parent">
+              <ParentTaskIcon />
+              <span className="task-row-parent-name">{resolvedParentTitle}</span>
+            </div>
+          )}
+        </div>
         {hasMeta && (
           <div className="task-row-meta">
             <div className="task-row-meta-left">
@@ -1141,6 +1171,7 @@ function ComposerOverlayMenu({
   className = "",
   role = "menu",
   "aria-label": ariaLabel,
+  matchWidthRef,
   children,
 }: {
   open: boolean;
@@ -1150,9 +1181,10 @@ function ComposerOverlayMenu({
   className?: string;
   role?: "menu" | "dialog";
   "aria-label": string;
+  matchWidthRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number; width?: number } | null>(null);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -1175,10 +1207,16 @@ function ComposerOverlayMenu({
       const viewRight = viewLeft + viewWidth;
       const gap = 10;
       const pad = 8;
-      const menuWidth = menu.offsetWidth;
+      const match = matchWidthRef?.current;
+      const matchRect = match?.getBoundingClientRect();
+      const menuWidth = matchRect?.width ?? menu.offsetWidth;
       const menuHeight = menu.offsetHeight;
 
-      let left = align === "end" ? rect.right - menuWidth : rect.left;
+      let left = matchRect
+        ? matchRect.left
+        : align === "end"
+          ? rect.right - menuWidth
+          : rect.left;
       left = Math.min(Math.max(left, viewLeft + pad), viewRight - menuWidth - pad);
 
       let top = rect.top - menuHeight - gap;
@@ -1187,15 +1225,17 @@ function ComposerOverlayMenu({
       }
       top = Math.min(Math.max(top, viewTop + pad), Math.max(viewTop + pad, viewBottom - menuHeight - pad));
 
-      setCoords({ top, left });
+      setCoords(matchRect ? { top, left, width: matchRect.width } : { top, left });
     };
 
     updatePosition();
     const frame = requestAnimationFrame(updatePosition);
 
     const menu = menuRef.current;
-    const resizeObserver = menu ? new ResizeObserver(updatePosition) : null;
-    if (menu) resizeObserver?.observe(menu);
+    const match = matchWidthRef?.current;
+    const resizeObserver = new ResizeObserver(updatePosition);
+    if (menu) resizeObserver.observe(menu);
+    if (match) resizeObserver.observe(match);
 
     const vv = window.visualViewport;
     vv?.addEventListener("resize", updatePosition);
@@ -1205,13 +1245,13 @@ function ComposerOverlayMenu({
 
     return () => {
       cancelAnimationFrame(frame);
-      resizeObserver?.disconnect();
+      resizeObserver.disconnect();
       vv?.removeEventListener("resize", updatePosition);
       vv?.removeEventListener("scroll", updatePosition);
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [open, anchorRef, menuRef, align]);
+  }, [open, anchorRef, menuRef, align, matchWidthRef]);
 
   if (!open) return null;
 
@@ -1223,7 +1263,11 @@ function ComposerOverlayMenu({
       aria-label={ariaLabel}
       style={
         coords
-          ? { top: coords.top, left: coords.left }
+          ? {
+              top: coords.top,
+              left: coords.left,
+              ...(coords.width != null ? { width: coords.width } : {}),
+            }
           : { top: 0, left: 0, visibility: "hidden" }
       }
     >
@@ -1438,6 +1482,10 @@ function App() {
   const [taskTimeMode, setTaskTimeMode] = useState<"starts_at" | "due_at">("starts_at");
   const [composerAutoRescheduled, setComposerAutoRescheduled] = useState(false);
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
+  const [linkRelation, setLinkRelation] = useState<LinkRelation>("parent");
+  const [linkSearchQuery, setLinkSearchQuery] = useState("");
+  const [pendingParentId, setPendingParentId] = useState<string | null>(null);
+  const [pendingChildId, setPendingChildId] = useState<string | null>(null);
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
   const [durationInput, setDurationInput] = useState("15");
@@ -1451,7 +1499,17 @@ function App() {
   const [trayCompact, setTrayCompact] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [tasks, setTasks] = useState<ComposerDraft[]>(() => loadTasks());
+  const [tasks, setTasks] = useState<ComposerDraft[]>(() => {
+    const loaded = loadTasks();
+    const migrated = loaded.filter((task) => task.type === "routine");
+    const rest = loaded.filter((task) => task.type !== "routine");
+    if (migrated.length > 0) {
+      saveTasks(rest);
+      saveRoutines([...loadRoutines(), ...migrated]);
+    }
+    return rest;
+  });
+  const [routines, setRoutines] = useState<ComposerDraft[]>(() => loadRoutines());
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTaskBaseline, setEditTaskBaseline] = useState<{
     title: string;
@@ -1494,6 +1552,7 @@ function App() {
     loadTodayWindowBaseline(),
   );
   const composerRef = useRef<HTMLFormElement>(null);
+  const composerFieldRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const overdueSectionRef = useRef<HTMLElement>(null);
   const twinelineChromeRef = useRef<HTMLDivElement>(null);
@@ -1610,6 +1669,18 @@ function App() {
   );
   const calendarTaskLayout = calendarTasksLayout.days;
   const overdueTasks = calendarTasksLayout.overdueTasks;
+  const parentTitleById = (() => {
+    const map = new Map<string, string>();
+    for (const routine of routines) {
+      if (routine.id) map.set(routine.id, routine.title);
+    }
+    for (const task of tasks) {
+      if (task.id) map.set(task.id, task.title);
+    }
+    return map;
+  })();
+  const parentTitleFor = (parentId: string | null | undefined) =>
+    parentId != null ? (parentTitleById.get(parentId) ?? null) : null;
   const calendarLayoutSpanKey =
     calendarTaskLayout.length > 0
       ? `${calendarTaskLayout[0].dayKey}:${calendarTaskLayout[calendarTaskLayout.length - 1].dayKey}`
@@ -2016,28 +2087,59 @@ function App() {
 
   const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
     task: (draft) => {
+      const withParent = pendingParentId ? { ...draft, parent_id: pendingParentId } : draft;
       setTasks((current) => {
-        if (!editingTaskId) return [draft, ...current];
-        return current.map((task) => {
-          if (task.id !== editingTaskId) return task;
-          return {
-            ...task,
-            title: draft.title,
-            type: draft.type,
-            est_duration: draft.est_duration,
-            urgency: draft.urgency,
-            impact: draft.impact,
-            date: draft.date,
-            starts_at: draft.starts_at,
-            due_at: draft.due_at,
-            recurring: draft.recurring,
-            auto_rescheduled: composerAutoRescheduled ? true : false,
-          };
-        });
+        let next = current;
+        if (!editingTaskId) {
+          next = [withParent, ...current];
+        } else {
+          next = current.map((task) => {
+            if (task.id !== editingTaskId) return task;
+            return {
+              ...task,
+              title: withParent.title,
+              type: withParent.type,
+              est_duration: withParent.est_duration,
+              urgency: withParent.urgency,
+              impact: withParent.impact,
+              date: withParent.date,
+              starts_at: withParent.starts_at,
+              due_at: withParent.due_at,
+              recurring: withParent.recurring,
+              parent_id: withParent.parent_id ?? task.parent_id,
+              auto_rescheduled: composerAutoRescheduled ? true : false,
+            };
+          });
+        }
+        if (pendingChildId && withParent.id) {
+          next = next.map((task) =>
+            task.id === pendingChildId ? { ...task, parent_id: withParent.id } : task,
+          );
+        }
+        return next;
       });
     },
     project: (_draft) => {},
-    routine: (_draft) => {},
+    routine: (draft) => {
+      setRoutines((current) => {
+        if (!editingTaskId) return [draft, ...current];
+        return current.map((routine) => {
+          if (routine.id !== editingTaskId) return routine;
+          return {
+            ...routine,
+            title: draft.title,
+            type: draft.type,
+          };
+        });
+      });
+      if (pendingChildId && draft.id) {
+        setTasks((current) =>
+          current.map((task) =>
+            task.id === pendingChildId ? { ...task, parent_id: draft.id } : task,
+          ),
+        );
+      }
+    },
     event: (_draft) => {},
     list: (_draft) => {},
     note: (_draft) => {},
@@ -2076,6 +2178,10 @@ function App() {
       mode: "starts_at",
     });
     setTaskToolHint(null);
+    setPendingParentId(null);
+    setPendingChildId(null);
+    setLinkRelation("parent");
+    setLinkSearchQuery("");
     setEditingTaskId(null);
     setEditTaskBaseline(null);
     setComposerSavePromptOpen(false);
@@ -2151,7 +2257,14 @@ function App() {
     setRecurringMenuOpen(false);
     setUrgencyMenuOpen(false);
     setImpactMenuOpen(false);
-    setTaskToolHint((current) => (current === title ? null : title));
+    setTaskToolHint((current) => {
+      const next = current === title ? null : title;
+      if (next === LINK_TOOL_HINT) {
+        setLinkRelation("parent");
+        setLinkSearchQuery("");
+      }
+      return next;
+    });
   };
 
   const composerDate = normalizeOptionalField(taskDate);
@@ -2575,6 +2688,10 @@ function App() {
   useEffect(() => {
     saveTasks(tasks);
   }, [tasks]);
+
+  useEffect(() => {
+    saveRoutines(routines);
+  }, [routines]);
 
   useEffect(() => {
     saveTaskGapMinutes(taskGapMinutes);
@@ -3065,7 +3182,7 @@ function App() {
   }, [collapsed]);
 
   useEffect(() => {
-    if (taskToolHint === PARENT_TOOL_HINT && !isParentLinkComposeKind(composeKind)) {
+    if (taskToolHint === LINK_TOOL_HINT && !isLinkToolComposeKind(composeKind)) {
       setTaskToolHint(null);
     }
   }, [composeKind, taskToolHint]);
@@ -3481,6 +3598,31 @@ function App() {
             onTaskGapStep={stepTaskGap}
           />
         )}
+        {activeView === "routines" && (
+          <RoutinesView
+            routines={routines}
+            tasks={tasks}
+            renderChild={(task, routine) => (
+              <CompactTaskRow
+                key={task.id ?? task.title}
+                task={task}
+                overdue={false}
+                editing={editingTaskId === task.id}
+                highlighted={isTaskHighlighted(task.id)}
+                now={new Date(countdownNow)}
+                parentTitle={routine.title}
+                onComplete={() => completeTask(task.id)}
+                onEdit={() => {
+                  if (task.id) {
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                  }
+                  editTask(task);
+                }}
+              />
+            )}
+          />
+        )}
         {activeView === "dayline" && (
           <div className="twineline-chrome" ref={twinelineChromeRef}>
             <div className="twineline-chrome-slot" ref={twinelineSlotRef} aria-hidden="true" />
@@ -3859,6 +4001,7 @@ function App() {
                   editing={editingTaskId === task.id}
                   highlighted={isTaskHighlighted(task.id)}
                   now={new Date(countdownNow)}
+                  parentTitle={parentTitleFor(task.parent_id)}
                   onComplete={() => completeTask(task.id)}
                   onEdit={() => {
                     if (task.id) {
@@ -3875,6 +4018,7 @@ function App() {
         {activeView !== "home" &&
           activeView !== "discover" &&
           activeView !== "settings" &&
+          activeView !== "routines" &&
           (tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : tasksCompact ? (
@@ -3906,6 +4050,7 @@ function App() {
                           editing={editingTaskId === block.taskId}
                           highlighted={isTaskHighlighted(block.taskId)}
                           now={new Date(countdownNow)}
+                          parentTitle={parentTitleFor(block.task.parent_id)}
                           onComplete={() => completeTask(block.taskId)}
                           onEdit={() => {
                             if (block.taskId) {
@@ -4341,6 +4486,7 @@ function App() {
           </button>
 
           <div
+            ref={composerFieldRef}
             className="app-composer-field ui-outer-fade"
             aria-hidden={collapsed}
             {...(collapsed ? { inert: true } : {})}
@@ -4491,8 +4637,15 @@ function App() {
                   open={taskToolHint != null}
                   anchorRef={taskToolHintAnchorRef}
                   menuRef={taskToolHintMenuRef}
+                  matchWidthRef={taskToolHint === LINK_TOOL_HINT ? composerFieldRef : undefined}
                   role={taskToolHint === "Date & Time" ? "dialog" : "menu"}
-                  className={`app-composer-tool-hint${taskToolHint === "Date & Time" ? " is-due-date" : ""}`}
+                  className={`app-composer-tool-hint${
+                    taskToolHint === "Date & Time"
+                      ? " is-due-date"
+                      : taskToolHint === LINK_TOOL_HINT
+                        ? " is-link"
+                        : ""
+                  }`}
                   aria-label={taskToolHint ?? "Tool info"}
                 >
                   {taskToolHint === "Date & Time" ? (
@@ -4589,43 +4742,128 @@ function App() {
                         </button>
                       </div>
                     </>
-                  ) : taskToolHint === PARENT_TOOL_HINT && isParentLinkComposeKind(composeKind) ? (
+                  ) : taskToolHint === LINK_TOOL_HINT && isLinkToolComposeKind(composeKind) ? (
                     <>
                       <p className="app-composer-tool-hint-title">
-                        {PARENT_TOOL_TITLE_BY_KIND[composeKind]}
+                        {LINK_TOOL_TITLE_BY_KIND[composeKind]}
                       </p>
                       <div className="app-duration-divider" aria-hidden="true" />
-                      {PARENT_OPTIONS_BY_KIND[composeKind].length > 0 ? (
-                        PARENT_OPTIONS_BY_KIND[composeKind].map((option) => (
-                          <button
-                            key={option.id}
-                            type="button"
-                            className="app-attach-menu-item"
-                            role="menuitem"
-                            onClick={() => {
-                              // Selection wiring TBD per compose kind.
-                              closeTaskToolHint();
-                            }}
-                          >
-                            <span>{option.label}</span>
-                          </button>
-                        ))
-                      ) : (
-                        <p className="app-composer-tool-hint-empty">No parent options yet</p>
-                      )}
+                      <label className="app-composer-link-search">
+                        <span className="app-composer-link-search-label">Search</span>
+                        <input
+                          type="search"
+                          value={linkSearchQuery}
+                          onChange={(e) => setLinkSearchQuery(e.target.value)}
+                          placeholder="Search..."
+                          autoComplete="off"
+                          enterKeyHint="search"
+                        />
+                      </label>
+                      <div className="app-composer-link-list" role="listbox" aria-label="Link targets">
+                        {(() => {
+                          const linkItems =
+                            composeKind === "task" && linkRelation === "parent"
+                              ? [
+                                  ...routines
+                                    .filter((routine) => routine.id)
+                                    .map((routine) => ({
+                                      id: routine.id as string,
+                                      label: routine.title,
+                                      kindLabel: "Routine",
+                                    })),
+                                  ...tasks
+                                    .filter((task) => task.id)
+                                    .map((task) => ({
+                                      id: task.id as string,
+                                      label: task.title,
+                                      kindLabel: "Task",
+                                    })),
+                                ]
+                              : composeKind === "routine" && linkRelation === "child"
+                                ? tasks
+                                    .filter((task) => task.id)
+                                    .map((task) => ({
+                                      id: task.id as string,
+                                      label: task.title,
+                                      kindLabel: "Task",
+                                    }))
+                                : tasks
+                                    .filter((task) => task.id)
+                                    .map((task) => ({
+                                      id: task.id as string,
+                                      label: task.title,
+                                      kindLabel: "Task",
+                                    }));
+                          if (linkItems.length === 0) {
+                            return (
+                              <p className="app-composer-tool-hint-empty">
+                                {composeKind === "task" && linkRelation === "parent"
+                                  ? "No routines or tasks yet"
+                                  : "No tasks yet"}
+                              </p>
+                            );
+                          }
+                          return linkItems.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className={`app-attach-menu-item${
+                                (linkRelation === "parent" && pendingParentId === item.id) ||
+                                (linkRelation === "child" && pendingChildId === item.id)
+                                  ? " is-selected"
+                                  : ""
+                              }`}
+                              role="option"
+                              aria-selected={
+                                (linkRelation === "parent" && pendingParentId === item.id) ||
+                                (linkRelation === "child" && pendingChildId === item.id)
+                              }
+                              onClick={() => {
+                                if (linkRelation === "parent") {
+                                  setPendingParentId((current) =>
+                                    current === item.id ? null : item.id,
+                                  );
+                                  setPendingChildId(null);
+                                } else {
+                                  setPendingChildId((current) =>
+                                    current === item.id ? null : item.id,
+                                  );
+                                  setPendingParentId(null);
+                                }
+                                closeTaskToolHint();
+                              }}
+                            >
+                              <span>{item.label || "Untitled"}</span>
+                              <span className="app-composer-link-item-kind">{item.kindLabel}</span>
+                            </button>
+                          ));
+                        })()}
+                      </div>
                       <div className="app-duration-divider" aria-hidden="true" />
-                      <button
-                        type="button"
-                        className="app-attach-menu-item app-composer-parent-new"
-                        role="menuitem"
-                        onClick={() => {
-                          // Create-new-parent flow TBD per compose kind.
-                          closeTaskToolHint();
-                        }}
+                      <div
+                        className="app-composer-link-toggle"
+                        role="group"
+                        aria-label="Link as parent or child"
                       >
-                        <PlusIcon />
-                        <span>{PARENT_NEW_LABEL_BY_KIND[composeKind]}</span>
-                      </button>
+                        <button
+                          type="button"
+                          className={`app-composer-link-toggle-option${linkRelation === "parent" ? " is-active" : ""}`}
+                          aria-pressed={linkRelation === "parent"}
+                          onClick={() => setLinkRelation("parent")}
+                        >
+                          <ParentTaskIcon />
+                          <span>Parent</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={`app-composer-link-toggle-option${linkRelation === "child" ? " is-active" : ""}`}
+                          aria-pressed={linkRelation === "child"}
+                          onClick={() => setLinkRelation("child")}
+                        >
+                          <ChildBranchIcon />
+                          <span>Child</span>
+                        </button>
+                      </div>
                     </>
                   ) : (
                     <p className="app-composer-tool-hint-title">{taskToolHint}</p>
@@ -4649,15 +4887,18 @@ function App() {
                     <CalendarIcon />
                   </button>
                 )}
-                {isParentLinkComposeKind(composeKind) && (
+                {isLinkToolComposeKind(composeKind) && (
                   <button
                     ref={parentTaskButtonRef}
                     type="button"
-                    className={`app-composer-tool${taskToolHint === PARENT_TOOL_HINT ? " is-open" : ""}`}
-                    aria-label={PARENT_TOOL_TITLE_BY_KIND[composeKind]}
-                    aria-expanded={taskToolHint === PARENT_TOOL_HINT}
+                    className={`app-composer-tool app-composer-tool-link${
+                      pendingParentId != null || pendingChildId != null ? " is-activated" : ""
+                    }${taskToolHint === LINK_TOOL_HINT ? " is-open" : ""}`}
+                    aria-label={LINK_TOOL_TITLE_BY_KIND[composeKind]}
+                    aria-expanded={taskToolHint === LINK_TOOL_HINT}
+                    aria-pressed={pendingParentId != null || pendingChildId != null}
                     tabIndex={collapsed ? -1 : 0}
-                    onClick={(event) => openTaskToolHint(event.currentTarget, PARENT_TOOL_HINT)}
+                    onClick={(event) => openTaskToolHint(event.currentTarget, LINK_TOOL_HINT)}
                   >
                     <ParentTaskIcon />
                   </button>

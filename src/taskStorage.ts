@@ -41,6 +41,28 @@ export function saveTasks(tasks: ComposerDraft[]): void {
   }
 }
 
+const ROUTINES_STORAGE_KEY = "twineline.routines";
+
+export function loadRoutines(): ComposerDraft[] {
+  try {
+    const raw = localStorage.getItem(ROUTINES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isComposerDraft);
+  } catch {
+    return [];
+  }
+}
+
+export function saveRoutines(routines: ComposerDraft[]): void {
+  try {
+    localStorage.setItem(ROUTINES_STORAGE_KEY, JSON.stringify(routines));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
 function isTargetTime(value: string): boolean {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }
