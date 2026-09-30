@@ -1,6 +1,10 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
+import { HomeView } from "./HomeView";
+import { DiscoverView } from "./DiscoverView";
+import { SettingsView } from "./SettingsView";
+import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
   buildNextRecurringTask,
@@ -62,6 +66,7 @@ import {
   packWindowEndMinutes,
   packWindowStartMinutes,
   parseTaskDate,
+  parseTimeOfDay,
   PX_PER_MINUTE,
   isAnchoredTaskMissed,
   rescheduleOverdueTasksForNewDay,
@@ -74,6 +79,10 @@ import {
 /** Soft tasks with no calendar day — hidden while the day is snoozed. */
 function isUndatedTask(task: ComposerDraft): boolean {
   return parseTaskDate(task.date) == null;
+}
+
+function isAnchoredTask(task: ComposerDraft): boolean {
+  return parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null;
 }
 
 function CloseIcon() {
@@ -676,6 +685,50 @@ function SettingsIcon() {
   );
 }
 
+function PieChartIcon() {
+  const cx = 12;
+  const cy = 12;
+  const outer = 8.2;
+  const ticks = Array.from({ length: 12 }, (_, i) => {
+    const angle = ((i / 12) * 360 - 90) * (Math.PI / 180);
+    const major = i % 3 === 0;
+    const inner = major ? 5.4 : 6.2;
+    return {
+      key: i,
+      x1: cx + Math.cos(angle) * inner,
+      y1: cy + Math.sin(angle) * inner,
+      x2: cx + Math.cos(angle) * outer,
+      y2: cy + Math.sin(angle) * outer,
+      major,
+    };
+  });
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle
+        cx={cx}
+        cy={cy}
+        r={outer}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      {ticks.map(({ key, x1, y1, x2, y2, major }) => (
+        <line
+          key={key}
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          stroke="currentColor"
+          strokeWidth={major ? 1.8 : 1.4}
+          strokeLinecap="round"
+        />
+      ))}
+    </svg>
+  );
+}
+
 function TaskViewExpandIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -834,12 +887,11 @@ const PARENT_TOOL_HINT = "Parent";
 
 const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
 const HOME_TAB = { id: "home", label: "Home", Icon: HomeIcon } as const;
+const DISCOVER_TAB = { id: "discover", label: "Discover", Icon: DiscoverIcon } as const;
 const NOTES_TAB = { id: "notes", label: "Notes", Icon: NotesIcon } as const;
+const ROUTINES_TAB = { id: "routines", label: "Routines", Icon: CycleIcon } as const;
 
-const TRAY_TABS = [
-  HOME_TAB,
-  { id: "routines", label: "Discover", Icon: DiscoverIcon, inertNav: true },
-] as const;
+const TRAY_TABS = [HOME_TAB, DISCOVER_TAB] as const;
 
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
@@ -855,10 +907,11 @@ const MORE_OPTIONS = [
 ] as const;
 
 const TEND_MENU_ITEMS = [
+  { id: "settings", label: "Settings", Icon: SettingsIcon },
   { id: "profile", label: "Profile", Icon: ProfileIcon },
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
   { id: "projects", label: "Outcomes", Icon: ListIcon },
-  { id: "routines", label: "Routines", Icon: CycleIcon },
+  ROUTINES_TAB,
   NOTES_TAB,
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
   { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
@@ -1052,15 +1105,14 @@ function CompactTaskRow({
   );
 }
 
-const SETTINGS_OPTION = MORE_OPTIONS.find((item) => item.id === "settings")!;
-
-const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, NOTES_TAB, ...MORE_OPTIONS] as const;
+const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, NOTES_TAB, ROUTINES_TAB, ...MORE_OPTIONS] as const;
 
 type ActiveView = (typeof NAV_ITEMS)[number]["id"];
 
 const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   dayline: "task",
   home: "task",
+  discover: "routine",
   tasks: "task",
   notes: "note",
   projects: "project",
@@ -1390,8 +1442,7 @@ function App() {
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
   const [durationInput, setDurationInput] = useState("15");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
-  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
-  const [taskAggressionMenuOpen, setTaskAggressionMenuOpen] = useState(false);
+  const [dayWheelOpen, setDayWheelOpen] = useState(false);
   const [taskGapMinutes, setTaskGapMinutes] = useState(() => loadTaskGapMinutes());
   const [taskGapInput, setTaskGapInput] = useState(() => String(loadTaskGapMinutes()));
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
@@ -1508,9 +1559,8 @@ function App() {
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuScrollOffsetRef = useRef<number | null>(null);
-  const settingsMenuRef = useRef<HTMLDivElement>(null);
-  const settingsButtonRef = useRef<HTMLButtonElement>(null);
-  const taskAggressionMenuRef = useRef<HTMLDivElement>(null);
+  const dayWheelButtonRef = useRef<HTMLButtonElement>(null);
+  const dayWheelMenuRef = useRef<HTMLDivElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
   const taskViewControlsRef = useRef<HTMLDivElement>(null);
@@ -1582,6 +1632,21 @@ function App() {
     startMin: block.startMin,
     endMin: block.endMin,
     task: block.task,
+  }));
+  const selectedDayWheelSlices: DayWheelSlice[] = (selectedDayLayout?.blocks ?? []).map((block) => ({
+    key: block.key,
+    title: block.title,
+    startMin: block.startMin,
+    endMin: block.endMin,
+    kind: isAnchoredTask(block.task) ? "anchored" : "soft",
+  }));
+  const todayLayout = calendarLayoutByKey.get(dayKey(todayStart));
+  const todayWheelSlices: DayWheelSlice[] = (todayLayout?.blocks ?? []).map((block) => ({
+    key: block.key,
+    title: block.title,
+    startMin: block.startMin,
+    endMin: block.endMin,
+    kind: isAnchoredTask(block.task) ? "anchored" : "soft",
   }));
   const appliedTodayBegins = resolveWindowStartTime(
     todayStart,
@@ -1722,8 +1787,7 @@ function App() {
 
   const openTimePicker = () => {
     setCalendarOpen(false);
-    setSettingsMenuOpen(false);
-    setTaskAggressionMenuOpen(false);
+    setDayWheelOpen(false);
     setTimeSavePromptOpen(false);
     const resolvedTarget = resolveTargetTime(selectedDay, defaultTargetTime, targetTimeOverrides);
     const resolvedWindowStart = resolveWindowStartTime(
@@ -2611,16 +2675,9 @@ function App() {
     setTaskGapInput(String(next));
   };
 
-  const openSettingsMenu = () => {
-    setTaskAggressionMenuOpen(false);
+  const openDayWheel = () => {
     setTimePickerOpen(false);
-    setSettingsMenuOpen((open) => !open);
-  };
-
-  const openTaskAggressionMenu = () => {
-    setSettingsMenuOpen(false);
-    setTaskGapInput(String(taskGapMinutes));
-    setTaskAggressionMenuOpen(true);
+    setDayWheelOpen((open) => !open);
   };
 
   const packingConfigRef = useRef({
@@ -3346,35 +3403,19 @@ function App() {
   }, [moreMenuOpen]);
 
   useEffect(() => {
-    if (!settingsMenuOpen) return;
+    if (!dayWheelOpen) return;
 
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (settingsMenuRef.current?.contains(target)) return;
-      if (settingsButtonRef.current?.contains(target)) return;
-      if (taskAggressionMenuRef.current?.contains(target)) return;
-      setSettingsMenuOpen(false);
+      if (dayWheelMenuRef.current?.contains(target)) return;
+      if (dayWheelButtonRef.current?.contains(target)) return;
+      setDayWheelOpen(false);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [settingsMenuOpen]);
-
-  useEffect(() => {
-    if (!taskAggressionMenuOpen) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (taskAggressionMenuRef.current?.contains(target)) return;
-      if (settingsButtonRef.current?.contains(target)) return;
-      setTaskAggressionMenuOpen(false);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [taskAggressionMenuOpen]);
+  }, [dayWheelOpen]);
 
   useEffect(() => {
     if (!focusedTaskId && !focusedOverflowTaskIds?.length) return;
@@ -3424,6 +3465,22 @@ function App() {
   return (
     <div className="app">
       <main className="app-main" ref={mainRef}>
+        {activeView === "home" && (
+          <HomeView
+            wheelLabel={formatTwinelineDateLabel(todayStart, new Date(countdownNow))}
+            wheelSlices={todayWheelSlices}
+            wheelElapsedEndMin={nowMinutes}
+          />
+        )}
+        {activeView === "discover" && <DiscoverView />}
+        {activeView === "settings" && (
+          <SettingsView
+            taskGapInput={taskGapInput}
+            onTaskGapInputChange={setTaskGapInput}
+            onTaskGapCommit={commitTaskGapInput}
+            onTaskGapStep={stepTaskGap}
+          />
+        )}
         {activeView === "dayline" && (
           <div className="twineline-chrome" ref={twinelineChromeRef}>
             <div className="twineline-chrome-slot" ref={twinelineSlotRef} aria-hidden="true" />
@@ -3436,93 +3493,34 @@ function App() {
               <div className="twineline-countdown-bar">
                 <div className="twineline-settings-wrap">
                   <ComposerOverlayMenu
-                    open={settingsMenuOpen}
-                    anchorRef={settingsButtonRef}
-                    menuRef={settingsMenuRef}
-                    className="app-tray-more-menu twineline-settings-menu"
-                    aria-label="Settings"
-                  >
-                    <button
-                      type="button"
-                      className="app-attach-menu-item"
-                      role="menuitem"
-                      onClick={openTaskAggressionMenu}
-                    >
-                      <ClockIcon />
-                      <span>Task Aggression</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="app-attach-menu-item"
-                      role="menuitem"
-                      onClick={() => {
-                        setSettingsMenuOpen(false);
-                        selectView("settings");
-                      }}
-                    >
-                      <SETTINGS_OPTION.Icon />
-                      <span>{SETTINGS_OPTION.label}</span>
-                    </button>
-                  </ComposerOverlayMenu>
-                  <ComposerOverlayMenu
-                    open={taskAggressionMenuOpen}
-                    anchorRef={settingsButtonRef}
-                    menuRef={taskAggressionMenuRef}
-                    className="app-duration-menu twineline-task-aggression-menu"
+                    open={dayWheelOpen}
+                    anchorRef={dayWheelButtonRef}
+                    menuRef={dayWheelMenuRef}
+                    className="day-wheel-menu"
                     role="dialog"
-                    aria-label="Time Between Tasks"
+                    aria-label="Day task wheel"
                   >
-                    <p className="app-duration-title">Time Between Tasks</p>
-                    <div className="app-duration-divider" aria-hidden="true" />
-                    <div className="app-duration-stepper" role="group" aria-label="Minutes between tasks">
-                      <button
-                        type="button"
-                        className="app-duration-step"
-                        aria-label="Decrease by 5 minutes"
-                        onClick={() => stepTaskGap(-1)}
-                      >
-                        −
-                      </button>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        className="app-duration-input"
-                        value={taskGapInput}
-                        aria-label="Minutes between tasks"
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          if (next === "" || /^\d*$/.test(next)) setTaskGapInput(next);
-                        }}
-                        onBlur={() => commitTaskGapInput(taskGapInput)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            commitTaskGapInput(taskGapInput);
-                            (e.target as HTMLInputElement).blur();
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="app-duration-step"
-                        aria-label="Increase by 5 minutes"
-                        onClick={() => stepTaskGap(1)}
-                      >
-                        +
-                      </button>
-                    </div>
-                    <p className="twineline-task-aggression-unit">Minutes</p>
+                    <DayWheelChart
+                      label={formatTwinelineDateLabel(selectedDay, new Date(countdownNow))}
+                      slices={selectedDayWheelSlices}
+                      elapsedEndMin={
+                        selectedIsToday
+                          ? nowMinutes
+                          : selectedDay.getTime() < todayStart.getTime()
+                            ? MINUTES_PER_DAY
+                            : null
+                      }
+                    />
                   </ComposerOverlayMenu>
                   <button
-                    ref={settingsButtonRef}
+                    ref={dayWheelButtonRef}
                     type="button"
-                    className={`twineline-settings${settingsMenuOpen || taskAggressionMenuOpen ? " is-open" : ""}`}
-                    aria-label={SETTINGS_OPTION.label}
-                    aria-expanded={settingsMenuOpen || taskAggressionMenuOpen}
-                    onClick={openSettingsMenu}
+                    className={`twineline-settings${dayWheelOpen ? " is-open" : ""}`}
+                    aria-label="Day task wheel"
+                    aria-expanded={dayWheelOpen}
+                    onClick={openDayWheel}
                   >
-                    <SETTINGS_OPTION.Icon />
+                    <PieChartIcon />
                   </button>
                 </div>
                 {!timePickerOpen && (
@@ -3874,7 +3872,10 @@ function App() {
             </ul>
           </section>
         )}
-        {tasks.length === 0 ? (
+        {activeView !== "home" &&
+          activeView !== "discover" &&
+          activeView !== "settings" &&
+          (tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : tasksCompact ? (
           <div className="task-list is-compact">
@@ -4041,7 +4042,7 @@ function App() {
               );
             })}
           </div>
-        )}
+        ))}
       </main>
 
       {activeView === "dayline" && (
