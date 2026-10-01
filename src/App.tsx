@@ -483,6 +483,50 @@ function CycleIcon() {
   );
 }
 
+function ProgramsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect
+        x="4.5"
+        y="5"
+        width="15"
+        height="4.2"
+        rx="1.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <rect
+        x="4.5"
+        y="10.4"
+        width="15"
+        height="4.2"
+        rx="1.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <rect
+        x="4.5"
+        y="15.8"
+        width="15"
+        height="3.7"
+        rx="1.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M8 7.1h.01M8 12.5h.01M8 17.65h.01"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function ParentTaskIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -497,6 +541,29 @@ function ParentTaskIcon() {
       />
       <circle cx="8" cy="18.5" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <circle cx="16" cy="18.5" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function LinkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M10 13a5 5 0 0 0 7.54.54l1.92-1.92a5 5 0 0 0-7.07-7.07L11.2 5.7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14 11a5 5 0 0 0-7.54-.54L4.54 12.4a5 5 0 0 0 7.07 7.07L12.8 18.3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -841,9 +908,21 @@ function ComposeAddIcon({ Icon, showPlus = true }: { Icon: () => ReactElement; s
 
 const COMPOSE_KINDS = [
   {
+    id: "grouping",
+    label: "Grouping",
+    placeholder: "Name this grouping...",
+    Icon: ParentTaskIcon,
+  },
+  {
+    id: "program",
+    label: "Program",
+    placeholder: "Name this program...",
+    Icon: ProgramsIcon,
+  },
+  {
     id: "project",
-    label: "Outcome",
-    placeholder: "Describe the outcome of this project...",
+    label: "Project",
+    placeholder: "Name this project...",
     Icon: ListIcon,
   },
   {
@@ -876,45 +955,75 @@ const COMPOSE_KINDS = [
   },
 ] as const;
 
+/** Kept for view-specific compose; hidden from the compose-type menu. */
+const GROUPING_COMPOSE_KIND_IDS = ["program", "project", "routine", "list"] as const;
+type GroupingComposeKind = (typeof GROUPING_COMPOSE_KIND_IDS)[number];
+
+function isGroupingComposeKind(kind: string): kind is GroupingComposeKind {
+  return (GROUPING_COMPOSE_KIND_IDS as readonly string[]).includes(kind);
+}
+
+const LINK_ITEM_TYPE_ITEMS = [
+  { id: "task", label: "Task", Icon: TasksListIcon },
+  { id: "note", label: "Note", Icon: NotesIcon },
+  { id: "event", label: "Event", Icon: CalendarIcon },
+  { id: "item", label: "Item", Icon: ShoppingBagIcon },
+] as const;
+
+const LINK_GROUPING_TYPE_ITEMS = [
+  { id: "program", label: "Program", Icon: ProgramsIcon },
+  { id: "project", label: "Project", Icon: ListIcon },
+  { id: "routine", label: "Routine", Icon: CycleIcon },
+  { id: "list", label: "List", Icon: MenuBarsIcon },
+] as const;
+
+const COMPOSE_GROUPING_TYPE_ITEMS = [
+  { id: "routine", label: "Routine", Icon: CycleIcon },
+  { id: "project", label: "Project", Icon: ListIcon },
+  { id: "program", label: "Program", Icon: ProgramsIcon },
+  { id: "list", label: "List", Icon: MenuBarsIcon },
+] as const;
+
+const LINK_TYPE_PICKER_ITEMS = [...LINK_ITEM_TYPE_ITEMS, ...LINK_GROUPING_TYPE_ITEMS] as const;
+type LinkPickerType = (typeof LINK_TYPE_PICKER_ITEMS)[number]["id"];
+
+function isLinkPickerType(kind: string): kind is LinkPickerType {
+  return LINK_TYPE_PICKER_ITEMS.some((item) => item.id === kind);
+}
+
 /** Compose-type picker order (top → bottom). AI Assistant is rendered separately at the bottom. */
-const COMPOSE_KIND_MENU_ITEMS = COMPOSE_KINDS.filter((kind) => kind.id !== "assistant");
+const COMPOSE_KIND_MENU_ITEMS = COMPOSE_KINDS.filter(
+  (kind) => kind.id !== "assistant" && !isGroupingComposeKind(kind.id),
+);
 const ASSISTANT_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "assistant")!;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
 type LinkRelation = "parent" | "child";
 
-/** Hierarchy link tool — available on every non-assistant compose type. */
-const LINK_TOOL_COMPOSE_KINDS = COMPOSE_KIND_MENU_ITEMS.map((kind) => kind.id);
-type LinkToolComposeKind = (typeof LINK_TOOL_COMPOSE_KINDS)[number];
+/** Linking tool — available on every non-assistant compose type. */
+const GROUPING_TOOL_COMPOSE_KINDS = COMPOSE_KINDS.filter((kind) => kind.id !== "assistant").map(
+  (kind) => kind.id,
+);
+type GroupingToolComposeKind = (typeof GROUPING_TOOL_COMPOSE_KINDS)[number];
 
-function isLinkToolComposeKind(kind: ComposeKind): kind is LinkToolComposeKind {
-  return (LINK_TOOL_COMPOSE_KINDS as readonly string[]).includes(kind);
+function isGroupingToolComposeKind(kind: ComposeKind): kind is GroupingToolComposeKind {
+  return (GROUPING_TOOL_COMPOSE_KINDS as readonly string[]).includes(kind);
 }
 
-const LINK_TOOL_TITLE_BY_KIND: Record<LinkToolComposeKind, string> = {
-  project: "Link Outcome",
-  routine: "Link Routine",
-  list: "Link List",
-  event: "Link Event",
-  note: "Link Note",
-  item: "Link Item",
-  log: "Link Log",
-  task: "Link Task",
-};
-
-const LINK_TOOL_HINT = "Link";
+const GROUPING_TOOL_HINT = "Linking";
 
 const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
 const HOME_TAB = { id: "home", label: "Home", Icon: HomeIcon } as const;
 const DISCOVER_TAB = { id: "discover", label: "Discover", Icon: DiscoverIcon } as const;
 const NOTES_TAB = { id: "notes", label: "Notes", Icon: NotesIcon } as const;
 const ROUTINES_TAB = { id: "routines", label: "Routines", Icon: CycleIcon } as const;
+const PROGRAMS_TAB = { id: "programs", label: "Programs", Icon: ProgramsIcon } as const;
 
 const TRAY_TABS = [HOME_TAB, DISCOVER_TAB] as const;
 
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
-  { id: "projects", label: "Outcomes", Icon: ListIcon },
+  { id: "projects", label: "Projects", Icon: ListIcon },
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
   { id: "groceries", label: "Groceries", Icon: FoodIcon },
   { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
@@ -929,12 +1038,11 @@ const TEND_MENU_ITEMS = [
   { id: "settings", label: "Settings", Icon: SettingsIcon },
   { id: "profile", label: "Profile", Icon: ProfileIcon },
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
-  { id: "projects", label: "Outcomes", Icon: ListIcon },
+  { id: "projects", label: "Projects", Icon: ListIcon },
   ROUTINES_TAB,
+  PROGRAMS_TAB,
   NOTES_TAB,
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
-  { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
-  { id: "fitness", label: "Fitness", Icon: FitnessIcon },
 ] as const;
 
 const URGENCY_OPTIONS = ["Future", "Later", "Soon", "Now"] as const;
@@ -1064,11 +1172,10 @@ function CompactTaskRow({
   const durationLabel = formatTaskDurationLabel(task.est_duration);
   const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
   const resolvedParentTitle = normalizeOptionalField(parentTitle);
-  const hasMeta =
-    urgencyLabel != null ||
-    impactValue != null ||
-    durationLabel != null ||
-    scheduleLabel != null;
+  const hasMetaLeft =
+    urgencyLabel != null || impactValue != null || scheduleLabel != null;
+  const hasParent = resolvedParentTitle != null;
+  const hasDetails = hasMetaLeft || hasParent || durationLabel != null;
 
   return (
     <li
@@ -1087,46 +1194,54 @@ function CompactTaskRow({
         onClick={onEdit}
         aria-label={`Edit task ${task.title}`}
       >
-        <div className="task-row-heading">
-          <p className="task-row-title">{task.title}</p>
-          {resolvedParentTitle != null && (
-            <div className="task-row-parent">
-              <ParentTaskIcon />
-              <span className="task-row-parent-name">{resolvedParentTitle}</span>
-            </div>
-          )}
-        </div>
-        {hasMeta && (
-          <div className="task-row-meta">
-            <div className="task-row-meta-left">
-              {urgencyLabel != null && (
-                <span className="task-row-urgency">{urgencyLabel}</span>
+        <p className="task-row-title">{task.title}</p>
+        {hasDetails && (
+          <div className="task-row-details">
+            <div className="task-row-details-main">
+              {hasMetaLeft && (
+                <div className="task-row-meta">
+                  <div className="task-row-meta-left">
+                    {urgencyLabel != null && (
+                      <span className="task-row-urgency">{urgencyLabel}</span>
+                    )}
+                    {impactValue != null && impactPercent != null && (
+                      <span
+                        className="task-row-impact"
+                        role="img"
+                        aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
+                        title={`Impact ${impactValue}`}
+                      >
+                        <span className="task-row-impact-track" aria-hidden="true">
+                          <span
+                            className="task-row-impact-fill"
+                            style={{ width: `${impactPercent}%` }}
+                          />
+                        </span>
+                      </span>
+                    )}
+                    {scheduleLabel != null && (
+                      <span
+                        className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
+                      >
+                        {scheduleLabel}
+                      </span>
+                    )}
+                  </div>
+                </div>
               )}
-              {impactValue != null && impactPercent != null && (
-                <span
-                  className="task-row-impact"
-                  role="img"
-                  aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
-                  title={`Impact ${impactValue}`}
-                >
-                  <span className="task-row-impact-track" aria-hidden="true">
-                    <span
-                      className="task-row-impact-fill"
-                      style={{ width: `${impactPercent}%` }}
-                    />
-                  </span>
-                </span>
-              )}
-              {scheduleLabel != null && (
-                <span
-                  className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
-                >
-                  {scheduleLabel}
-                </span>
+              {hasParent && (
+                <div className="task-row-footer">
+                  <div className="task-row-parent">
+                    <LinkIcon />
+                    <span className="task-row-parent-name">{resolvedParentTitle}</span>
+                  </div>
+                </div>
               )}
             </div>
             {durationLabel != null && (
-              <span className="task-row-duration">{durationLabel}</span>
+              <div className="task-row-duration-slot">
+                <span className="task-row-duration">{durationLabel}</span>
+              </div>
             )}
           </div>
         )}
@@ -1135,7 +1250,7 @@ function CompactTaskRow({
   );
 }
 
-const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, NOTES_TAB, ROUTINES_TAB, ...MORE_OPTIONS] as const;
+const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, NOTES_TAB, ROUTINES_TAB, PROGRAMS_TAB, ...MORE_OPTIONS] as const;
 
 type ActiveView = (typeof NAV_ITEMS)[number]["id"];
 
@@ -1148,6 +1263,7 @@ const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   projects: "project",
   lists: "list",
   routines: "routine",
+  programs: "program",
   groceries: "item",
   nutrition: "item",
   fitness: "task",
@@ -1484,6 +1600,9 @@ function App() {
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
   const [linkRelation, setLinkRelation] = useState<LinkRelation>("parent");
   const [linkSearchQuery, setLinkSearchQuery] = useState("");
+  const [linkGroupingType, setLinkGroupingType] = useState<LinkPickerType>("task");
+  const [linkGroupingTypeMenuOpen, setLinkGroupingTypeMenuOpen] = useState(false);
+  const [linkSelectionReady, setLinkSelectionReady] = useState(false);
   const [pendingParentId, setPendingParentId] = useState<string | null>(null);
   const [pendingChildId, setPendingChildId] = useState<string | null>(null);
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
@@ -1494,6 +1613,9 @@ function App() {
   const [taskGapMinutes, setTaskGapMinutes] = useState(() => loadTaskGapMinutes());
   const [taskGapInput, setTaskGapInput] = useState(() => String(loadTaskGapMinutes()));
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
+  const [composeGroupingKind, setComposeGroupingKind] =
+    useState<GroupingComposeKind>("routine");
+  const [composeGroupingKindMenuOpen, setComposeGroupingKindMenuOpen] = useState(false);
   const aiEnabled = false;
   const [activeView, setActiveView] = useState<ActiveView>("dayline");
   const [trayCompact, setTrayCompact] = useState(false);
@@ -1591,6 +1713,8 @@ function App() {
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const composeKindMenuRef = useRef<HTMLDivElement>(null);
   const composeKindButtonRef = useRef<HTMLButtonElement>(null);
+  const composeGroupingKindButtonRef = useRef<HTMLButtonElement>(null);
+  const composeGroupingKindMenuRef = useRef<HTMLDivElement>(null);
   const composeAddButtonRef = useRef<HTMLButtonElement>(null);
   const durationMenuRef = useRef<HTMLDivElement>(null);
   const durationButtonRef = useRef<HTMLButtonElement>(null);
@@ -1611,6 +1735,8 @@ function App() {
     mode: "starts_at" | "due_at";
   }>({ date: null, starts_at: null, due_at: null, mode: "starts_at" });
   const parentTaskButtonRef = useRef<HTMLButtonElement>(null);
+  const linkGroupingTypeButtonRef = useRef<HTMLButtonElement>(null);
+  const linkGroupingTypeMenuRef = useRef<HTMLDivElement>(null);
   const urgencyButtonRef = useRef<HTMLButtonElement>(null);
   const impactButtonRef = useRef<HTMLButtonElement>(null);
   const cycleButtonRef = useRef<HTMLButtonElement>(null);
@@ -1627,6 +1753,23 @@ function App() {
   const selectedComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
   const SelectedComposeIcon = selectedComposeKind.Icon;
+  const isComposeGrouping =
+    composeKind === "grouping" || isGroupingComposeKind(composeKind);
+  const activeComposeGroupingKind: GroupingComposeKind = isGroupingComposeKind(composeKind)
+    ? composeKind
+    : composeGroupingKind;
+  const selectedComposeGroupingType =
+    COMPOSE_GROUPING_TYPE_ITEMS.find((item) => item.id === activeComposeGroupingKind) ??
+    COMPOSE_GROUPING_TYPE_ITEMS[0];
+  const SelectedComposeGroupingIcon = selectedComposeGroupingType.Icon;
+  const composePlaceholder = isComposeGrouping
+    ? (COMPOSE_KINDS.find((kind) => kind.id === activeComposeGroupingKind)?.placeholder ??
+      selectedComposeKind.placeholder)
+    : selectedComposeKind.placeholder;
+  const selectedLinkGroupingType =
+    LINK_TYPE_PICKER_ITEMS.find((item) => item.id === linkGroupingType) ??
+    LINK_TYPE_PICKER_ITEMS[0];
+  const SelectedLinkGroupingIcon = selectedLinkGroupingType.Icon;
   const fabComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === COMPOSE_KIND_BY_VIEW[activeView]) ?? COMPOSE_KINDS[0];
   const FabComposeIcon = fabComposeKind.Icon;
@@ -2120,6 +2263,8 @@ function App() {
       });
     },
     project: (_draft) => {},
+    program: (_draft) => {},
+    grouping: (_draft) => {},
     routine: (draft) => {
       setRoutines((current) => {
         if (!editingTaskId) return [draft, ...current];
@@ -2238,6 +2383,8 @@ function App() {
       setTaskStartsAt(schedule.starts_at ?? "");
       setTaskDueAt(schedule.due_at ?? "");
     }
+    setLinkGroupingTypeMenuOpen(false);
+    setLinkSelectionReady(false);
     setTaskToolHint(null);
   };
 
@@ -2259,9 +2406,12 @@ function App() {
     setImpactMenuOpen(false);
     setTaskToolHint((current) => {
       const next = current === title ? null : title;
-      if (next === LINK_TOOL_HINT) {
+      if (next === GROUPING_TOOL_HINT) {
         setLinkRelation("parent");
         setLinkSearchQuery("");
+        setLinkGroupingTypeMenuOpen(false);
+        setLinkSelectionReady(false);
+        setLinkGroupingType(isLinkPickerType(composeKind) ? composeKind : "task");
       }
       return next;
     });
@@ -2514,7 +2664,9 @@ function App() {
   const selectView = (id: ActiveView) => {
     setActiveView(id);
     if (!content.trim()) {
-      setComposeKind(COMPOSE_KIND_BY_VIEW[id]);
+      const nextKind = COMPOSE_KIND_BY_VIEW[id];
+      setComposeKind(nextKind);
+      if (isGroupingComposeKind(nextKind)) setComposeGroupingKind(nextKind);
     }
     setMoreMenuOpen(false);
   };
@@ -2575,7 +2727,7 @@ function App() {
     setTaskDueAt(schedule.due_at ?? "");
     const draft = buildComposerDraft({
       title: content,
-      type: composeKind,
+      type: composeKind === "grouping" ? composeGroupingKind : composeKind,
       est_duration: estDurationMinutes,
       urgency,
       impact,
@@ -2585,7 +2737,7 @@ function App() {
       recurring: composerRecurring,
     });
     if (draft) {
-      submitComposerDraft[composeKind](draft);
+      submitComposerDraft[composeKind === "grouping" ? composeGroupingKind : composeKind](draft);
       if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)) {
         setOverdueSectionOpen(true);
       }
@@ -2674,7 +2826,9 @@ function App() {
       resetComposerFields();
     }
     if (wasEditing || !content.trim()) {
-      setComposeKind(COMPOSE_KIND_BY_VIEW[activeView]);
+      const nextKind = COMPOSE_KIND_BY_VIEW[activeView];
+      setComposeKind(nextKind);
+      if (isGroupingComposeKind(nextKind)) setComposeGroupingKind(nextKind);
     }
     setSearchOpen(false);
     setSearchQuery("");
@@ -3182,7 +3336,7 @@ function App() {
   }, [collapsed]);
 
   useEffect(() => {
-    if (taskToolHint === LINK_TOOL_HINT && !isLinkToolComposeKind(composeKind)) {
+    if (taskToolHint === GROUPING_TOOL_HINT && !isGroupingToolComposeKind(composeKind)) {
       setTaskToolHint(null);
     }
   }, [composeKind, taskToolHint]);
@@ -3310,11 +3464,13 @@ function App() {
       if (composerRef.current?.contains(target)) return;
       if (attachMenuRef.current?.contains(target)) return;
       if (composeKindMenuRef.current?.contains(target)) return;
+      if (composeGroupingKindMenuRef.current?.contains(target)) return;
       if (durationMenuRef.current?.contains(target)) return;
       if (recurringMenuRef.current?.contains(target)) return;
       if (urgencyMenuRef.current?.contains(target)) return;
       if (impactMenuRef.current?.contains(target)) return;
       if (taskToolHintMenuRef.current?.contains(target)) return;
+      if (linkGroupingTypeMenuRef.current?.contains(target)) return;
 
       // Native date/time pickers render outside the popover; keep Date & Time open
       // while those inputs are focused so the selection can commit.
@@ -3419,6 +3575,36 @@ function App() {
   }, [composeKindMenuOpen]);
 
   useEffect(() => {
+    if (!composeGroupingKindMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (composeGroupingKindMenuRef.current?.contains(target)) return;
+      if (composeGroupingKindButtonRef.current?.contains(target)) return;
+      setComposeGroupingKindMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [composeGroupingKindMenuOpen]);
+
+  useEffect(() => {
+    if (!linkGroupingTypeMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (linkGroupingTypeMenuRef.current?.contains(target)) return;
+      if (linkGroupingTypeButtonRef.current?.contains(target)) return;
+      setLinkGroupingTypeMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [linkGroupingTypeMenuOpen]);
+
+  useEffect(() => {
     if (!durationMenuOpen) return;
 
     const onPointerDown = (event: PointerEvent) => {
@@ -3486,6 +3672,8 @@ function App() {
       if (!(target instanceof Node)) return;
       if (taskToolHintMenuRef.current?.contains(target)) return;
       if (taskToolHintAnchorRef.current?.contains(target)) return;
+      if (linkGroupingTypeMenuRef.current?.contains(target)) return;
+      if (linkGroupingTypeButtonRef.current?.contains(target)) return;
       if (taskToolHint === "Date & Time") {
         const active = document.activeElement;
         if (
@@ -3622,6 +3810,15 @@ function App() {
               />
             )}
           />
+        )}
+        {activeView === "programs" && (
+          <div className="routines-view">
+            <header className="routines-header">
+              <h1 className="routines-title">Programs</h1>
+              <p className="routines-subtitle">Structured programs and their steps</p>
+            </header>
+            <p className="routines-empty">No programs yet.</p>
+          </div>
         )}
         {activeView === "dayline" && (
           <div className="twineline-chrome" ref={twinelineChromeRef}>
@@ -4019,6 +4216,7 @@ function App() {
           activeView !== "discover" &&
           activeView !== "settings" &&
           activeView !== "routines" &&
+          activeView !== "programs" &&
           (tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : tasksCompact ? (
@@ -4276,7 +4474,7 @@ function App() {
           setTaskDueAt(schedule.due_at ?? "");
           const draft = buildComposerDraft({
             title: content,
-            type: composeKind,
+            type: composeKind === "grouping" ? composeGroupingKind : composeKind,
             est_duration: estDurationMinutes,
             urgency,
             impact,
@@ -4287,7 +4485,7 @@ function App() {
           });
           if (!draft) return;
           const wasEditing = editingTaskId != null;
-          submitComposerDraft[composeKind](draft);
+          submitComposerDraft[composeKind === "grouping" ? composeGroupingKind : composeKind](draft);
           if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)) {
             setOverdueSectionOpen(true);
           }
@@ -4522,7 +4720,7 @@ function App() {
                   e.preventDefault();
                   e.currentTarget.form?.requestSubmit();
                 }}
-                placeholder={selectedComposeKind.placeholder}
+                placeholder={composePlaceholder}
                 enterKeyHint="send"
                 autoComplete="off"
                 tabIndex={collapsed ? -1 : 0}
@@ -4637,13 +4835,13 @@ function App() {
                   open={taskToolHint != null}
                   anchorRef={taskToolHintAnchorRef}
                   menuRef={taskToolHintMenuRef}
-                  matchWidthRef={taskToolHint === LINK_TOOL_HINT ? composerFieldRef : undefined}
+                  matchWidthRef={taskToolHint === GROUPING_TOOL_HINT ? composerFieldRef : undefined}
                   role={taskToolHint === "Date & Time" ? "dialog" : "menu"}
                   className={`app-composer-tool-hint${
                     taskToolHint === "Date & Time"
                       ? " is-due-date"
-                      : taskToolHint === LINK_TOOL_HINT
-                        ? " is-link"
+                      : taskToolHint === GROUPING_TOOL_HINT
+                        ? " is-linking"
                         : ""
                   }`}
                   aria-label={taskToolHint ?? "Tool info"}
@@ -4742,12 +4940,8 @@ function App() {
                         </button>
                       </div>
                     </>
-                  ) : taskToolHint === LINK_TOOL_HINT && isLinkToolComposeKind(composeKind) ? (
+                  ) : taskToolHint === GROUPING_TOOL_HINT && isGroupingToolComposeKind(composeKind) ? (
                     <>
-                      <p className="app-composer-tool-hint-title">
-                        {LINK_TOOL_TITLE_BY_KIND[composeKind]}
-                      </p>
-                      <div className="app-duration-divider" aria-hidden="true" />
                       <label className="app-composer-link-search">
                         <span className="app-composer-link-search-label">Search</span>
                         <input
@@ -4761,51 +4955,57 @@ function App() {
                       </label>
                       <div className="app-composer-link-list" role="listbox" aria-label="Link targets">
                         {(() => {
-                          const linkItems =
-                            composeKind === "task" && linkRelation === "parent"
-                              ? [
-                                  ...routines
-                                    .filter((routine) => routine.id)
-                                    .map((routine) => ({
-                                      id: routine.id as string,
-                                      label: routine.title,
-                                      kindLabel: "Routine",
-                                    })),
-                                  ...tasks
-                                    .filter((task) => task.id)
-                                    .map((task) => ({
-                                      id: task.id as string,
-                                      label: task.title,
-                                      kindLabel: "Task",
-                                    })),
-                                ]
-                              : composeKind === "routine" && linkRelation === "child"
-                                ? tasks
-                                    .filter((task) => task.id)
-                                    .map((task) => ({
-                                      id: task.id as string,
-                                      label: task.title,
-                                      kindLabel: "Task",
-                                    }))
-                                : tasks
-                                    .filter((task) => task.id)
-                                    .map((task) => ({
-                                      id: task.id as string,
-                                      label: task.title,
-                                      kindLabel: "Task",
-                                    }));
-                          if (linkItems.length === 0) {
+                          type LinkItem = { id: string; label: string; kindLabel: string };
+                          const linkItems: LinkItem[] = [];
+                          if (linkGroupingType === "routine") {
+                            for (const routine of routines) {
+                              if (!routine.id) continue;
+                              linkItems.push({
+                                id: routine.id,
+                                label: routine.title,
+                                kindLabel: "Routine",
+                              });
+                            }
+                          } else if (
+                            linkGroupingType === "task" ||
+                            linkGroupingType === "note" ||
+                            linkGroupingType === "event" ||
+                            linkGroupingType === "item"
+                          ) {
+                            for (const task of tasks) {
+                              if (!task.id) continue;
+                              if (linkGroupingType === "task") {
+                                if (task.type != null && task.type !== "task") continue;
+                              } else if (task.type !== linkGroupingType) {
+                                continue;
+                              }
+                              linkItems.push({
+                                id: task.id,
+                                label: task.title,
+                                kindLabel: selectedLinkGroupingType.label,
+                              });
+                            }
+                          }
+                          const query = linkSearchQuery.trim().toLowerCase();
+                          const filteredItems =
+                            query.length === 0
+                              ? linkItems
+                              : linkItems.filter((item) =>
+                                  item.label.toLowerCase().includes(query),
+                                );
+                          if (filteredItems.length === 0) {
+                            const emptyKind = selectedLinkGroupingType.label.toLowerCase();
                             return (
                               <p className="app-composer-tool-hint-empty">
-                                {composeKind === "task" && linkRelation === "parent"
-                                  ? "No routines or tasks yet"
-                                  : "No tasks yet"}
+                                {linkItems.length === 0
+                                  ? `No ${emptyKind}${emptyKind.endsWith("s") ? "" : "s"} yet`
+                                  : "No matches"}
                               </p>
                             );
                           }
-                          return linkItems.map((item) => (
+                          return filteredItems.map((item) => (
                             <button
-                              key={item.id}
+                              key={`${item.kindLabel}:${item.id}`}
                               type="button"
                               className={`app-attach-menu-item${
                                 (linkRelation === "parent" && pendingParentId === item.id) ||
@@ -4820,49 +5020,137 @@ function App() {
                               }
                               onClick={() => {
                                 if (linkRelation === "parent") {
-                                  setPendingParentId((current) =>
-                                    current === item.id ? null : item.id,
-                                  );
+                                  setPendingParentId((current) => {
+                                    const next = current === item.id ? null : item.id;
+                                    setLinkSelectionReady(next != null);
+                                    return next;
+                                  });
                                   setPendingChildId(null);
                                 } else {
-                                  setPendingChildId((current) =>
-                                    current === item.id ? null : item.id,
-                                  );
+                                  setPendingChildId((current) => {
+                                    const next = current === item.id ? null : item.id;
+                                    setLinkSelectionReady(next != null);
+                                    return next;
+                                  });
                                   setPendingParentId(null);
                                 }
-                                closeTaskToolHint();
                               }}
                             >
-                              <span>{item.label || "Untitled"}</span>
+                              <span className="app-composer-link-item-label">{item.label || "Untitled"}</span>
                               <span className="app-composer-link-item-kind">{item.kindLabel}</span>
                             </button>
                           ));
                         })()}
                       </div>
                       <div className="app-duration-divider" aria-hidden="true" />
-                      <div
-                        className="app-composer-link-toggle"
-                        role="group"
-                        aria-label="Link as parent or child"
-                      >
-                        <button
-                          type="button"
-                          className={`app-composer-link-toggle-option${linkRelation === "parent" ? " is-active" : ""}`}
-                          aria-pressed={linkRelation === "parent"}
-                          onClick={() => setLinkRelation("parent")}
+                      <div className="app-composer-link-footer">
+                        <div
+                          className="app-composer-link-toggle"
+                          role="group"
+                          aria-label="Link as parent or child"
                         >
-                          <ParentTaskIcon />
-                          <span>Parent</span>
-                        </button>
-                        <button
-                          type="button"
-                          className={`app-composer-link-toggle-option${linkRelation === "child" ? " is-active" : ""}`}
-                          aria-pressed={linkRelation === "child"}
-                          onClick={() => setLinkRelation("child")}
-                        >
-                          <ChildBranchIcon />
-                          <span>Child</span>
-                        </button>
+                          <button
+                            type="button"
+                            className={`app-composer-link-toggle-option${linkRelation === "parent" ? " is-active" : ""}`}
+                            aria-pressed={linkRelation === "parent"}
+                            onClick={() => {
+                              setLinkRelation("parent");
+                              setLinkSelectionReady(false);
+                            }}
+                          >
+                            <ParentTaskIcon />
+                            <span>Parent</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`app-composer-link-toggle-option${linkRelation === "child" ? " is-active" : ""}`}
+                            aria-pressed={linkRelation === "child"}
+                            onClick={() => {
+                              setLinkRelation("child");
+                              setLinkSelectionReady(false);
+                            }}
+                          >
+                            <ChildBranchIcon />
+                            <span>Child</span>
+                          </button>
+                        </div>
+                        <div className="app-composer-link-type-row">
+                          <span className="app-composer-link-type-lead">Link to a...</span>
+                          <div className="app-compose-action app-composer-link-type-picker">
+                          <ComposerOverlayMenu
+                            open={linkGroupingTypeMenuOpen}
+                            anchorRef={linkGroupingTypeButtonRef}
+                            menuRef={linkGroupingTypeMenuRef}
+                            align="end"
+                            className="app-compose-kind-menu"
+                            aria-label="Link type"
+                          >
+                            {LINK_ITEM_TYPE_ITEMS.map(({ id, label, Icon }) => (
+                              <button
+                                key={id}
+                                type="button"
+                                className={`app-attach-menu-item${linkGroupingType === id ? " is-selected" : ""}`}
+                                role="menuitem"
+                                onClick={() => {
+                                  setLinkGroupingType(id);
+                                  setLinkSelectionReady(false);
+                                  setLinkGroupingTypeMenuOpen(false);
+                                }}
+                              >
+                                <Icon />
+                                <span>{label}</span>
+                              </button>
+                            ))}
+                            <div className="app-compose-kind-menu-divider" role="separator" />
+                            {LINK_GROUPING_TYPE_ITEMS.map(({ id, label, Icon }) => (
+                              <button
+                                key={id}
+                                type="button"
+                                className={`app-attach-menu-item${linkGroupingType === id ? " is-selected" : ""}`}
+                                role="menuitem"
+                                onClick={() => {
+                                  setLinkGroupingType(id);
+                                  setLinkSelectionReady(false);
+                                  setLinkGroupingTypeMenuOpen(false);
+                                }}
+                              >
+                                <Icon />
+                                <span>{label}</span>
+                              </button>
+                            ))}
+                          </ComposerOverlayMenu>
+                          <button
+                            ref={linkGroupingTypeButtonRef}
+                            type="button"
+                            className="app-compose-kind-button"
+                            aria-label="Choose link type"
+                            aria-expanded={linkGroupingTypeMenuOpen}
+                            onClick={() => setLinkGroupingTypeMenuOpen((open) => !open)}
+                          >
+                            <span>{selectedLinkGroupingType.label}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className={`app-composer-icon app-composer-add${linkSelectionReady ? " is-ready" : ""}`}
+                            aria-label={linkSelectionReady ? "Confirm link" : "Choose link type"}
+                            aria-expanded={linkSelectionReady ? undefined : linkGroupingTypeMenuOpen}
+                            onClick={() => {
+                              if (linkSelectionReady) {
+                                setLinkSelectionReady(false);
+                                closeTaskToolHint();
+                                return;
+                              }
+                              setLinkGroupingTypeMenuOpen((open) => !open);
+                            }}
+                          >
+                            {linkSelectionReady ? (
+                              <LinkIcon />
+                            ) : (
+                              <ComposeAddIcon Icon={SelectedLinkGroupingIcon} showPlus={false} />
+                            )}
+                          </button>
+                        </div>
+                        </div>
                       </div>
                     </>
                   ) : (
@@ -4874,7 +5162,7 @@ function App() {
                     <NotesIcon />
                   </button>
                 )}
-                {composeKind === "project" && (
+                {(composeKind === "project" || isComposeGrouping) && (
                     <button
                     ref={dueDateButtonRef}
                     type="button"
@@ -4887,20 +5175,20 @@ function App() {
                     <CalendarIcon />
                   </button>
                 )}
-                {isLinkToolComposeKind(composeKind) && (
+                {isGroupingToolComposeKind(composeKind) && (
                   <button
                     ref={parentTaskButtonRef}
                     type="button"
-                    className={`app-composer-tool app-composer-tool-link${
+                    className={`app-composer-tool app-composer-tool-linking${
                       pendingParentId != null || pendingChildId != null ? " is-activated" : ""
-                    }${taskToolHint === LINK_TOOL_HINT ? " is-open" : ""}`}
-                    aria-label={LINK_TOOL_TITLE_BY_KIND[composeKind]}
-                    aria-expanded={taskToolHint === LINK_TOOL_HINT}
+                    }${taskToolHint === GROUPING_TOOL_HINT ? " is-open" : ""}`}
+                    aria-label="Linking"
+                    aria-expanded={taskToolHint === GROUPING_TOOL_HINT}
                     aria-pressed={pendingParentId != null || pendingChildId != null}
                     tabIndex={collapsed ? -1 : 0}
-                    onClick={(event) => openTaskToolHint(event.currentTarget, LINK_TOOL_HINT)}
+                    onClick={(event) => openTaskToolHint(event.currentTarget, GROUPING_TOOL_HINT)}
                   >
-                    <ParentTaskIcon />
+                    <LinkIcon />
                   </button>
                 )}
                 {composeKind === "task" && (
@@ -5231,6 +5519,77 @@ function App() {
                 )}
                 </div>
               </div>
+              <div className="app-compose-action-row">
+                {isComposeGrouping && (
+                  <div className="app-compose-action app-compose-grouping-type">
+                    <ComposerOverlayMenu
+                      open={composeGroupingKindMenuOpen}
+                      anchorRef={composeGroupingKindButtonRef}
+                      menuRef={composeGroupingKindMenuRef}
+                      align="end"
+                      className="app-compose-kind-menu"
+                      aria-label="Grouping type"
+                    >
+                      {COMPOSE_GROUPING_TYPE_ITEMS.map(({ id, label, Icon }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`app-attach-menu-item${activeComposeGroupingKind === id ? " is-selected" : ""}`}
+                          role="menuitem"
+                          onClick={() => {
+                            setComposeGroupingKind(id);
+                            if (composeKind === "grouping") {
+                              // stay on grouping compose kind
+                            } else {
+                              setComposeKind(id);
+                            }
+                            setComposeGroupingKindMenuOpen(false);
+                          }}
+                        >
+                          <Icon />
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </ComposerOverlayMenu>
+                    <button
+                      ref={composeGroupingKindButtonRef}
+                      type="button"
+                      className="app-compose-kind-button"
+                      aria-label="Choose grouping type"
+                      aria-expanded={composeGroupingKindMenuOpen}
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        setComposeKindMenuOpen(false);
+                        setDurationMenuOpen(false);
+                        setUrgencyMenuOpen(false);
+                        setImpactMenuOpen(false);
+                        closeTaskToolHint();
+                        setComposeGroupingKindMenuOpen((open) => !open);
+                      }}
+                      tabIndex={collapsed ? -1 : 0}
+                    >
+                      <span>{selectedComposeGroupingType.label}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="app-composer-icon app-composer-add"
+                      aria-label="Choose grouping type"
+                      aria-expanded={composeGroupingKindMenuOpen}
+                      onClick={() => {
+                        setAttachMenuOpen(false);
+                        setComposeKindMenuOpen(false);
+                        setDurationMenuOpen(false);
+                        setUrgencyMenuOpen(false);
+                        setImpactMenuOpen(false);
+                        closeTaskToolHint();
+                        setComposeGroupingKindMenuOpen((open) => !open);
+                      }}
+                      tabIndex={collapsed ? -1 : 0}
+                    >
+                      <ComposeAddIcon Icon={SelectedComposeGroupingIcon} showPlus={false} />
+                    </button>
+                  </div>
+                )}
               <div className="app-compose-action">
                 <ComposerOverlayMenu
                   open={composeKindMenuOpen}
@@ -5244,11 +5603,19 @@ function App() {
                     <Fragment key={id}>
                       <button
                         type="button"
-                        className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
+                        className={`app-attach-menu-item${
+                          composeKind === id || (id === "grouping" && isComposeGrouping)
+                            ? " is-selected"
+                            : ""
+                        }`}
                         role="menuitem"
                         onClick={() => {
                           setComposeKind(id);
+                          if (id === "grouping" && isGroupingComposeKind(composeKind)) {
+                            setComposeGroupingKind(composeKind);
+                          }
                           setComposeKindMenuOpen(false);
+                          setComposeGroupingKindMenuOpen(false);
                         }}
                       >
                         <span
@@ -5260,7 +5627,7 @@ function App() {
                         <Icon />
                         <span>{label}</span>
                       </button>
-                      {id === "list" && (
+                      {id === "grouping" && (
                         <div className="app-compose-kind-menu-divider" role="separator" />
                       )}
                     </Fragment>
@@ -5273,6 +5640,7 @@ function App() {
                     onClick={() => {
                       setComposeKind("assistant");
                       setComposeKindMenuOpen(false);
+                      setComposeGroupingKindMenuOpen(false);
                     }}
                   >
                     <ASSISTANT_COMPOSE_KIND.Icon />
@@ -5291,11 +5659,18 @@ function App() {
                     setUrgencyMenuOpen(false);
                     setImpactMenuOpen(false);
                     closeTaskToolHint();
+                    setComposeGroupingKindMenuOpen(false);
                     setComposeKindMenuOpen((open) => !open);
                   }}
                   tabIndex={collapsed ? -1 : 0}
                 >
-                  <span>{composeKind === "assistant" ? "Assist" : selectedComposeKind.label}</span>
+                  <span>
+                    {composeKind === "assistant"
+                      ? "Assist"
+                      : isComposeGrouping
+                        ? "Grouping"
+                        : selectedComposeKind.label}
+                  </span>
                 </button>
                 <button
                   ref={composeAddButtonRef}
@@ -5330,9 +5705,13 @@ function App() {
                       <SendIcon />
                     )
                   ) : (
-                    <ComposeAddIcon Icon={SelectedComposeIcon} showPlus={composeKind !== "assistant"} />
+                    <ComposeAddIcon
+                      Icon={isComposeGrouping ? ParentTaskIcon : SelectedComposeIcon}
+                      showPlus={composeKind !== "assistant"}
+                    />
                   )}
                 </button>
+              </div>
               </div>
             </div>
           </div>
