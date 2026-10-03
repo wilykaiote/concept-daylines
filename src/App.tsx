@@ -262,21 +262,6 @@ function PlusIcon() {
   );
 }
 
-function TinyArrowRightIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M9 6l6 6-6 6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1753,7 +1738,6 @@ function App() {
   const [linkSearchQuery, setLinkSearchQuery] = useState("");
   const [linkGroupingType, setLinkGroupingType] = useState<LinkPickerType>("all");
   const [linkGroupingTypeMenuOpen, setLinkGroupingTypeMenuOpen] = useState(false);
-  const [linkSelectionReady, setLinkSelectionReady] = useState(false);
   const [linkQuickAddOpen, setLinkQuickAddOpen] = useState(false);
   const [linkQuickAddTitle, setLinkQuickAddTitle] = useState("");
   const [linkQuickAddKind, setLinkQuickAddKind] = useState<GroupingComposeKind>("routine");
@@ -2523,7 +2507,6 @@ function App() {
       setPendingChildId(draft.id);
       setPendingParentId(null);
     }
-    setLinkSelectionReady(true);
     setLinkPrecedence(null);
     setLinkQuickAddOpen(false);
     resetLinkQuickAddFields();
@@ -2624,7 +2607,6 @@ function App() {
       setTaskDueAt(schedule.due_at ?? "");
     }
     setLinkGroupingTypeMenuOpen(false);
-    setLinkSelectionReady(false);
     setTaskToolHint(null);
   };
 
@@ -2650,7 +2632,6 @@ function App() {
         setLinkRelation("child");
         setLinkSearchQuery("");
         setLinkGroupingTypeMenuOpen(false);
-        setLinkSelectionReady(false);
         setLinkGroupingType(defaultLinkPickerType(composeKind));
         setLinkQuickAddOpen(false);
         resetLinkQuickAddFields();
@@ -5799,7 +5780,6 @@ function App() {
                                 if (linkRelation === "parent") {
                                   setPendingParentId((current) => {
                                     const next = current === item.id ? null : item.id;
-                                    setLinkSelectionReady(next != null);
                                     if (next == null || !isProgram) setLinkPrecedence(null);
                                     return next;
                                   });
@@ -5807,7 +5787,6 @@ function App() {
                                 } else {
                                   setPendingChildId((current) => {
                                     const next = current === item.id ? null : item.id;
-                                    setLinkSelectionReady(next != null);
                                     if (next == null || !isProgram) setLinkPrecedence(null);
                                     return next;
                                   });
@@ -5851,7 +5830,6 @@ function App() {
                                 role="menuitem"
                                 onClick={() => {
                                   setLinkGroupingType(id);
-                                  setLinkSelectionReady(false);
                                   setLinkGroupingTypeMenuOpen(false);
                                 }}
                               >
@@ -5868,7 +5846,6 @@ function App() {
                                 role="menuitem"
                                 onClick={() => {
                                   setLinkGroupingType(id);
-                                  setLinkSelectionReady(false);
                                   setLinkGroupingTypeMenuOpen(false);
                                 }}
                               >
@@ -5883,7 +5860,6 @@ function App() {
                               role="menuitem"
                               onClick={() => {
                                 setLinkGroupingType("all");
-                                setLinkSelectionReady(false);
                                 setLinkGroupingTypeMenuOpen(false);
                               }}
                             >
@@ -5917,7 +5893,6 @@ function App() {
                             aria-pressed={linkRelation === "parent"}
                             onClick={() => {
                               setLinkRelation("parent");
-                              setLinkSelectionReady(false);
                               setLinkPrecedence(null);
                               setLinkPrecedenceMenuOpen(false);
                             }}
@@ -5931,7 +5906,6 @@ function App() {
                             aria-pressed={linkRelation === "child"}
                             onClick={() => {
                               setLinkRelation("child");
-                              setLinkSelectionReady(false);
                               setLinkPrecedence(null);
                               setLinkPrecedenceMenuOpen(false);
                             }}
