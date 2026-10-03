@@ -6,6 +6,7 @@ export type DayWheelSlice = {
   startMin: number;
   endMin: number;
   kind: "anchored" | "soft";
+  overdue?: boolean;
 };
 
 function polar(cx: number, cy: number, r: number, angleDeg: number) {
@@ -80,6 +81,7 @@ export function DayWheelChart({
   compact = false,
 }: DayWheelChartProps) {
   const size = 260;
+  const pad = 16;
   const cx = size / 2;
   const cy = size / 2;
   const rOuter = 112;
@@ -104,7 +106,7 @@ export function DayWheelChart({
       {showLabel && <p className="day-wheel-label">{label}</p>}
       <svg
         className="day-wheel-svg"
-        viewBox={`0 0 ${size} ${size}`}
+        viewBox={`${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`}
         role="img"
         aria-label={`24-hour task wheel for ${label}`}
       >
@@ -160,15 +162,15 @@ export function DayWheelChart({
         ))}
         {slices.map((slice) => {
           const fullyPast =
-            elapsed != null && slice.endMin <= elapsed;
+            elapsed != null && slice.endMin <= elapsed && !slice.overdue;
           return (
             <path
               key={slice.key}
               d={donutSegment(cx, cy, rOuter, rInner, slice.startMin, slice.endMin)}
-              className={`day-wheel-slice is-${slice.kind}${fullyPast ? " is-past" : ""}`}
+              className={`day-wheel-slice is-${slice.kind}${slice.overdue ? " is-overdue" : ""}${fullyPast ? " is-past" : ""}`}
             >
               <title>
-                {slice.title} · {slice.kind}
+                {slice.title} · {slice.overdue ? "overdue" : slice.kind}
               </title>
             </path>
           );

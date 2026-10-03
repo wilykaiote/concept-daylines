@@ -88,6 +88,73 @@ function isAnchoredTask(task: ComposerDraft): boolean {
   return parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null;
 }
 
+function taskDurationMinutesForWheel(task: ComposerDraft): number {
+  const raw = task.est_duration;
+  if (raw == null || !Number.isFinite(raw) || raw <= 0) return 15;
+  return Math.max(1, Math.round(raw));
+}
+
+function buildDayWheelSlices(
+  blocks: Array<{
+    key: string;
+    title: string;
+    startMin: number;
+    endMin: number;
+    overdue: boolean;
+    task: ComposerDraft;
+    taskId: string | null;
+  }>,
+  extraOverdueTasks: ComposerDraft[] = [],
+): DayWheelSlice[] {
+  const slices: DayWheelSlice[] = [];
+  const seen = new Set<string>();
+
+  for (const block of blocks) {
+    if (block.taskId) seen.add(block.taskId);
+    slices.push({
+      key: block.key,
+      title: block.title,
+      startMin: block.startMin,
+      endMin: block.endMin,
+      kind: isAnchoredTask(block.task) ? "anchored" : "soft",
+      overdue: block.overdue,
+    });
+  }
+
+  let undatedCursor = 0;
+  for (const task of extraOverdueTasks) {
+    if (task.id && seen.has(task.id)) continue;
+    if (task.id) seen.add(task.id);
+    const duration = taskDurationMinutesForWheel(task);
+    const starts = parseTimeOfDay(task.starts_at);
+    const due = parseTimeOfDay(task.due_at);
+    let startMin: number;
+    let endMin: number;
+    if (starts != null) {
+      startMin = starts;
+      endMin = Math.min(MINUTES_PER_DAY, starts + duration);
+    } else if (due != null) {
+      endMin = due;
+      startMin = Math.max(0, due - duration);
+    } else {
+      startMin = undatedCursor;
+      endMin = Math.min(MINUTES_PER_DAY, startMin + duration);
+      undatedCursor = endMin;
+    }
+    if (endMin <= startMin) endMin = Math.min(MINUTES_PER_DAY, startMin + 1);
+    slices.push({
+      key: `overdue-${task.id ?? task.title}`,
+      title: task.title,
+      startMin,
+      endMin,
+      kind: isAnchoredTask(task) ? "anchored" : "soft",
+      overdue: true,
+    });
+  }
+
+  return slices;
+}
+
 function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1011,6 +1078,7 @@ function isGroupingToolComposeKind(kind: ComposeKind): kind is GroupingToolCompo
 }
 
 const GROUPING_TOOL_HINT = "Linking";
+const TASK_POP_MS = 420;
 
 const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
 const HOME_TAB = { id: "home", label: "Home", Icon: HomeIcon } as const;
@@ -1148,6 +1216,7 @@ function CompactTaskRow({
   overdue,
   editing,
   highlighted,
+  popping,
   now,
   parentTitle,
   onComplete,
@@ -1157,6 +1226,7 @@ function CompactTaskRow({
   overdue: boolean;
   editing: boolean;
   highlighted: boolean;
+  popping?: boolean;
   now: Date;
   parentTitle?: string | null;
   onComplete: () => void;
@@ -1180,12 +1250,13 @@ function CompactTaskRow({
   return (
     <li
       data-task-id={task.id ?? undefined}
-      className={`task-row${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}`}
+      className={`task-row${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
     >
       <button
         type="button"
         className="task-complete"
         aria-label="Mark complete"
+        disabled={popping}
         onClick={onComplete}
       />
       <button
@@ -1632,6 +1703,7 @@ function App() {
     return rest;
   });
   const [routines, setRoutines] = useState<ComposerDraft[]>(() => loadRoutines());
+  const [poppingTaskIds, setPoppingTaskIds] = useState<string[]>([]);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTaskBaseline, setEditTaskBaseline] = useState<{
     title: string;
@@ -1659,6 +1731,7 @@ function App() {
   const [selectedDay, setSelectedDay] = useState(() => toStartOfDay(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [overdueSectionOpen, setOverdueSectionOpen] = useState(true);
+  const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [timePickerBaseline, setTimePickerBaseline] = useState<{
     target: string;
@@ -1847,21 +1920,17 @@ function App() {
     endMin: block.endMin,
     task: block.task,
   }));
-  const selectedDayWheelSlices: DayWheelSlice[] = (selectedDayLayout?.blocks ?? []).map((block) => ({
-    key: block.key,
-    title: block.title,
-    startMin: block.startMin,
-    endMin: block.endMin,
-    kind: isAnchoredTask(block.task) ? "anchored" : "soft",
-  }));
+  const selectedDayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
+    selectedDayLayout?.blocks ?? [],
+    selectedIsToday ? overdueTasks : [],
+  );
   const todayLayout = calendarLayoutByKey.get(dayKey(todayStart));
-  const todayWheelSlices: DayWheelSlice[] = (todayLayout?.blocks ?? []).map((block) => ({
-    key: block.key,
-    title: block.title,
-    startMin: block.startMin,
-    endMin: block.endMin,
-    kind: isAnchoredTask(block.task) ? "anchored" : "soft",
-  }));
+  const todayFocusTask =
+    todayLayout?.blocks.find((block) => !block.overdue)?.task ?? null;
+  const todayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
+    todayLayout?.blocks ?? [],
+    overdueTasks,
+  );
   const appliedTodayBegins = resolveWindowStartTime(
     todayStart,
     defaultWindowStartTime,
@@ -2469,6 +2538,21 @@ function App() {
       });
     }
   };
+
+  const requestCompleteTask = (id: string | null) => {
+    if (!id) return;
+    setPoppingTaskIds((current) => {
+      if (current.includes(id)) return current;
+      return [...current, id];
+    });
+    window.setTimeout(() => {
+      completeTask(id);
+      setPoppingTaskIds((current) => current.filter((taskId) => taskId !== id));
+    }, TASK_POP_MS);
+  };
+
+  const isTaskPopping = (id: string | null | undefined) =>
+    id != null && poppingTaskIds.includes(id);
 
   const editTask = (task: ComposerDraft) => {
     if (!task.id) return;
@@ -3775,6 +3859,50 @@ function App() {
             wheelLabel={formatTwinelineDateLabel(todayStart, new Date(countdownNow))}
             wheelSlices={todayWheelSlices}
             wheelElapsedEndMin={nowMinutes}
+            focusTask={todayFocusTask}
+            renderFocusTask={(task) => (
+              <CompactTaskRow
+                key={task.id ?? task.title}
+                task={task}
+                overdue={false}
+                editing={editingTaskId === task.id}
+                highlighted={isTaskHighlighted(task.id)}
+                popping={isTaskPopping(task.id)}
+                now={new Date(countdownNow)}
+                parentTitle={parentTitleFor(task.parent_id)}
+                onComplete={() => requestCompleteTask(task.id)}
+                onEdit={() => {
+                  if (task.id) {
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                  }
+                  editTask(task);
+                }}
+              />
+            )}
+            overdueTasks={overdueTasks}
+            overdueOpen={homeOverdueSectionOpen}
+            onOverdueToggle={() => setHomeOverdueSectionOpen((open) => !open)}
+            renderOverdueTask={(task) => (
+              <CompactTaskRow
+                key={task.id ?? task.title}
+                task={task}
+                overdue
+                editing={editingTaskId === task.id}
+                highlighted={isTaskHighlighted(task.id)}
+                popping={isTaskPopping(task.id)}
+                now={new Date(countdownNow)}
+                parentTitle={parentTitleFor(task.parent_id)}
+                onComplete={() => requestCompleteTask(task.id)}
+                onEdit={() => {
+                  if (task.id) {
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                  }
+                  editTask(task);
+                }}
+              />
+            )}
           />
         )}
         {activeView === "discover" && <DiscoverView />}
@@ -3797,9 +3925,10 @@ function App() {
                 overdue={false}
                 editing={editingTaskId === task.id}
                 highlighted={isTaskHighlighted(task.id)}
+                popping={isTaskPopping(task.id)}
                 now={new Date(countdownNow)}
                 parentTitle={routine.title}
-                onComplete={() => completeTask(task.id)}
+                onComplete={() => requestCompleteTask(task.id)}
                 onEdit={() => {
                   if (task.id) {
                     setFocusedOverflowTaskIds(null);
@@ -4117,13 +4246,14 @@ function App() {
                             key={segment.task.id ?? `task-${index}`}
                             type="button"
                             data-schedule-task-id={segment.task.id ?? undefined}
-                            className={`twineline-schedule-block${isTaskHighlighted(segment.task.id) ? " is-highlighted" : ""}`}
+                            className={`twineline-schedule-block${isTaskHighlighted(segment.task.id) ? " is-highlighted" : ""}${isTaskPopping(segment.task.id) ? " is-popping" : ""}`}
                             style={{ flex: `0 0 ${widthPercent}%` }}
                             title={`${segment.task.title} · ${segment.minutes}m`}
                             aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
                             aria-pressed={focusedTaskId === segment.task.id}
+                            disabled={isTaskPopping(segment.task.id)}
                             onClick={() => {
-                              if (!segment.task.id) return;
+                              if (!segment.task.id || isTaskPopping(segment.task.id)) return;
                               setFocusedOverflowTaskIds(null);
                               setFocusedTaskId(segment.task.id);
                               scrollTaskIntoView(segment.task.id);
@@ -4197,9 +4327,10 @@ function App() {
                   overdue
                   editing={editingTaskId === task.id}
                   highlighted={isTaskHighlighted(task.id)}
+                  popping={isTaskPopping(task.id)}
                   now={new Date(countdownNow)}
                   parentTitle={parentTitleFor(task.parent_id)}
-                  onComplete={() => completeTask(task.id)}
+                  onComplete={() => requestCompleteTask(task.id)}
                   onEdit={() => {
                     if (task.id) {
                       setFocusedOverflowTaskIds(null);
@@ -4247,9 +4378,10 @@ function App() {
                           overdue={block.overdue}
                           editing={editingTaskId === block.taskId}
                           highlighted={isTaskHighlighted(block.taskId)}
+                          popping={isTaskPopping(block.taskId)}
                           now={new Date(countdownNow)}
                           parentTitle={parentTitleFor(block.task.parent_id)}
-                          onComplete={() => completeTask(block.taskId)}
+                          onComplete={() => requestCompleteTask(block.taskId)}
                           onEdit={() => {
                             if (block.taskId) {
                               setFocusedOverflowTaskIds(null);
@@ -4354,14 +4486,15 @@ function App() {
                       <div
                         key={block.key}
                         data-task-id={block.taskId ?? undefined}
-                        className={`calendar-timeline-block${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${block.overdue ? " is-overdue" : ""}`}
+                        className={`calendar-timeline-block${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${block.overdue ? " is-overdue" : ""}${isTaskPopping(block.taskId) ? " is-popping" : ""}`}
                         style={{ top: block.topPx, height: block.heightPx }}
                       >
                         <button
                           type="button"
                           className="task-complete"
                           aria-label="Mark complete"
-                          onClick={() => completeTask(block.taskId)}
+                          disabled={isTaskPopping(block.taskId)}
+                          onClick={() => requestCompleteTask(block.taskId)}
                         />
                         <button
                           type="button"
@@ -4531,7 +4664,7 @@ function App() {
             ))}
           </div>
           <div className="app-tray-tabs ui-outer-fade" aria-hidden={!collapsed || searchOpen}>
-            {TRAY_TABS.map(({ id, label, Icon, ...tab }) => {
+            {TRAY_TABS.filter((tab) => tab.id === "home").map(({ id, label, Icon, ...tab }) => {
               const inertNav = "inertNav" in tab && tab.inertNav === true;
               return (
                 <button
@@ -4566,6 +4699,31 @@ function App() {
               <DaylineIcon />
               <span>{DAYLINE_TAB.label}</span>
             </button>
+            {TRAY_TABS.filter((tab) => tab.id === "discover").map(({ id, label, Icon, ...tab }) => {
+              const inertNav = "inertNav" in tab && tab.inertNav === true;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={`app-tray-tab${trayCompact ? " is-compact" : ""}${
+                    !inertNav && activeView === id ? " is-active" : ""
+                  }`}
+                  onClick={() => {
+                    if (inertNav) {
+                      setMoreMenuOpen(false);
+                      return;
+                    }
+                    setMoreMenuOpen(false);
+                    selectView(id);
+                  }}
+                  tabIndex={collapsed && !searchOpen ? 0 : -1}
+                  aria-label={label}
+                >
+                  <Icon />
+                  {!trayCompact && <span>{label}</span>}
+                </button>
+              );
+            })}
             <div className="app-tray-more">
               <ComposerOverlayMenu
                 open={moreMenuOpen && !searchOpen}
@@ -4706,7 +4864,8 @@ function App() {
                     className="task-complete"
                     aria-label="Mark complete"
                     tabIndex={collapsed ? -1 : 0}
-                    onClick={() => completeTask(editingTaskId)}
+                    onClick={() => requestCompleteTask(editingTaskId)}
+                    disabled={isTaskPopping(editingTaskId)}
                   />
                 </div>
               )}
