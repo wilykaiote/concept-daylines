@@ -6,6 +6,8 @@ import { DiscoverView } from "./DiscoverView";
 import { SettingsView } from "./SettingsView";
 import { RoutinesView } from "./RoutinesView";
 import { ProjectsView } from "./ProjectsView";
+import { ProgramsView } from "./ProgramsView";
+import { ListsView } from "./ListsView";
 import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
@@ -1042,6 +1044,30 @@ function isGroupingComposeKind(kind: string): kind is GroupingComposeKind {
   return (GROUPING_COMPOSE_KIND_IDS as readonly string[]).includes(kind);
 }
 
+/** Named containers — not scheduled like tasks. */
+const CONTAINER_COMPOSE_KIND_IDS = [
+  "grouping",
+  "program",
+  "project",
+  "list",
+  "routine",
+] as const;
+type ContainerComposeKind = (typeof CONTAINER_COMPOSE_KIND_IDS)[number];
+
+function isContainerComposeKind(kind: string): kind is ContainerComposeKind {
+  return (CONTAINER_COMPOSE_KIND_IDS as readonly string[]).includes(kind);
+}
+
+function isContainerTaskType(type: string | null | undefined): boolean {
+  return (
+    type === "program" ||
+    type === "project" ||
+    type === "list" ||
+    type === "grouping" ||
+    type === "routine"
+  );
+}
+
 const LINK_ALL_TYPE_ITEM = {
   id: "all",
   label: "All",
@@ -1085,8 +1111,8 @@ function defaultLinkPickerType(composeKind: string): LinkPickerType {
   return isLinkPickerType(composeKind) ? composeKind : "all";
 }
 
-/** Top of compose-type menu: Group / Project / Program. */
-const COMPOSE_KIND_MENU_LEAD_IDS = ["grouping", "project", "program"] as const;
+/** Top of compose-type menu: List / Group / Project / Program. */
+const COMPOSE_KIND_MENU_LEAD_IDS = ["list", "grouping", "project", "program"] as const;
 const COMPOSE_KIND_MENU_LEAD = COMPOSE_KIND_MENU_LEAD_IDS.map(
   (id) => COMPOSE_KINDS.find((kind) => kind.id === id)!,
 );
@@ -1102,6 +1128,14 @@ const ASSISTANT_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "assista
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
 type LinkRelation = "parent" | "child";
 type LinkPrecedence = "before" | "after";
+
+function composeKindFromTaskType(type: string | null | undefined): ComposeKind {
+  if (type === "routine" || type === "grouping") return "grouping";
+  if (type != null && COMPOSE_KINDS.some((kind) => kind.id === type)) {
+    return type as ComposeKind;
+  }
+  return "task";
+}
 
 /** Linking tool — available on every non-assistant compose type. */
 const GROUPING_TOOL_COMPOSE_KINDS = COMPOSE_KINDS.filter((kind) => kind.id !== "assistant").map(
@@ -1393,12 +1427,12 @@ type ActiveView = (typeof NAV_ITEMS)[number]["id"];
 const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   dayline: "task",
   home: "task",
-  discover: "routine",
+  discover: "grouping",
   tasks: "task",
   notes: "note",
   projects: "project",
   lists: "list",
-  routines: "routine",
+  routines: "grouping",
   programs: "program",
   groceries: "item",
   nutrition: "item",
@@ -1772,8 +1806,12 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [tasks, setTasks] = useState<ComposerDraft[]>(() => {
     const loaded = loadTasks();
-    const migrated = loaded.filter((task) => task.type === "routine");
-    const rest = loaded.filter((task) => task.type !== "routine");
+    const migrated = loaded
+      .filter((task) => task.type === "routine" || task.type === "grouping")
+      .map((task) => ({ ...task, type: "routine" }));
+    const rest = loaded.filter(
+      (task) => task.type !== "routine" && task.type !== "grouping",
+    );
     if (migrated.length > 0) {
       saveTasks(rest);
       saveRoutines([...loadRoutines(), ...migrated]);
@@ -1917,8 +1955,6 @@ function App() {
   const selectedComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
   const SelectedComposeIcon = selectedComposeKind.Icon;
-  const isComposeGrouping =
-    composeKind === "grouping" || isGroupingComposeKind(composeKind);
   const composePlaceholder = selectedComposeKind.placeholder;
   const selectedLinkGroupingType =
     LINK_TYPE_PICKER_ITEMS.find((item) => item.id === linkGroupingType) ??
@@ -1960,7 +1996,10 @@ function App() {
   const outsideTaskWindow =
     nowMinutes < todayWindowStartMinutes || nowMinutes >= todayPackEnd;
   const targetTimeLabel = formatTargetTimeLabel(timePickerOpen ? targetTime : todayTargetTime);
-  const tasksForCalendar = daySnoozed ? tasks.filter((task) => !isUndatedTask(task)) : tasks;
+  const nonContainerTasks = tasks.filter((task) => !isContainerTaskType(task.type));
+  const tasksForCalendar = (
+    daySnoozed ? nonContainerTasks.filter((task) => !isUndatedTask(task)) : nonContainerTasks
+  );
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const weekdayDays = buildDayRange(todayStart, weekdayDayCount);
@@ -2428,33 +2467,95 @@ function App() {
     });
   };
 
-  const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
-    task: upsertTaskDraft,
-    project: upsertTaskDraft,
-    program: upsertTaskDraft,
-    grouping: upsertTaskDraft,
-    routine: (draft) => {
-      setRoutines((current) => {
-        if (!editingTaskId) return [draft, ...current];
-        return current.map((routine) => {
-          if (routine.id !== editingTaskId) return routine;
+  /** Program / project / list — name + type only for now. */
+  const upsertContainerDraft = (draft: ComposerDraft) => {
+    const containerDraft: ComposerDraft = {
+      ...draft,
+      est_duration: null,
+      urgency: null,
+      impact: null,
+      date: null,
+      starts_at: null,
+      due_at: null,
+      recurring: null,
+      auto_rescheduled: null,
+    };
+    const withLinks = applyLinkFields(containerDraft);
+    setTasks((current) => {
+      let next = current;
+      if (!editingTaskId) {
+        next = [withLinks, ...current];
+      } else {
+        next = current.map((task) => {
+          if (task.id !== editingTaskId) return task;
           return {
-            ...routine,
-            title: draft.title,
-            type: draft.type,
+            ...task,
+            title: withLinks.title,
+            type: withLinks.type,
+            est_duration: null,
+            urgency: null,
+            impact: null,
+            date: null,
+            starts_at: null,
+            due_at: null,
+            recurring: null,
+            parent_id: withLinks.parent_id ?? task.parent_id,
+            after_id: withLinks.after_id ?? task.after_id,
+            after: withLinks.after ?? task.after,
+            auto_rescheduled: null,
           };
         });
-      });
-      if (pendingChildId && draft.id) {
-        setTasks((current) =>
-          current.map((task) =>
-            task.id === pendingChildId ? { ...task, parent_id: draft.id } : task,
-          ),
+      }
+      if (pendingChildId && withLinks.id) {
+        next = next.map((task) =>
+          task.id === pendingChildId ? { ...task, parent_id: withLinks.id } : task,
         );
       }
-    },
+      return next;
+    });
+  };
+
+  const upsertGroupDraft = (draft: ComposerDraft) => {
+    const groupDraft: ComposerDraft = {
+      ...draft,
+      type: "routine",
+      est_duration: null,
+      urgency: null,
+      impact: null,
+      date: null,
+      starts_at: null,
+      due_at: null,
+      recurring: null,
+      auto_rescheduled: null,
+    };
+    setRoutines((current) => {
+      if (!editingTaskId) return [groupDraft, ...current];
+      return current.map((routine) => {
+        if (routine.id !== editingTaskId) return routine;
+        return {
+          ...routine,
+          title: groupDraft.title,
+          type: "routine",
+        };
+      });
+    });
+    if (pendingChildId && groupDraft.id) {
+      setTasks((current) =>
+        current.map((task) =>
+          task.id === pendingChildId ? { ...task, parent_id: groupDraft.id } : task,
+        ),
+      );
+    }
+  };
+
+  const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
+    task: upsertTaskDraft,
+    project: upsertContainerDraft,
+    program: upsertContainerDraft,
+    grouping: upsertGroupDraft,
+    routine: upsertGroupDraft,
     event: (_draft) => {},
-    list: upsertTaskDraft,
+    list: upsertContainerDraft,
     note: (_draft) => {},
     item: (_draft) => {},
     log: (_draft) => {},
@@ -2479,23 +2580,25 @@ function App() {
   };
 
   const submitLinkQuickAdd = () => {
-    const date = normalizeOptionalField(linkQaDate);
-    const time =
-      linkQaTimeMode === "starts_at"
+    const isContainerQuickAdd = isContainerComposeKind(linkQuickAddKind);
+    const date = isContainerQuickAdd ? null : normalizeOptionalField(linkQaDate);
+    const time = isContainerQuickAdd
+      ? null
+      : linkQaTimeMode === "starts_at"
         ? normalizeOptionalField(linkQaStartsAt)
         : normalizeOptionalField(linkQaDueAt);
     const draft = buildComposerDraft({
       title: linkQuickAddTitle,
       type: linkQuickAddKind,
-      urgency: linkQaUrgencyActivated ? linkQaUrgency : null,
-      impact: linkQaImpactActivated ? linkQaImpact : null,
+      urgency: isContainerQuickAdd || !linkQaUrgencyActivated ? null : linkQaUrgency,
+      impact: isContainerQuickAdd || !linkQaImpactActivated ? null : linkQaImpact,
       date,
-      starts_at: linkQaTimeMode === "starts_at" ? time : null,
-      due_at: linkQaTimeMode === "due_at" ? time : null,
+      starts_at: !isContainerQuickAdd && linkQaTimeMode === "starts_at" ? time : null,
+      due_at: !isContainerQuickAdd && linkQaTimeMode === "due_at" ? time : null,
     });
     if (!draft || !draft.id) return;
     if (linkQuickAddKind === "routine") {
-      setRoutines((current) => [draft, ...current]);
+      setRoutines((current) => [{ ...draft, type: "routine" }, ...current]);
     } else {
       setTasks((current) => [draft, ...current]);
     }
@@ -2737,7 +2840,7 @@ function App() {
         : null,
     });
     setComposerSavePromptOpen(false);
-    setComposeKind("task");
+    setComposeKind(composeKindFromTaskType(task.type));
     setContent(task.title);
     setEstDurationMinutes(minutes);
     setDurationUnit("minutes");
@@ -2959,12 +3062,18 @@ function App() {
     closeComposer();
   };
 
-  const saveComposerChanges = () => {
+  const buildDraftFromComposer = () => {
+    if (isContainerComposeKind(composeKind)) {
+      return buildComposerDraft({
+        title: content,
+        type: composeKind === "grouping" || composeKind === "routine" ? "routine" : composeKind,
+      });
+    }
     const schedule = resolveComposerSchedule();
     setTaskDate(schedule.date ?? "");
     setTaskStartsAt(schedule.starts_at ?? "");
     setTaskDueAt(schedule.due_at ?? "");
-    const draft = buildComposerDraft({
+    return buildComposerDraft({
       title: content,
       type: composeKind,
       est_duration: estDurationMinutes,
@@ -2975,9 +3084,16 @@ function App() {
       due_at: schedule.due_at,
       recurring: composerRecurring,
     });
+  };
+
+  const saveComposerChanges = () => {
+    const draft = buildDraftFromComposer();
     if (draft) {
       submitComposerDraft[composeKind](draft);
-      if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)) {
+      if (
+        !isContainerComposeKind(composeKind) &&
+        isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
+      ) {
         setOverdueSectionOpen(true);
       }
     }
@@ -4200,13 +4316,56 @@ function App() {
           />
         )}
         {activeView === "programs" && (
-          <div className="routines-view">
-            <header className="routines-header">
-              <h1 className="routines-title">Programs</h1>
-              <p className="routines-subtitle">Structured programs and their steps</p>
-            </header>
-            <p className="routines-empty">No programs yet.</p>
-          </div>
+          <ProgramsView
+            programs={tasks.filter((task) => task.type === "program")}
+            tasks={tasks}
+            renderChild={(task, program) => (
+              <CompactTaskRow
+                key={task.id ?? task.title}
+                task={task}
+                overdue={false}
+                editing={editingTaskId === task.id}
+                highlighted={isTaskHighlighted(task.id)}
+                popping={isTaskPopping(task.id)}
+                now={new Date(countdownNow)}
+                parentTitle={program.title}
+                onComplete={() => requestCompleteTask(task.id)}
+                onEdit={() => {
+                  if (task.id) {
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                  }
+                  editTask(task);
+                }}
+              />
+            )}
+          />
+        )}
+        {activeView === "lists" && (
+          <ListsView
+            lists={tasks.filter((task) => task.type === "list")}
+            tasks={tasks}
+            renderChild={(task, list) => (
+              <CompactTaskRow
+                key={task.id ?? task.title}
+                task={task}
+                overdue={false}
+                editing={editingTaskId === task.id}
+                highlighted={isTaskHighlighted(task.id)}
+                popping={isTaskPopping(task.id)}
+                now={new Date(countdownNow)}
+                parentTitle={list.title}
+                onComplete={() => requestCompleteTask(task.id)}
+                onEdit={() => {
+                  if (task.id) {
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                  }
+                  editTask(task);
+                }}
+              />
+            )}
+          />
         )}
         {activeView === "dayline" && (
           <div className="twineline-chrome" ref={twinelineChromeRef}>
@@ -4599,6 +4758,7 @@ function App() {
           activeView !== "routines" &&
           activeView !== "projects" &&
           activeView !== "programs" &&
+          activeView !== "lists" &&
           (tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : tasksCompact ? (
@@ -4852,25 +5012,14 @@ function App() {
         onSubmit={(e) => {
           e.preventDefault();
           if (searchOpen) return;
-          const schedule = resolveComposerSchedule();
-          setTaskDate(schedule.date ?? "");
-          setTaskStartsAt(schedule.starts_at ?? "");
-          setTaskDueAt(schedule.due_at ?? "");
-          const draft = buildComposerDraft({
-            title: content,
-            type: composeKind,
-            est_duration: estDurationMinutes,
-            urgency,
-            impact,
-            date: schedule.date,
-            starts_at: schedule.starts_at,
-            due_at: schedule.due_at,
-            recurring: composerRecurring,
-          });
+          const draft = buildDraftFromComposer();
           if (!draft) return;
           const wasEditing = editingTaskId != null;
           submitComposerDraft[composeKind](draft);
-          if (isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)) {
+          if (
+            !isContainerComposeKind(composeKind) &&
+            isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
+          ) {
             setOverdueSectionOpen(true);
           }
           resetComposerFields();
@@ -5974,19 +6123,6 @@ function App() {
                     <NotesIcon />
                   </button>
                 )}
-                {(composeKind === "project" || isComposeGrouping) && (
-                    <button
-                    ref={dueDateButtonRef}
-                    type="button"
-                    className={dueDateButtonClassName}
-                    aria-label="Date & Time"
-                    aria-expanded={taskToolHint === "Date & Time"}
-                    tabIndex={collapsed ? -1 : 0}
-                    onClick={(event) => openTaskToolHint(event.currentTarget, "Date & Time")}
-                  >
-                    <CalendarIcon />
-                  </button>
-                )}
                 {isGroupingToolComposeKind(composeKind) && (
                   <button
                     ref={parentTaskButtonRef}
@@ -6345,7 +6481,12 @@ function App() {
                     <button
                       key={id}
                       type="button"
-                      className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
+                      className={`app-attach-menu-item${
+                        composeKind === id ||
+                        (id === "grouping" && composeKind === "routine")
+                          ? " is-selected"
+                          : ""
+                      }`}
                       role="menuitem"
                       onClick={() => {
                         setComposeKind(id);
