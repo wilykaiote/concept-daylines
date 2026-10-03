@@ -1768,7 +1768,7 @@ function App() {
   const [taskTimeMode, setTaskTimeMode] = useState<"starts_at" | "due_at">("starts_at");
   const [composerAutoRescheduled, setComposerAutoRescheduled] = useState(false);
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
-  const [linkRelation, setLinkRelation] = useState<LinkRelation>("child");
+  const [linkRelation, setLinkRelation] = useState<LinkRelation>("parent");
   const [linkSearchQuery, setLinkSearchQuery] = useState("");
   const [linkGroupingType, setLinkGroupingType] = useState<LinkPickerType>("all");
   const [linkGroupingTypeMenuOpen, setLinkGroupingTypeMenuOpen] = useState(false);
@@ -2420,7 +2420,7 @@ function App() {
   };
 
   const applyLinkFields = (draft: ComposerDraft): ComposerDraft => {
-    const withParent = pendingParentId ? { ...draft, parent_id: pendingParentId } : draft;
+    const withParent = { ...draft, parent_id: pendingParentId };
     if (linkPrecedence && selectedLinkId) {
       return {
         ...withParent,
@@ -2428,11 +2428,58 @@ function App() {
         after: linkPrecedence,
       };
     }
-    return withParent;
+    return {
+      ...withParent,
+      after_id: null,
+      after: null,
+    };
+  };
+
+  const applyParentLinkToEditingTask = (
+    parentId: string | null,
+    precedence: LinkPrecedence | null = linkPrecedence,
+  ) => {
+    if (!editingTaskId) return;
+    setTasks((current) =>
+      current.map((task) =>
+        task.id === editingTaskId
+          ? {
+              ...task,
+              parent_id: parentId,
+              after_id: parentId != null && precedence != null ? parentId : null,
+              after: parentId != null && precedence != null ? precedence : null,
+            }
+          : task,
+      ),
+    );
+  };
+
+  const applyChildLinkToEditingTask = (
+    childId: string | null,
+    previousChildId: string | null,
+  ) => {
+    if (!editingTaskId) return;
+    setTasks((current) =>
+      current.map((task) => {
+        if (childId != null && task.id === childId) {
+          return { ...task, parent_id: editingTaskId };
+        }
+        if (
+          previousChildId != null &&
+          previousChildId !== childId &&
+          task.id === previousChildId &&
+          task.parent_id === editingTaskId
+        ) {
+          return { ...task, parent_id: null };
+        }
+        return task;
+      }),
+    );
   };
 
   const upsertTaskDraft = (draft: ComposerDraft) => {
     const withLinks = applyLinkFields(draft);
+    const parentIdForChild = editingTaskId ?? withLinks.id;
     setTasks((current) => {
       let next = current;
       if (!editingTaskId) {
@@ -2451,16 +2498,16 @@ function App() {
             starts_at: withLinks.starts_at,
             due_at: withLinks.due_at,
             recurring: withLinks.recurring,
-            parent_id: withLinks.parent_id ?? task.parent_id,
-            after_id: withLinks.after_id ?? task.after_id,
-            after: withLinks.after ?? task.after,
+            parent_id: withLinks.parent_id,
+            after_id: withLinks.after_id,
+            after: withLinks.after,
             auto_rescheduled: composerAutoRescheduled ? true : false,
           };
         });
       }
-      if (pendingChildId && withLinks.id) {
+      if (pendingChildId && parentIdForChild) {
         next = next.map((task) =>
-          task.id === pendingChildId ? { ...task, parent_id: withLinks.id } : task,
+          task.id === pendingChildId ? { ...task, parent_id: parentIdForChild } : task,
         );
       }
       return next;
@@ -2481,6 +2528,7 @@ function App() {
       auto_rescheduled: null,
     };
     const withLinks = applyLinkFields(containerDraft);
+    const parentIdForChild = editingTaskId ?? withLinks.id;
     setTasks((current) => {
       let next = current;
       if (!editingTaskId) {
@@ -2499,16 +2547,16 @@ function App() {
             starts_at: null,
             due_at: null,
             recurring: null,
-            parent_id: withLinks.parent_id ?? task.parent_id,
-            after_id: withLinks.after_id ?? task.after_id,
-            after: withLinks.after ?? task.after,
+            parent_id: withLinks.parent_id,
+            after_id: withLinks.after_id,
+            after: withLinks.after,
             auto_rescheduled: null,
           };
         });
       }
-      if (pendingChildId && withLinks.id) {
+      if (pendingChildId && parentIdForChild) {
         next = next.map((task) =>
-          task.id === pendingChildId ? { ...task, parent_id: withLinks.id } : task,
+          task.id === pendingChildId ? { ...task, parent_id: parentIdForChild } : task,
         );
       }
       return next;
@@ -2516,7 +2564,7 @@ function App() {
   };
 
   const upsertGroupDraft = (draft: ComposerDraft) => {
-    const groupDraft: ComposerDraft = {
+    const withLinks = applyLinkFields({
       ...draft,
       type: "routine",
       est_duration: null,
@@ -2527,7 +2575,12 @@ function App() {
       due_at: null,
       recurring: null,
       auto_rescheduled: null,
+    });
+    const groupDraft: ComposerDraft = {
+      ...withLinks,
+      type: "routine",
     };
+    const parentIdForChild = editingTaskId ?? groupDraft.id;
     setRoutines((current) => {
       if (!editingTaskId) return [groupDraft, ...current];
       return current.map((routine) => {
@@ -2536,13 +2589,16 @@ function App() {
           ...routine,
           title: groupDraft.title,
           type: "routine",
+          parent_id: groupDraft.parent_id,
+          after_id: groupDraft.after_id,
+          after: groupDraft.after,
         };
       });
     });
-    if (pendingChildId && groupDraft.id) {
+    if (pendingChildId && parentIdForChild) {
       setTasks((current) =>
         current.map((task) =>
-          task.id === pendingChildId ? { ...task, parent_id: groupDraft.id } : task,
+          task.id === pendingChildId ? { ...task, parent_id: parentIdForChild } : task,
         ),
       );
     }
@@ -2606,9 +2662,11 @@ function App() {
     if (linkRelation === "parent") {
       setPendingParentId(draft.id);
       setPendingChildId(null);
+      applyParentLinkToEditingTask(draft.id);
     } else {
+      const previousChildId = pendingChildId;
       setPendingChildId(draft.id);
-      setPendingParentId(null);
+      applyChildLinkToEditingTask(draft.id, previousChildId);
     }
     setLinkPrecedence(null);
     setLinkQuickAddOpen(false);
@@ -2647,7 +2705,7 @@ function App() {
     setTaskToolHint(null);
     setPendingParentId(null);
     setPendingChildId(null);
-    setLinkRelation("child");
+    setLinkRelation("parent");
     setLinkSearchQuery("");
     setLinkQuickAddOpen(false);
     resetLinkQuickAddFields();
@@ -2732,13 +2790,16 @@ function App() {
     setTaskToolHint((current) => {
       const next = current === title ? null : title;
       if (next === GROUPING_TOOL_HINT) {
-        setLinkRelation("child");
+        // Default to parent so picking a Group/Project attaches to the subject.
+        setLinkRelation("parent");
         setLinkSearchQuery("");
         setLinkGroupingTypeMenuOpen(false);
         setLinkGroupingType(defaultLinkPickerType(composeKind));
         setLinkQuickAddOpen(false);
         resetLinkQuickAddFields();
-        setLinkPrecedence(null);
+        if (!(editingTaskId != null && pendingParentId != null)) {
+          setLinkPrecedence(null);
+        }
         setLinkPrecedenceMenuOpen(false);
       }
       return next;
@@ -2878,6 +2939,17 @@ function App() {
       mode: nextMode,
     });
     setTaskToolHint(null);
+    setPendingParentId(task.parent_id);
+    setPendingChildId(null);
+    setLinkRelation("parent");
+    setLinkSearchQuery("");
+    setLinkQuickAddOpen(false);
+    resetLinkQuickAddFields();
+    setLinkPrecedence(
+      task.after === "before" || task.after === "after" ? task.after : null,
+    );
+    setLinkPrecedenceMenuOpen(false);
+    setLinkGroupingType(defaultLinkPickerType(composeKindFromTaskType(task.type)));
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setSearchOpen(false);
@@ -5923,23 +5995,23 @@ function App() {
                                 (linkRelation === "child" && pendingChildId === item.id)
                               }
                               onClick={() => {
-                                const isProgram = tasks.some(
+                                const itemIsProgram = tasks.some(
                                   (task) => task.id === item.id && task.type === "program",
                                 );
                                 if (linkRelation === "parent") {
-                                  setPendingParentId((current) => {
-                                    const next = current === item.id ? null : item.id;
-                                    if (next == null || !isProgram) setLinkPrecedence(null);
-                                    return next;
-                                  });
+                                  const next = pendingParentId === item.id ? null : item.id;
+                                  const nextPrecedence =
+                                    next == null || !itemIsProgram ? null : linkPrecedence;
+                                  setPendingParentId(next);
                                   setPendingChildId(null);
+                                  if (nextPrecedence == null) setLinkPrecedence(null);
+                                  applyParentLinkToEditingTask(next, nextPrecedence);
                                 } else {
-                                  setPendingChildId((current) => {
-                                    const next = current === item.id ? null : item.id;
-                                    if (next == null || !isProgram) setLinkPrecedence(null);
-                                    return next;
-                                  });
-                                  setPendingParentId(null);
+                                  const next = pendingChildId === item.id ? null : item.id;
+                                  const previousChildId = pendingChildId;
+                                  setPendingChildId(next);
+                                  if (next == null || !itemIsProgram) setLinkPrecedence(null);
+                                  applyChildLinkToEditingTask(next, previousChildId);
                                 }
                                 setLinkPrecedenceMenuOpen(false);
                               }}
@@ -6087,7 +6159,11 @@ function App() {
                                   className={`app-attach-menu-item${linkPrecedence === id ? " is-selected" : ""}`}
                                   role="menuitem"
                                   onClick={() => {
-                                    setLinkPrecedence((current) => (current === id ? null : id));
+                                    const next = linkPrecedence === id ? null : id;
+                                    setLinkPrecedence(next);
+                                    if (pendingParentId != null) {
+                                      applyParentLinkToEditingTask(pendingParentId, next);
+                                    }
                                     setLinkPrecedenceMenuOpen(false);
                                   }}
                                 >
