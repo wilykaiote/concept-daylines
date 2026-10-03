@@ -11,12 +11,12 @@ export function RoutinesView({ routines, tasks, renderChild }: RoutinesViewProps
   return (
     <div className="routines-view">
       <header className="routines-header">
-        <h1 className="routines-title">Routines</h1>
-        <p className="routines-subtitle">Named routines and the tasks under them</p>
+        <h1 className="routines-title">Groups</h1>
+        <p className="routines-subtitle">Named groups and the tasks under them</p>
       </header>
 
       {routines.length === 0 ? (
-        <p className="routines-empty">No routines yet. Name one in the composer.</p>
+        <p className="routines-empty">No groups yet. Name one in the composer.</p>
       ) : (
         <div className="routines-list">
           {routines.map((routine) => {

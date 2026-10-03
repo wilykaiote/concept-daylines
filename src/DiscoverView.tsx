@@ -185,10 +185,10 @@ export function DiscoverView() {
         <header className="discover-header">
           <div className="discover-title-row">
             <h1 className="discover-title">Discover</h1>
-            <p className="discover-subtitle">Routines from other people</p>
+            <p className="discover-subtitle">Groups from other people</p>
           </div>
 
-          <div className="discover-filters" aria-label="Routine types">
+          <div className="discover-filters" aria-label="Group types">
             {DISCOVER_TYPES.map((type) => (
               <button
                 key={type}
@@ -234,13 +234,13 @@ export function DiscoverView() {
         </div>
       </section>
 
-      <section className="discover-feed" aria-label="Routine feed">
+      <section className="discover-feed" aria-label="Group feed">
         <div className="discover-section-head">
           <h2 className="discover-section-title">For you</h2>
-          <p className="discover-feed-count">{feed.length} routines</p>
+          <p className="discover-feed-count">{feed.length} groups</p>
         </div>
         {feed.length === 0 ? (
-          <p className="discover-feed-empty">No routines match these filters.</p>
+          <p className="discover-feed-empty">No groups match these filters.</p>
         ) : (
           feed.map((routine) => (
             <article key={routine.id} className="discover-feed-card">

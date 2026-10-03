@@ -1,6 +1,7 @@
 :root {
   --text: #6b6375;
   --text-h: #08060d;
+  --theme-bg: #fff;
   --bg: #fff;
   --bg-raised: #f7f6f4;
   --border: #e5e4e7;
@@ -35,6 +36,7 @@
   :root {
     --text: #9ca3af;
     --text-h: #f3f4f6;
+    --theme-bg: #16171d;
     --bg: #16171d;
     --bg-raised: #101116;
     --border: #2e303a;
