@@ -1216,9 +1216,9 @@ const TEND_MENU_ITEMS = [
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
 ] as const;
 
-const URGENCY_OPTIONS = ["Future", "Later", "Soon", "Now"] as const;
+const URGENCY_OPTIONS = ["Future", "Later", "Soon", "ASAP"] as const;
 type UrgencyOption = (typeof URGENCY_OPTIONS)[number];
-const DEFAULT_URGENCY: UrgencyOption = "Now";
+const DEFAULT_URGENCY: UrgencyOption = "ASAP";
 const DEFAULT_IMPACT = 10;
 const IMPACT_MIN = 0;
 const IMPACT_MAX = 50;
@@ -1336,6 +1336,11 @@ function CompactTaskRow({
   onEdit: () => void;
 }) {
   const urgencyLabel = isUrgencyOption(task.urgency) ? task.urgency : null;
+  const hasDateOrTime =
+    parseTaskDate(task.date) != null ||
+    parseTimeOfDay(task.starts_at) != null ||
+    parseTimeOfDay(task.due_at) != null;
+  const showUrgency = urgencyLabel != null && !hasDateOrTime;
   const impactValue =
     typeof task.impact === "number" && Number.isFinite(task.impact)
       ? Math.round(task.impact)
@@ -1345,12 +1350,10 @@ function CompactTaskRow({
   const durationLabel = formatTaskDurationLabel(task.est_duration);
   const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
   const resolvedParentTitle = normalizeOptionalField(parentTitle);
-  const hasMetaPrimary = urgencyLabel != null || impactValue != null;
-  const hasMetaSchedule = scheduleLabel != null;
-  const hasMetaLeft = hasMetaPrimary || hasMetaSchedule;
+  const hasImpact = impactValue != null && impactPercent != null;
+  const hasMetaSchedule =
+    scheduleLabel != null || showUrgency || durationLabel != null;
   const hasParent = resolvedParentTitle != null;
-  const hasSide = hasParent || durationLabel != null;
-  const hasDetails = hasMetaLeft || hasSide;
   const typeLabel =
     task.type === "event"
       ? "EVENT"
@@ -1362,97 +1365,91 @@ function CompactTaskRow({
             ? "LOG"
             : "TASK";
   const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
+  const titleAside = (
+    <div className="task-row-title-aside">
+      <span className="task-row-type-label">{typeLabel}</span>
+      {hasImpact && (
+        <span
+          className="task-row-impact"
+          role="img"
+          aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
+          title={`Impact ${impactValue}`}
+        >
+          <span className="task-row-impact-track" aria-hidden="true">
+            <span
+              className="task-row-impact-fill"
+              style={{ width: `${impactPercent}%` }}
+            />
+          </span>
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <li
       data-task-id={task.id ?? undefined}
       className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
     >
-      <button
-        type="button"
-        className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
-        aria-label="Mark complete"
-        disabled={popping}
-        onClick={onComplete}
-      >
-        <span className="task-complete-check" aria-hidden="true">
-          <svg viewBox="0 0 16 16" fill="none">
-            <path
-              d="M3.2 8.2 6.4 11.4 12.8 4.6"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              pathLength="1"
-            />
-          </svg>
-        </span>
-      </button>
-      <button
-        type="button"
-        className="task-row-body"
-        onClick={onEdit}
-        aria-label={`Edit task ${task.title}`}
-      >
-        <div className="task-row-title-row">
-          <p className="task-row-title">{task.title}</p>
-          <span className="task-row-type-label">{typeLabel}</span>
+      {hasParent && (
+        <div className="task-row-top">
+          <div className="task-row-parent">
+            <span className="task-row-parent-name">{resolvedParentTitle}</span>
+            <LinkIcon />
+          </div>
+          {titleAside}
         </div>
-        {hasDetails && (
-          <div className="task-row-details">
-            <div className="task-row-details-main">
-              {hasMetaLeft && (
-                <div className="task-row-meta">
-                  {hasMetaPrimary && (
-                    <div className="task-row-meta-primary">
-                      {urgencyLabel != null && (
-                        <span className="task-row-urgency">{urgencyLabel}</span>
-                      )}
-                      {impactValue != null && impactPercent != null && (
-                        <span
-                          className="task-row-impact"
-                          role="img"
-                          aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
-                          title={`Impact ${impactValue}`}
-                        >
-                          <span className="task-row-impact-track" aria-hidden="true">
-                            <span
-                              className="task-row-impact-fill"
-                              style={{ width: `${impactPercent}%` }}
-                            />
-                          </span>
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {hasMetaSchedule && (
-                    <div className="task-row-meta-schedule">
-                      <span
-                        className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
-                      >
-                        {scheduleLabel}
-                      </span>
-                    </div>
-                  )}
-                </div>
+      )}
+      <div className="task-row-main">
+        <button
+          type="button"
+          className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
+          aria-label="Mark complete"
+          disabled={popping}
+          onClick={onComplete}
+        >
+          <span className="task-complete-check" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none">
+              <path
+                d="M3.2 8.2 6.4 11.4 12.8 4.6"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                pathLength="1"
+              />
+            </svg>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="task-row-body"
+          onClick={onEdit}
+          aria-label={`Edit task ${task.title}`}
+        >
+          <div className="task-row-title-row">
+            <p className="task-row-title">{task.title}</p>
+            {!hasParent && titleAside}
+          </div>
+          {hasMetaSchedule && (
+            <div className="task-row-meta-schedule">
+              {showUrgency && (
+                <span className="task-row-urgency">{urgencyLabel}</span>
+              )}
+              {scheduleLabel != null && (
+                <span
+                  className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
+                >
+                  {scheduleLabel}
+                </span>
+              )}
+              {durationLabel != null && (
+                <span className="task-row-duration">{durationLabel}</span>
               )}
             </div>
-            {hasSide && (
-              <div className="task-row-details-side">
-                {hasParent && (
-                  <div className="task-row-parent">
-                    <LinkIcon />
-                    <span className="task-row-parent-name">{resolvedParentTitle}</span>
-                  </div>
-                )}
-                {durationLabel != null && (
-                  <span className="task-row-duration">{durationLabel}</span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </button>
+          )}
+        </button>
+      </div>
     </li>
   );
 }

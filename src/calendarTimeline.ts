@@ -169,7 +169,8 @@ export function isAnchoredTaskMissed(
 }
 
 const URGENCY_RANK: Record<string, number> = {
-  Now: 0,
+  ASAP: 0,
+  Now: 0, // legacy alias
   Soon: 1,
   Later: 2,
   Future: 3,

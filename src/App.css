@@ -1457,19 +1457,42 @@
 
 .task-row {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
 }
 
+.task-row-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.task-row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  width: 100%;
+}
+
 .task-list.is-compact .task-row,
 .task-overdue-tasks .task-row {
-  align-items: flex-start;
-  gap: 10px;
+  align-items: stretch;
+  gap: 2px;
   padding: 8px 12px;
+}
+
+.task-list.is-compact .task-row-main,
+.task-overdue-tasks .task-row-main {
+  gap: 10px;
 }
 
 .task-list.is-compact .task-complete,
@@ -1483,18 +1506,6 @@
 .task-overdue-tasks .task-row-title {
   font-size: 0.95rem;
   line-height: 1.25;
-}
-
-.task-list.is-compact .task-row-meta,
-.task-overdue-tasks .task-row-meta,
-.routines-children .task-row-meta,
-.projects-children .task-row-meta {
-  align-items: flex-start;
-  gap: 2px;
-  margin-top: 0;
-  font-size: 0.72rem;
-  line-height: 1.2;
-  letter-spacing: 0.01em;
 }
 
 .task-row-details {
@@ -1524,11 +1535,6 @@
   gap: 0;
 }
 
-.task-row-details-main .task-row-meta {
-  margin-top: 0;
-  width: 100%;
-}
-
 .task-row-details-side {
   display: flex;
   flex-direction: column;
@@ -1543,10 +1549,6 @@
   color: var(--text);
 }
 
-.task-row-details-side .task-row-duration {
-  margin-top: auto;
-}
-
 .task-list.is-compact .task-row-details-side,
 .task-overdue-tasks .task-row-details-side,
 .routines-children .task-row-details-side,
@@ -1559,12 +1561,13 @@
 .task-row-parent {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  align-self: flex-start;
   gap: 4px;
   min-width: 0;
   max-width: 100%;
   margin: 0;
-  font-size: inherit;
+  font-size: 0.72rem;
   line-height: 1.2;
   letter-spacing: 0.01em;
   color: var(--text);
@@ -1574,8 +1577,9 @@
 .task-list.is-compact .task-row-parent,
 .task-overdue-tasks .task-row-parent,
 .routines-children .task-row-parent,
-.projects-children .task-row-parent {
-  font-size: inherit;
+.projects-children .task-row-parent,
+.home-focus-task .task-row-parent {
+  font-size: 0.72rem;
 }
 
 .task-row-parent svg {
@@ -1591,10 +1595,9 @@
   white-space: nowrap;
 }
 
-.task-row-meta-primary,
 .task-row-meta-schedule {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
@@ -1602,9 +1605,49 @@
   width: 100%;
 }
 
-.task-row-urgency {
+.task-row-body > .task-row-meta-schedule {
+  margin-top: auto;
+  padding-top: 2px;
+  font-size: 0.85rem;
   color: var(--text);
+}
+
+.task-row-meta-schedule .task-row-duration {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.task-list.is-compact .task-row-body > .task-row-meta-schedule,
+.task-overdue-tasks .task-row-body > .task-row-meta-schedule,
+.routines-children .task-row-body > .task-row-meta-schedule,
+.projects-children .task-row-body > .task-row-meta-schedule,
+.home-focus-task .task-row-body > .task-row-meta-schedule {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+}
+
+.task-row-urgency {
+  flex-shrink: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
   text-transform: uppercase;
+  opacity: 0.62;
+  white-space: nowrap;
+}
+
+.task-list.is-compact .task-row-urgency,
+.task-overdue-tasks .task-row-urgency,
+.routines-children .task-row-urgency,
+.projects-children .task-row-urgency,
+.home-focus-task .task-row-urgency {
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  opacity: 0.58;
 }
 
 .task-row-impact {
@@ -1630,8 +1673,12 @@
 }
 
 .task-row-schedule {
-  color: var(--accent);
+  color: var(--text);
   white-space: nowrap;
+}
+
+.task-row.is-anchored .task-row-schedule {
+  color: var(--accent);
 }
 
 .task-row-schedule.is-auto-rescheduled {
@@ -1827,6 +1874,15 @@
   gap: 8px;
   min-width: 0;
   width: 100%;
+  padding-bottom: 4px;
+}
+
+.task-list.is-compact .task-row-title-row,
+.task-overdue-tasks .task-row-title-row,
+.routines-children .task-row-title-row,
+.projects-children .task-row-title-row,
+.home-focus-task .task-row-title-row {
+  padding-bottom: 3px;
 }
 
 .task-row-title {
@@ -1835,6 +1891,16 @@
   margin: 0;
   color: var(--text-h);
   overflow-wrap: anywhere;
+}
+
+.task-row-title-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-start;
+  flex-shrink: 0;
+  gap: 4px;
+  min-width: 0;
 }
 
 .task-row-type-label {
@@ -1849,6 +1915,10 @@
   opacity: 0.62;
 }
 
+.task-row-title-aside .task-row-impact {
+  align-self: flex-end;
+}
+
 .task-list.is-compact .task-row-type-label,
 .task-overdue-tasks .task-row-type-label,
 .routines-children .task-row-type-label,
@@ -1856,19 +1926,6 @@
   font-size: 0.62rem;
   letter-spacing: 0.05em;
   opacity: 0.58;
-}
-
-.task-row-meta {
-  display: flex;
-  flex-direction: column;
-  flex-wrap: nowrap;
-  align-items: flex-start;
-  gap: 2px;
-  margin-top: 6px;
-  min-width: 0;
-  width: 100%;
-  font-size: 0.85rem;
-  color: var(--text);
 }
 
 .app-composer {

@@ -21,13 +21,28 @@ function isComposerDraft(value: unknown): value is ComposerDraft {
   return typeof draft.title === "string";
 }
 
+function migrateUrgencyNowToAsap(drafts: ComposerDraft[]): {
+  drafts: ComposerDraft[];
+  changed: boolean;
+} {
+  let changed = false;
+  const next = drafts.map((draft) => {
+    if (draft.urgency !== "Now") return draft;
+    changed = true;
+    return { ...draft, urgency: "ASAP" };
+  });
+  return { drafts: next, changed };
+}
+
 export function loadTasks(): ComposerDraft[] {
   try {
     const raw = localStorage.getItem(TASKS_STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isComposerDraft);
+    const { drafts, changed } = migrateUrgencyNowToAsap(parsed.filter(isComposerDraft));
+    if (changed) saveTasks(drafts);
+    return drafts;
   } catch {
     return [];
   }
@@ -49,7 +64,9 @@ export function loadRoutines(): ComposerDraft[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isComposerDraft);
+    const { drafts, changed } = migrateUrgencyNowToAsap(parsed.filter(isComposerDraft));
+    if (changed) saveRoutines(drafts);
+    return drafts;
   } catch {
     return [];
   }
