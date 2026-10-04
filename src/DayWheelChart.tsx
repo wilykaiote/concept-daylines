@@ -111,14 +111,15 @@ export function DayWheelChart({
       const clamped = Math.max(0, Math.min(MINUTES_PER_DAY, min));
       const angle = minutesToAngle(clamped);
       const label = polar(cx, cy, windowLabelRadius, angle);
+      const textAnchor =
+        label.x < cx - 6 ? ("end" as const) : label.x > cx + 6 ? ("start" as const) : ("middle" as const);
       return {
         key: clamped,
         labelText: formatMinutesLabel(clamped),
         a: polar(cx, cy, windowMarkerInner, angle),
         b: polar(cx, cy, windowMarkerOuter, angle),
         label,
-        textAnchor:
-          label.x < cx - 6 ? "end" : label.x > cx + 6 ? "start" : "middle",
+        textAnchor,
       };
     });
 
