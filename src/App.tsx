@@ -3539,7 +3539,8 @@ function App() {
     chromeHiddenRef.current = hidden;
     chromeCooldownUntilRef.current = performance.now() + 280;
 
-    twinelineChromeRef.current?.classList.toggle("is-chrome-hidden", hidden);
+    // Keep the twineline countdown chrome visible; only hide the collapsed tray.
+    twinelineChromeRef.current?.classList.remove("is-chrome-hidden");
 
     const composer = composerRef.current;
     const hideComposer = hidden && collapsed && !searchOpen;
@@ -4811,57 +4812,59 @@ function App() {
                 </div>
               </>
             )}
-            {!calendarOpen && overdueTasks.length > 0 && (
-              <button
-                type="button"
-                className={`task-day-label task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
-                aria-expanded={overdueSectionOpen}
-                aria-controls="task-overdue-list"
-                onClick={() => setOverdueSectionOpen((open) => !open)}
-              >
-                <span>Overdue</span>
-                <span className="task-overdue-toggle-action">
-                  <span className="task-overdue-toggle-reschedule">Reschedule</span>
-                  <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                    {overdueSectionOpen ? "∨" : ">"}
-                  </span>
-                </span>
-              </button>
-            )}
               </div>
             </header>
           </div>
         )}
-        {activeView === "dayline" && !calendarOpen && overdueTasks.length > 0 && overdueSectionOpen && (
-          <section
-            ref={overdueSectionRef}
-            id="task-overdue-list"
-            className="task-overdue-section"
-            aria-label="Overdue tasks"
-          >
-            <ul className="task-day-tasks task-overdue-tasks">
-              {overdueTasks.map((task) => (
-                <CompactTaskRow
-                  key={task.id ?? task.title}
-                  task={task}
-                  overdue
-                  editing={editingTaskId === task.id}
-                  highlighted={isTaskHighlighted(task.id)}
-                  popping={isTaskPopping(task.id)}
-                  now={new Date(countdownNow)}
-                  parentTitle={parentTitleFor(task.parent_id)}
-                  onComplete={() => requestCompleteTask(task.id)}
-                  onEdit={() => {
-                    if (task.id) {
-                      setFocusedOverflowTaskIds(null);
-                      setFocusedTaskId(task.id);
-                    }
-                    editTask(task);
-                  }}
-                />
-            ))}
-          </ul>
-          </section>
+        {activeView === "dayline" && !calendarOpen && overdueTasks.length > 0 && (
+          <div className="task-overdue-scroll-block">
+            <button
+              type="button"
+              className={`task-day-label task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
+              aria-expanded={overdueSectionOpen}
+              aria-controls="task-overdue-list"
+              onClick={() => setOverdueSectionOpen((open) => !open)}
+            >
+              <span>Overdue</span>
+              <span className="task-overdue-toggle-action">
+                <span className="task-overdue-toggle-reschedule">Reschedule</span>
+                <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                  {overdueSectionOpen ? "∨" : ">"}
+                </span>
+              </span>
+            </button>
+            {overdueSectionOpen && (
+              <section
+                ref={overdueSectionRef}
+                id="task-overdue-list"
+                className="task-overdue-section"
+                aria-label="Overdue tasks"
+              >
+                <ul className="task-day-tasks task-overdue-tasks">
+                  {overdueTasks.map((task) => (
+                    <CompactTaskRow
+                      key={task.id ?? task.title}
+                      task={task}
+                      overdue
+                      editing={editingTaskId === task.id}
+                      highlighted={isTaskHighlighted(task.id)}
+                      popping={isTaskPopping(task.id)}
+                      now={new Date(countdownNow)}
+                      parentTitle={parentTitleFor(task.parent_id)}
+                      onComplete={() => requestCompleteTask(task.id)}
+                      onEdit={() => {
+                        if (task.id) {
+                          setFocusedOverflowTaskIds(null);
+                          setFocusedTaskId(task.id);
+                        }
+                        editTask(task);
+                      }}
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
         )}
         {activeView !== "home" &&
           activeView !== "discover" &&
