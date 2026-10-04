@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
-import { MINUTES_PER_DAY } from "./calendarTimeline";
-import { DayScheduleTrack } from "./DayScheduleTrack";
 import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
-import { TwinelineCountdownButton } from "./TwinelineCountdownButton";
 import type { ComposerDraft } from "./composer";
-import type { ScheduleSegment } from "./schedule";
 
 const ENERGY_DIVIDER_PCT = 62;
 
@@ -14,17 +10,7 @@ type HomeViewProps = {
   wheelElapsedEndMin: number | null;
   windowStartMin: number;
   windowEndMin: number;
-  countdownRemaining: string;
-  targetTimeLabel: string;
-  windowStartLabel: string;
-  timePickerOpen: boolean;
-  daySnoozed: boolean;
-  outsideTaskWindow: boolean;
-  onCountdownClick: () => void;
   focusTask: ComposerDraft | null;
-  dayElapsedPct: number;
-  focusTimelineMinutes: number;
-  focusScheduleSegments: ScheduleSegment[];
   renderFocusTask: (task: ComposerDraft) => ReactNode;
   overdueTasks: ComposerDraft[];
   overdueOpen: boolean;
@@ -38,74 +24,36 @@ export function HomeView({
   wheelElapsedEndMin,
   windowStartMin,
   windowEndMin,
-  countdownRemaining,
-  targetTimeLabel,
-  windowStartLabel,
-  timePickerOpen,
-  daySnoozed,
-  outsideTaskWindow,
-  onCountdownClick,
   focusTask,
-  dayElapsedPct,
-  focusTimelineMinutes,
-  focusScheduleSegments,
   renderFocusTask,
   overdueTasks,
   overdueOpen,
   onOverdueToggle,
   renderOverdueTask,
 }: HomeViewProps) {
-  const windowEndPct = (windowEndMin / MINUTES_PER_DAY) * 100;
-
   return (
     <div className="home-view">
       <div className="home-chrome">
         <header className="home-header">
-          <div className="home-wheel-row">
-            <div className="home-wheel">
-              <DayWheelChart
-                label={wheelLabel}
-                slices={wheelSlices}
-                elapsedEndMin={wheelElapsedEndMin}
-                windowStartMin={windowStartMin}
-                windowEndMin={windowEndMin}
-                showLegend={false}
-                showLabel={false}
-                compact
-              />
-            </div>
-            <div className="home-wheel-key-col">
-              <ul className="home-wheel-key" aria-label="Day wheel color key">
-                <li className="home-wheel-key-item is-anchored">Anchored</li>
-                <li className="home-wheel-key-item is-soft">Soft</li>
-                <li className="home-wheel-key-item is-overdue">Overdue</li>
-              </ul>
-              <div className="home-wheel-track-wrap">
-                <div
-                  className="home-window-countdown"
-                  style={{ left: `${windowEndPct}%` }}
-                >
-                  <TwinelineCountdownButton
-                    countdownRemaining={countdownRemaining}
-                    targetTimeLabel={targetTimeLabel}
-                    windowStartLabel={windowStartLabel}
-                    timePickerOpen={timePickerOpen}
-                    daySnoozed={daySnoozed}
-                    outsideTaskWindow={outsideTaskWindow}
-                    onClick={onCountdownClick}
-                  />
-                </div>
-                <DayScheduleTrack
-                  className="home-focus-track"
-                  segments={focusScheduleSegments}
-                  timelineMinutes={focusTimelineMinutes}
-                  elapsedPct={dayElapsedPct}
-                  windowStartMin={windowStartMin}
-                  windowEndMin={windowEndMin}
-                  aria-label={`Day progress ${Math.round(dayElapsedPct)} percent`}
-                />
-              </div>
-            </div>
+          <div className="home-wheel">
+            <DayWheelChart
+              label={wheelLabel}
+              slices={wheelSlices}
+              elapsedEndMin={wheelElapsedEndMin}
+              windowStartMin={windowStartMin}
+              windowEndMin={windowEndMin}
+              showLegend={false}
+              showLabel={false}
+              compact
+            />
+          </div>
+
+          <div className="home-wheel-key-col">
+            <ul className="home-wheel-key" aria-label="Day wheel color key">
+              <li className="home-wheel-key-item is-anchored">Anchored</li>
+              <li className="home-wheel-key-item is-soft">Soft</li>
+              <li className="home-wheel-key-item is-overdue">Overdue</li>
+            </ul>
           </div>
 
           <div className="home-focus">

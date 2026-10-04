@@ -78,13 +78,15 @@ export function DayScheduleTrack({
       aria-label={ariaLabel}
     >
       <div className="twineline-schedule-lane">
-        {elapsedPct > 0 && (
-          <div
-            className="twineline-schedule-elapsed"
-            style={{ width: `${elapsedPct}%` }}
-            aria-hidden="true"
-          />
-        )}
+        <div className="twineline-schedule-time-band" aria-hidden="true">
+          <div className="twineline-schedule-remaining" />
+          {elapsedPct > 0 && (
+            <div
+              className="twineline-schedule-elapsed"
+              style={{ width: `${elapsedPct}%` }}
+            />
+          )}
+        </div>
         {windowStartPct != null && (
           <div
             className="twineline-schedule-window-marker is-start"
@@ -99,64 +101,66 @@ export function DayScheduleTrack({
             aria-hidden="true"
           />
         )}
-        {segments.map((segment, index) => {
-          const widthPercent =
-            (Math.max(segment.minutes, segment.type === "task" ? 0.01 : 0) /
-              Math.max(timelineMinutes, 0.001)) *
-            100;
-          if (segment.type === "gap") {
-            return (
-              <div
-                key={`gap-${index}`}
-                className="twineline-schedule-gap"
-                style={{ flex: `0 0 ${widthPercent}%` }}
-                aria-hidden="true"
-              />
-            );
-          }
+        <div className="twineline-schedule-lane-blocks">
+          {segments.map((segment, index) => {
+            const widthPercent =
+              (Math.max(segment.minutes, segment.type === "task" ? 0.01 : 0) /
+                Math.max(timelineMinutes, 0.001)) *
+              100;
+            if (segment.type === "gap") {
+              return (
+                <div
+                  key={`gap-${index}`}
+                  className="twineline-schedule-gap"
+                  style={{ flex: `0 0 ${widthPercent}%` }}
+                  aria-hidden="true"
+                />
+              );
+            }
 
-          const taskId = segment.task.id;
-          const kind = scheduleBlockKind(segment.task, segment.overdue);
-          const highlighted = isTaskHighlighted?.(taskId) ?? false;
-          const popping = isTaskPopping?.(taskId) ?? false;
-          const classNames = [
-            "twineline-schedule-block",
-            `is-${kind}`,
-            highlighted ? "is-highlighted" : "",
-            popping ? "is-popping" : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
+            const taskId = segment.task.id;
+            const kind = scheduleBlockKind(segment.task, segment.overdue);
+            const highlighted = isTaskHighlighted?.(taskId) ?? false;
+            const popping = isTaskPopping?.(taskId) ?? false;
+            const classNames = [
+              "twineline-schedule-block",
+              `is-${kind}`,
+              highlighted ? "is-highlighted" : "",
+              popping ? "is-popping" : "",
+            ]
+              .filter(Boolean)
+              .join(" ");
 
-          if (!interactive) {
+            if (!interactive) {
+              return (
+                <div
+                  key={taskId ?? `task-${index}`}
+                  className={classNames}
+                  style={{ flex: `0 0 ${widthPercent}%` }}
+                  title={`${segment.task.title} · ${segment.minutes}m`}
+                />
+              );
+            }
+
             return (
-              <div
+              <button
                 key={taskId ?? `task-${index}`}
+                type="button"
+                data-schedule-task-id={taskId ?? undefined}
                 className={classNames}
                 style={{ flex: `0 0 ${widthPercent}%` }}
                 title={`${segment.task.title} · ${segment.minutes}m`}
+                aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
+                aria-pressed={focusedTaskId === taskId}
+                disabled={popping}
+                onClick={() => {
+                  if (!taskId || popping) return;
+                  onTaskSelect(segment.task);
+                }}
               />
             );
-          }
-
-          return (
-            <button
-              key={taskId ?? `task-${index}`}
-              type="button"
-              data-schedule-task-id={taskId ?? undefined}
-              className={classNames}
-              style={{ flex: `0 0 ${widthPercent}%` }}
-              title={`${segment.task.title} · ${segment.minutes}m`}
-              aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
-              aria-pressed={focusedTaskId === taskId}
-              disabled={popping}
-              onClick={() => {
-                if (!taskId || popping) return;
-                onTaskSelect(segment.task);
-              }}
-            />
-          );
-        })}
+          })}
+        </div>
       </div>
       {showCompleted && (
         <>

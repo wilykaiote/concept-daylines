@@ -9,7 +9,7 @@ import { ProjectsView } from "./ProjectsView";
 import { ProgramsView } from "./ProgramsView";
 import { ListsView } from "./ListsView";
 import { DayScheduleTrack } from "./DayScheduleTrack";
-import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
+import { type DayWheelSlice } from "./DayWheelChart";
 import { TwinelineCountdownButton } from "./TwinelineCountdownButton";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
@@ -93,63 +93,6 @@ function isAnchoredTask(task: ComposerDraft): boolean {
   return parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null;
 }
 
-function taskDurationMinutesForWheel(task: ComposerDraft): number {
-  const raw = task.est_duration;
-  if (raw == null || !Number.isFinite(raw) || raw <= 0) return 15;
-  return Math.max(1, Math.round(raw));
-}
-
-function placeOverdueTaskOnDay(
-  task: ComposerDraft,
-  undatedCursor: number,
-): { startMin: number; endMin: number; nextUndatedCursor: number } {
-  const duration = taskDurationMinutesForWheel(task);
-  const starts = parseTimeOfDay(task.starts_at);
-  const due = parseTimeOfDay(task.due_at);
-  let startMin: number;
-  let endMin: number;
-  let nextUndatedCursor = undatedCursor;
-  if (starts != null) {
-    startMin = starts;
-    endMin = Math.min(MINUTES_PER_DAY, starts + duration);
-  } else if (due != null) {
-    endMin = due;
-    startMin = Math.max(0, due - duration);
-  } else {
-    startMin = undatedCursor;
-    endMin = Math.min(MINUTES_PER_DAY, startMin + duration);
-    nextUndatedCursor = endMin;
-  }
-  if (endMin <= startMin) endMin = Math.min(MINUTES_PER_DAY, startMin + 1);
-  return { startMin, endMin, nextUndatedCursor };
-}
-
-function overdueTasksAsScheduleBlocks(
-  tasks: ComposerDraft[],
-  excludeIds: Set<string> = new Set(),
-): Array<{ startMin: number; endMin: number; task: ComposerDraft; overdue: boolean }> {
-  const blocks: Array<{
-    startMin: number;
-    endMin: number;
-    task: ComposerDraft;
-    overdue: boolean;
-  }> = [];
-  let undatedCursor = 0;
-  for (const task of tasks) {
-    if (task.id && excludeIds.has(task.id)) continue;
-    if (task.id) excludeIds.add(task.id);
-    const placed = placeOverdueTaskOnDay(task, undatedCursor);
-    undatedCursor = placed.nextUndatedCursor;
-    blocks.push({
-      startMin: placed.startMin,
-      endMin: placed.endMin,
-      task,
-      overdue: true,
-    });
-  }
-  return blocks;
-}
-
 function buildDayWheelSlices(
   blocks: Array<{
     key: string;
@@ -160,31 +103,18 @@ function buildDayWheelSlices(
     task: ComposerDraft;
     taskId: string | null;
   }>,
-  extraOverdueTasks: ComposerDraft[] = [],
 ): DayWheelSlice[] {
   const slices: DayWheelSlice[] = [];
-  const seen = new Set<string>();
 
   for (const block of blocks) {
-    if (block.taskId) seen.add(block.taskId);
+    if (block.overdue) continue;
     slices.push({
       key: block.key,
       title: block.title,
       startMin: block.startMin,
       endMin: block.endMin,
       kind: isAnchoredTask(block.task) ? "anchored" : "soft",
-      overdue: block.overdue,
-    });
-  }
-
-  for (const block of overdueTasksAsScheduleBlocks(extraOverdueTasks, seen)) {
-    slices.push({
-      key: `overdue-${block.task.id ?? block.task.title}`,
-      title: block.task.title,
-      startMin: block.startMin,
-      endMin: block.endMin,
-      kind: isAnchoredTask(block.task) ? "anchored" : "soft",
-      overdue: true,
+      overdue: false,
     });
   }
 
@@ -843,6 +773,16 @@ function MoreIcon() {
   );
 }
 
+function HorizontalMoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="6" cy="12" r="1.7" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+      <circle cx="18" cy="12" r="1.7" fill="currentColor" />
+    </svg>
+  );
+}
+
 function PrecedenceIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -902,50 +842,6 @@ function SettingsIcon() {
   );
 }
 
-function PieChartIcon() {
-  const cx = 12;
-  const cy = 12;
-  const outer = 8.2;
-  const ticks = Array.from({ length: 12 }, (_, i) => {
-    const angle = ((i / 12) * 360 - 90) * (Math.PI / 180);
-    const major = i % 3 === 0;
-    const inner = major ? 5.4 : 6.2;
-    return {
-      key: i,
-      x1: cx + Math.cos(angle) * inner,
-      y1: cy + Math.sin(angle) * inner,
-      x2: cx + Math.cos(angle) * outer,
-      y2: cy + Math.sin(angle) * outer,
-      major,
-    };
-  });
-
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle
-        cx={cx}
-        cy={cy}
-        r={outer}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      {ticks.map(({ key, x1, y1, x2, y2, major }) => (
-        <line
-          key={key}
-          x1={x1}
-          y1={y1}
-          x2={x2}
-          y2={y2}
-          stroke="currentColor"
-          strokeWidth={major ? 1.8 : 1.4}
-          strokeLinecap="round"
-        />
-      ))}
-    </svg>
-  );
-}
-
 function TaskViewExpandIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -960,21 +856,6 @@ function TaskViewCollapseIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M7 3.8h10L12 10.8Z" fill="currentColor" />
       <path d="M7 20.2h10L12 13.2Z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function ScrollTopIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M12 5v14M6 11l6-6 6 6"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
@@ -1831,7 +1712,7 @@ function App() {
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
   const [durationInput, setDurationInput] = useState("15");
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
-  const [dayWheelOpen, setDayWheelOpen] = useState(false);
+  const [timelineMenuOpen, setTimelineMenuOpen] = useState(false);
   const [taskGapMinutes, setTaskGapMinutes] = useState(() => loadTaskGapMinutes());
   const [taskGapInput, setTaskGapInput] = useState(() => String(loadTaskGapMinutes()));
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
@@ -1906,6 +1787,7 @@ function App() {
   const composerFieldRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const overdueSectionRef = useRef<HTMLElement>(null);
+  const overdueScrollBlockRef = useRef<HTMLDivElement>(null);
   const twinelineChromeRef = useRef<HTMLDivElement>(null);
   const twinelineSlotRef = useRef<HTMLDivElement>(null);
   const twinelineHeaderRef = useRef<HTMLElement>(null);
@@ -1982,8 +1864,8 @@ function App() {
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuScrollOffsetRef = useRef<number | null>(null);
-  const dayWheelButtonRef = useRef<HTMLButtonElement>(null);
-  const dayWheelMenuRef = useRef<HTMLDivElement>(null);
+  const timelineMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const timelineMenuRef = useRef<HTMLDivElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
   const taskViewControlsRef = useRef<HTMLDivElement>(null);
@@ -2075,27 +1957,15 @@ function App() {
     selectedDayLayout?.packEndMin ??
     packWindowEndMinutes(selectedDayTargetTime, selectedDayWindowStartMinutes);
   const selectedIsToday = sameCalendarDay(selectedDay, todayStart);
-  const selectedDayBlocks = (selectedDayLayout?.blocks ?? []).map((block) => ({
-    startMin: block.startMin,
-    endMin: block.endMin,
-    task: block.task,
-    overdue: block.overdue,
-  }));
-  const selectedDayBlockIds = new Set(
-    selectedDayBlocks
-      .map((block) => block.task.id)
-      .filter((id): id is string => !!id),
-  );
-  const selectedScheduleBlocks = selectedIsToday
-    ? [
-        ...selectedDayBlocks,
-        ...overdueTasksAsScheduleBlocks(overdueTasks, new Set(selectedDayBlockIds)),
-      ]
-    : selectedDayBlocks;
-  const selectedDayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
-    selectedDayLayout?.blocks ?? [],
-    selectedIsToday ? overdueTasks : [],
-  );
+  const selectedDayBlocks = (selectedDayLayout?.blocks ?? [])
+    .filter((block) => !block.overdue)
+    .map((block) => ({
+      startMin: block.startMin,
+      endMin: block.endMin,
+      task: block.task,
+      overdue: false as const,
+    }));
+  const selectedScheduleBlocks = selectedDayBlocks;
   const todayLayout = calendarLayoutByKey.get(dayKey(todayStart));
   const todayFocusBlock =
     todayLayout?.blocks.find((block) => !block.overdue) ?? null;
@@ -2111,7 +1981,6 @@ function App() {
       : 0;
   const todayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
     todayLayout?.blocks ?? [],
-    overdueTasks,
   );
   const appliedTodayBegins = resolveWindowStartTime(
     todayStart,
@@ -2141,29 +2010,6 @@ function App() {
     scheduleOverflowTasks,
   );
   const { timelineMinutes: scheduleTimelineMinutes, segments: scheduleSegments } = scheduleLayout;
-  const todayDayBlocks = (todayLayout?.blocks ?? []).map((block) => ({
-    startMin: block.startMin,
-    endMin: block.endMin,
-    task: block.task,
-    overdue: block.overdue,
-  }));
-  const todayDayBlockIds = new Set(
-    todayDayBlocks.map((block) => block.task.id).filter((id): id is string => !!id),
-  );
-  const todayScheduleBlocks = [
-    ...todayDayBlocks,
-    ...overdueTasksAsScheduleBlocks(overdueTasks, new Set(todayDayBlockIds)),
-  ];
-  const todayScheduleLayout = selectedIsToday
-    ? scheduleLayout
-    : buildScheduleLayoutForWindow(
-        todayScheduleBlocks,
-        0,
-        MINUTES_PER_DAY,
-        !outsideTaskWindow
-          ? collectPushedFromTodayWindowTasks(calendarTaskLayout, todayStart, baselineIds)
-          : [],
-      );
   const isTaskHighlighted = (id: string | null | undefined) => {
     if (!id) return false;
     if (focusedTaskId === id) return true;
@@ -2270,7 +2116,6 @@ function App() {
 
   const openTimePicker = () => {
     setCalendarOpen(false);
-    setDayWheelOpen(false);
     setTimeSavePromptOpen(false);
     const resolvedTarget = resolveTargetTime(selectedDay, defaultTargetTime, targetTimeOverrides);
     const resolvedWindowStart = resolveWindowStartTime(
@@ -3449,11 +3294,6 @@ function App() {
     setTaskGapInput(String(next));
   };
 
-  const openDayWheel = () => {
-    setTimePickerOpen(false);
-    setDayWheelOpen((open) => !open);
-  };
-
   const packingConfigRef = useRef({
     getTargetTimeForDay,
     getWindowStartTimeForDay,
@@ -4293,19 +4133,19 @@ function App() {
   }, [moreMenuOpen]);
 
   useEffect(() => {
-    if (!dayWheelOpen) return;
+    if (!timelineMenuOpen) return;
 
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (dayWheelMenuRef.current?.contains(target)) return;
-      if (dayWheelButtonRef.current?.contains(target)) return;
-      setDayWheelOpen(false);
+      if (timelineMenuRef.current?.contains(target)) return;
+      if (timelineMenuButtonRef.current?.contains(target)) return;
+      setTimelineMenuOpen(false);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [dayWheelOpen]);
+  }, [timelineMenuOpen]);
 
   useEffect(() => {
     if (!focusedTaskId && !focusedOverflowTaskIds?.length) return;
@@ -4361,27 +4201,7 @@ function App() {
             wheelElapsedEndMin={nowMinutes}
             windowStartMin={todayWindowStartMinutes}
             windowEndMin={todayPackEnd}
-            countdownRemaining={countdownRemaining}
-            targetTimeLabel={targetTimeLabel}
-            windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
-            timePickerOpen={timePickerOpen}
-            daySnoozed={daySnoozed}
-            outsideTaskWindow={outsideTaskWindow}
-            onCountdownClick={() => {
-              if (timePickerOpen) {
-                requestCloseTimePicker();
-                return;
-              }
-              if (!sameCalendarDay(selectedDay, todayStart)) {
-                selectDayFromUi(todayStart);
-              }
-              setActiveView("dayline");
-              openTimePicker();
-            }}
             focusTask={todayFocusTask}
-            dayElapsedPct={dayElapsedPct}
-            focusTimelineMinutes={todayScheduleLayout.timelineMinutes}
-            focusScheduleSegments={todayScheduleLayout.segments}
             renderFocusTask={(task) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
@@ -4550,40 +4370,6 @@ function App() {
               <div className="twineline-countdown-slide" ref={twinelineSlideRef}>
             {!calendarOpen && (
               <div className="twineline-countdown-bar">
-                <div className="twineline-settings-wrap">
-                  <ComposerOverlayMenu
-                    open={dayWheelOpen}
-                    anchorRef={dayWheelButtonRef}
-                    menuRef={dayWheelMenuRef}
-                    className="day-wheel-menu"
-                    role="dialog"
-                    aria-label="Day task wheel"
-                  >
-                    <DayWheelChart
-                      label={formatTwinelineDateLabel(selectedDay, new Date(countdownNow))}
-                      slices={selectedDayWheelSlices}
-                      elapsedEndMin={
-                        selectedIsToday
-                          ? nowMinutes
-                          : selectedDay.getTime() < todayStart.getTime()
-                            ? MINUTES_PER_DAY
-                            : null
-                      }
-                      windowStartMin={selectedDayWindowStartMinutes}
-                      windowEndMin={selectedDayPackEnd}
-                    />
-                  </ComposerOverlayMenu>
-                  <button
-                    ref={dayWheelButtonRef}
-                    type="button"
-                    className={`twineline-settings${dayWheelOpen ? " is-open" : ""}`}
-                    aria-label="Day task wheel"
-                    aria-expanded={dayWheelOpen}
-                    onClick={openDayWheel}
-                  >
-                    <PieChartIcon />
-                  </button>
-                </div>
                 {!timePickerOpen && (
                   <button
                     type="button"
@@ -4598,15 +4384,66 @@ function App() {
                     </span>
                   </button>
                 )}
-                <TwinelineCountdownButton
-                  countdownRemaining={countdownRemaining}
-                  targetTimeLabel={targetTimeLabel}
-                  windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
-                  timePickerOpen={timePickerOpen}
-                  daySnoozed={daySnoozed}
-                  outsideTaskWindow={outsideTaskWindow}
-                  onClick={() => (timePickerOpen ? requestCloseTimePicker() : openTimePicker())}
-                />
+                {timePickerOpen && (
+                  <TwinelineCountdownButton
+                    countdownRemaining={countdownRemaining}
+                    targetTimeLabel={targetTimeLabel}
+                    windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
+                    timePickerOpen={timePickerOpen}
+                    daySnoozed={daySnoozed}
+                    outsideTaskWindow={outsideTaskWindow}
+                    onClick={requestCloseTimePicker}
+                  />
+                )}
+                <div className="twineline-menu-wrap">
+                  <ComposerOverlayMenu
+                    open={timelineMenuOpen}
+                    anchorRef={timelineMenuButtonRef}
+                    menuRef={timelineMenuRef}
+                    align="end"
+                    className="twineline-menu"
+                    aria-label="Timeline menu"
+                  >
+                    <button
+                      type="button"
+                      className="app-attach-menu-item"
+                      role="menuitem"
+                      onClick={() => {
+                        setTimelineMenuOpen(false);
+                        openTimePicker();
+                      }}
+                    >
+                      <span>Set task window</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="app-attach-menu-item"
+                      role="menuitem"
+                      onClick={() => setTimelineMenuOpen(false)}
+                    >
+                      <span>Set aggression</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="app-attach-menu-item"
+                      role="menuitem"
+                      onClick={() => setTimelineMenuOpen(false)}
+                    >
+                      <span>Metrics</span>
+                    </button>
+                  </ComposerOverlayMenu>
+                  <button
+                    ref={timelineMenuButtonRef}
+                    type="button"
+                    className={`twineline-menu-button${timelineMenuOpen ? " is-open" : ""}`}
+                    aria-label="Timeline menu"
+                    aria-expanded={timelineMenuOpen}
+                    aria-haspopup="menu"
+                    onClick={() => setTimelineMenuOpen((open) => !open)}
+                  >
+                    <HorizontalMoreIcon />
+                  </button>
+                </div>
                 </div>
             )}
             {calendarOpen && (
@@ -4781,32 +4618,107 @@ function App() {
                   className="twineline-schedule"
                   aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
                 >
-                  <DayScheduleTrack
-                    segments={scheduleSegments}
-                    timelineMinutes={scheduleTimelineMinutes}
-                    elapsedPct={selectedDayElapsedPct}
-                    windowStartMin={selectedDayWindowStartMinutes}
-                    windowEndMin={selectedDayPackEnd}
-                    completedCount={selectedIsToday ? completedTodayCount : 0}
-                    focusedTaskId={focusedTaskId}
-                    isTaskHighlighted={isTaskHighlighted}
-                    isTaskPopping={isTaskPopping}
-                    onTaskSelect={(task) => {
-                      if (!task.id || isTaskPopping(task.id)) return;
-                      setFocusedOverflowTaskIds(null);
-                      setFocusedTaskId(task.id);
-                      scrollTaskIntoView(task.id);
-                    }}
-                  />
+                  <div className="twineline-schedule-track-wrap">
+                    <div
+                      className="twineline-window-countdown"
+                      style={{
+                        left: `${(selectedDayPackEnd / MINUTES_PER_DAY) * 100}%`,
+                      }}
+                    >
+                      <TwinelineCountdownButton
+                        countdownRemaining={countdownRemaining}
+                        targetTimeLabel={targetTimeLabel}
+                        windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
+                        timePickerOpen={timePickerOpen}
+                        daySnoozed={daySnoozed}
+                        outsideTaskWindow={outsideTaskWindow}
+                        onClick={() =>
+                          timePickerOpen ? requestCloseTimePicker() : openTimePicker()
+                        }
+                      />
+                    </div>
+                    <DayScheduleTrack
+                      segments={scheduleSegments}
+                      timelineMinutes={scheduleTimelineMinutes}
+                      elapsedPct={selectedDayElapsedPct}
+                      windowStartMin={selectedDayWindowStartMinutes}
+                      windowEndMin={selectedDayPackEnd}
+                      completedCount={selectedIsToday ? completedTodayCount : 0}
+                      focusedTaskId={focusedTaskId}
+                      isTaskHighlighted={isTaskHighlighted}
+                      isTaskPopping={isTaskPopping}
+                      onTaskSelect={(task) => {
+                        if (!task.id || isTaskPopping(task.id)) return;
+                        setFocusedOverflowTaskIds(null);
+                        setFocusedTaskId(task.id);
+                        scrollTaskIntoView(task.id);
+                      }}
+                    />
+                  </div>
                 </div>
               </>
             )}
               </div>
+              {showTimelineScrollTop && !calendarOpen && (
+                <div className="twineline-scroll-top-row">
+                  <button
+                    type="button"
+                    className="task-view-scroll-top"
+                    onClick={() => {
+                      const today = toStartOfDay(new Date(countdownNow));
+                      setSelectedDay(today);
+                      setChromeHidden(false);
+                      pendingTimelineScrollDayRef.current = null;
+
+                      const main = mainRef.current;
+                      const overdueBlock = overdueScrollBlockRef.current;
+                      const includeOverdue =
+                        overdueTasks.length > 0 && overdueBlock instanceof HTMLElement;
+
+                      if (main) {
+                        timelineScrollSyncLockRef.current = true;
+                        if (includeOverdue) {
+                          const chromeHeight = twinelineChromeRef.current?.offsetHeight ?? 0;
+                          const mainRect = main.getBoundingClientRect();
+                          const overdueRect = overdueBlock.getBoundingClientRect();
+                          const top =
+                            main.scrollTop +
+                            (overdueRect.top - mainRect.top) -
+                            chromeHeight;
+                          main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+                        } else {
+                          main.scrollTo({ top: 0, behavior: "smooth" });
+                        }
+                        window.setTimeout(() => {
+                          timelineScrollSyncLockRef.current = false;
+                          lastScrollTopRef.current = main.scrollTop;
+                        }, 450);
+                      }
+
+                      const strip = weekdayStripRef.current;
+                      if (strip) strip.scrollTo({ left: 0, behavior: "smooth" });
+                    }}
+                    aria-label="Back to top"
+                  >
+                    Back To Top
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 19V5M6 11l6-6 6 6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </header>
           </div>
         )}
         {activeView === "dayline" && !calendarOpen && overdueTasks.length > 0 && (
-          <div className="task-overdue-scroll-block">
+          <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
             <button
               type="button"
               className={`task-day-label task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
@@ -4849,8 +4761,8 @@ function App() {
                         editTask(task);
                       }}
                     />
-                  ))}
-                </ul>
+            ))}
+          </ul>
               </section>
             )}
           </div>
@@ -5042,44 +4954,6 @@ function App() {
           aria-hidden={!collapsed}
           {...(!collapsed ? { inert: true } : {})}
         >
-          {showTimelineScrollTop && (
-            <button
-              type="button"
-              className="task-view-scroll-top"
-              onClick={() => {
-                const today = toStartOfDay(new Date(countdownNow));
-                setSelectedDay(today);
-                const main = mainRef.current;
-                const overdue = overdueSectionRef.current;
-                const showOverdue =
-                  overdueSectionOpen && overdueTasks.length > 0 && overdue instanceof HTMLElement;
-
-                if (main && showOverdue) {
-                  pendingTimelineScrollDayRef.current = null;
-                  timelineScrollSyncLockRef.current = true;
-                  setChromeHidden(false);
-                  const chromeHeight = twinelineChromeRef.current?.offsetHeight ?? 0;
-                  const mainRect = main.getBoundingClientRect();
-                  const overdueRect = overdue.getBoundingClientRect();
-                  const top =
-                    main.scrollTop + (overdueRect.top - mainRect.top) - chromeHeight;
-                  main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-                  window.setTimeout(() => {
-                    timelineScrollSyncLockRef.current = false;
-                    lastScrollTopRef.current = main.scrollTop;
-                  }, 450);
-                } else {
-                  scrollTimelineToDay(today);
-                }
-
-                const strip = weekdayStripRef.current;
-                if (strip) strip.scrollTo({ left: 0, behavior: "smooth" });
-              }}
-              aria-label="Scroll to today"
-            >
-              <ScrollTopIcon />
-            </button>
-          )}
           <button
             type="button"
             className="task-view-toggle"
