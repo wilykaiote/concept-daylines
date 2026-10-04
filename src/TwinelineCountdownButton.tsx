@@ -47,12 +47,7 @@ export function TwinelineCountdownButton({
           </span>
         </>
       ) : outsideTaskWindow ? (
-        <>
-          <span className="twineline-countdown-remaining">REST</span>
-          <span className="twineline-date-chevron" aria-hidden="true">
-            {timePickerOpen ? "∨" : ">"}
-          </span>
-        </>
+        <span className="twineline-countdown-remaining">REST</span>
       ) : (
         <>
           <span className="twineline-countdown-remaining">{countdownRemaining}</span>

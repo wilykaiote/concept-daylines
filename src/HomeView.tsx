@@ -31,32 +31,31 @@ export function HomeView({
   onOverdueToggle,
   renderOverdueTask,
 }: HomeViewProps) {
+  let anchoredCount = 0;
+  let softCount = 0;
+  for (const slice of wheelSlices) {
+    if (slice.kind === "anchored") anchoredCount += 1;
+    else softCount += 1;
+  }
+  const overdueCount = overdueTasks.length;
+
   return (
     <div className="home-view">
       <div className="home-chrome">
         <header className="home-header">
-          <div className="home-wheel">
-            <DayWheelChart
-              label={wheelLabel}
-              slices={wheelSlices}
-              elapsedEndMin={wheelElapsedEndMin}
+          <div className="home-top-row">
+            <div className="home-wheel">
+              <DayWheelChart
+                label={wheelLabel}
+                slices={wheelSlices}
+                elapsedEndMin={wheelElapsedEndMin}
               windowStartMin={windowStartMin}
               windowEndMin={windowEndMin}
               showLegend={false}
-              showLabel={false}
-              compact
-            />
-          </div>
-
-          <div className="home-wheel-key-col">
-            <ul className="home-wheel-key" aria-label="Day wheel color key">
-              <li className="home-wheel-key-item is-anchored">Anchored</li>
-              <li className="home-wheel-key-item is-soft">Soft</li>
-              <li className="home-wheel-key-item is-overdue">Overdue</li>
-            </ul>
-          </div>
-
-          <div className="home-focus">
+                showLabel={false}
+                compact
+              />
+            </div>
             {focusTask != null ? (
               <div className="home-focus-current">
                 <span className="home-focus-badge">Focus</span>
@@ -65,6 +64,23 @@ export function HomeView({
             ) : (
               <p className="home-focus-empty">No focus task right now</p>
             )}
+          </div>
+
+          <div className="home-wheel-key-col">
+            <ul className="home-wheel-key" aria-label="Day wheel color key">
+              <li className="home-wheel-key-item is-anchored">
+                <span className="home-wheel-key-count">{anchoredCount}</span>
+                Anchored
+              </li>
+              <li className="home-wheel-key-item is-soft">
+                <span className="home-wheel-key-count">{softCount}</span>
+                Soft
+              </li>
+              <li className="home-wheel-key-item is-overdue">
+                <span className="home-wheel-key-count">{overdueCount}</span>
+                Overdue
+              </li>
+            </ul>
             {overdueTasks.length > 0 && (
               <button
                 type="button"
@@ -84,7 +100,10 @@ export function HomeView({
                 </span>
               </button>
             )}
-            {overdueTasks.length > 0 && overdueOpen && (
+          </div>
+
+          {overdueTasks.length > 0 && overdueOpen && (
+            <div className="home-focus">
               <section
                 id="home-overdue-list"
                 className="task-overdue-section home-overdue-section"
@@ -94,8 +113,8 @@ export function HomeView({
                   {overdueTasks.map((task) => renderOverdueTask(task))}
                 </ul>
               </section>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="home-side">
             <div

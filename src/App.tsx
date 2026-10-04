@@ -1364,7 +1364,7 @@ const TRAY_GAP = 4;
 const TRAY_PAD = 8;
 const TRAY_BORDER = 2;
 
-type OverlayMenuAlign = "start" | "end";
+type OverlayMenuAlign = "start" | "center" | "end";
 
 function ComposerOverlayMenu({
   open,
@@ -1419,7 +1419,9 @@ function ComposerOverlayMenu({
         ? matchRect.left
         : align === "end"
           ? rect.right - menuWidth
-          : rect.left;
+          : align === "center"
+            ? rect.left + rect.width / 2 - menuWidth / 2
+            : rect.left;
       left = Math.min(Math.max(left, viewLeft + pad), viewRight - menuWidth - pad);
 
       let top = rect.top - menuHeight - gap;
@@ -4370,37 +4372,12 @@ function App() {
               <div className="twineline-countdown-slide" ref={twinelineSlideRef}>
             {!calendarOpen && (
               <div className="twineline-countdown-bar">
-                {!timePickerOpen && (
-                  <button
-                    type="button"
-                    className="twineline-date"
-                    aria-label="Open calendar"
-                    aria-expanded={false}
-                    onClick={openCalendar}
-                  >
-                    <span>{formatMonthYearLabel(selectedDay)}</span>
-                    <span className="twineline-date-chevron" aria-hidden="true">
-                      {">"}
-                    </span>
-                  </button>
-                )}
-                {timePickerOpen && (
-                  <TwinelineCountdownButton
-                    countdownRemaining={countdownRemaining}
-                    targetTimeLabel={targetTimeLabel}
-                    windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
-                    timePickerOpen={timePickerOpen}
-                    daySnoozed={daySnoozed}
-                    outsideTaskWindow={outsideTaskWindow}
-                    onClick={requestCloseTimePicker}
-                  />
-                )}
                 <div className="twineline-menu-wrap">
                   <ComposerOverlayMenu
                     open={timelineMenuOpen}
                     anchorRef={timelineMenuButtonRef}
                     menuRef={timelineMenuRef}
-                    align="end"
+                    align="start"
                     className="twineline-menu"
                     aria-label="Timeline menu"
                   >
@@ -4444,7 +4421,31 @@ function App() {
                     <HorizontalMoreIcon />
                   </button>
                 </div>
-                </div>
+                {!timePickerOpen ? (
+                  <button
+                    type="button"
+                    className="twineline-date"
+                    aria-label="Open calendar"
+                    aria-expanded={false}
+                    onClick={openCalendar}
+                  >
+                    <span>{formatMonthYearLabel(selectedDay)}</span>
+                  </button>
+                ) : (
+                  <span className="twineline-date-spacer" aria-hidden="true" />
+                )}
+                <TwinelineCountdownButton
+                  countdownRemaining={countdownRemaining}
+                  targetTimeLabel={targetTimeLabel}
+                  windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
+                  timePickerOpen={timePickerOpen}
+                  daySnoozed={daySnoozed}
+                  outsideTaskWindow={outsideTaskWindow}
+                  onClick={() =>
+                    timePickerOpen ? requestCloseTimePicker() : openTimePicker()
+                  }
+                />
+              </div>
             )}
             {calendarOpen && (
               <div className="twineline-calendar" aria-label="Choose a day">
@@ -4619,24 +4620,6 @@ function App() {
                   aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
                 >
                   <div className="twineline-schedule-track-wrap">
-                    <div
-                      className="twineline-window-countdown"
-                      style={{
-                        left: `${(selectedDayPackEnd / MINUTES_PER_DAY) * 100}%`,
-                      }}
-                    >
-                      <TwinelineCountdownButton
-                        countdownRemaining={countdownRemaining}
-                        targetTimeLabel={targetTimeLabel}
-                        windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
-                        timePickerOpen={timePickerOpen}
-                        daySnoozed={daySnoozed}
-                        outsideTaskWindow={outsideTaskWindow}
-                        onClick={() =>
-                          timePickerOpen ? requestCloseTimePicker() : openTimePicker()
-                        }
-                      />
-                    </div>
                     <DayScheduleTrack
                       segments={scheduleSegments}
                       timelineMinutes={scheduleTimelineMinutes}

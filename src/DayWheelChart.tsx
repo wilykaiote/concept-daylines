@@ -9,20 +9,24 @@ export type DayWheelSlice = {
   overdue?: boolean;
 };
 
+/** 0° = top, clockwise. Arch: 12AM left (270°) → noon top (0°) → end right (90°). */
 function polar(cx: number, cy: number, r: number, angleDeg: number) {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
 function minutesToAngle(min: number) {
-  return (min / MINUTES_PER_DAY) * 360;
+  return 270 + (min / MINUTES_PER_DAY) * 180;
 }
 
-function formatMajorHourLabel(hour: number) {
-  if (hour === 0) return "12AM";
-  if (hour === 12) return "12PM";
-  if (hour === 6 || hour === 18) return "6";
-  return String(hour);
+function arcPath(cx: number, cy: number, r: number, startAngle: number, endAngle: number) {
+  const s = polar(cx, cy, r, startAngle);
+  const e = polar(cx, cy, r, endAngle);
+  const sweep = endAngle - startAngle;
+  // Geometric large-arc (>180°). Arch spans at most 180°, so this stays 0.
+  const large = sweep > 180 ? 1 : 0;
+  // SVG sweep=1 is clockwise in y-down space: left → top → right.
+  return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
 }
 
 function donutSegment(
@@ -36,26 +40,9 @@ function donutSegment(
   const start = minutesToAngle(Math.max(0, Math.min(MINUTES_PER_DAY, startMin)));
   let end = minutesToAngle(Math.max(0, Math.min(MINUTES_PER_DAY, endMin)));
   if (end - start < 1.2) end = start + 1.2;
-  if (end - start >= 359.9) {
-    // Full ring — approximate with two semicircles
-    const mid = start + 180;
-    const s = polar(cx, cy, rOuter, start);
-    const m = polar(cx, cy, rOuter, mid);
-    const e = polar(cx, cy, rOuter, end);
-    const si = polar(cx, cy, rInner, start);
-    const mi = polar(cx, cy, rInner, mid);
-    const ei = polar(cx, cy, rInner, end);
-    return [
-      `M ${s.x} ${s.y}`,
-      `A ${rOuter} ${rOuter} 0 1 1 ${m.x} ${m.y}`,
-      `A ${rOuter} ${rOuter} 0 1 1 ${e.x} ${e.y}`,
-      `L ${ei.x} ${ei.y}`,
-      `A ${rInner} ${rInner} 0 1 0 ${mi.x} ${mi.y}`,
-      `A ${rInner} ${rInner} 0 1 0 ${si.x} ${si.y}`,
-      "Z",
-    ].join(" ");
-  }
-  const large = end - start > 180 ? 1 : 0;
+  const sweep = end - start;
+  // Must be geometric degrees. Using >90 made half-day+ fills take the long way around.
+  const large = sweep > 180 ? 1 : 0;
   const s = polar(cx, cy, rOuter, start);
   const e = polar(cx, cy, rOuter, end);
   const si = polar(cx, cy, rInner, start);
@@ -93,15 +80,25 @@ export function DayWheelChart({
   compact = false,
 }: DayWheelChartProps) {
   const size = 260;
-  const pad = 16;
   const cx = size / 2;
-  const cy = size / 2;
+  // Diameter sits near the bottom of the arch content so the open half is cropped.
+  const cy = 128;
   const rOuter = 112;
   const rInner = 58;
-  const tickOuter = 118;
-  const tickInner = 108;
+  // Ticks sit on the inside of the band (toward the hub).
+  const tickOuter = rInner;
+  const tickInner = rInner - 10;
   const windowMarkerInner = rInner - 4;
-  const windowMarkerOuter = tickOuter + 4;
+  const windowMarkerOuter = rOuter + 4;
+  const archStart = minutesToAngle(0);
+  const archEnd = minutesToAngle(MINUTES_PER_DAY);
+  const bandRadius = (rOuter + rInner) / 2;
+  const viewLeft = cx - windowMarkerOuter;
+  const viewRight = cx + windowMarkerOuter;
+  const viewTop = cy - windowMarkerOuter;
+  const viewBottom = cy;
+  const viewWidth = viewRight - viewLeft;
+  const viewHeight = viewBottom - viewTop;
   const elapsed =
     elapsedEndMin == null
       ? null
@@ -118,12 +115,11 @@ export function DayWheelChart({
       };
     });
 
-  const hourTicks = Array.from({ length: 24 }, (_, hour) => {
+  const hourTicks = Array.from({ length: 25 }, (_, hour) => {
     const angle = minutesToAngle(hour * 60);
     const a = polar(cx, cy, tickInner, angle);
     const b = polar(cx, cy, tickOuter, angle);
-    const labelPos = polar(cx, cy, 128, angle);
-    return { hour, a, b, labelPos };
+    return { hour, a, b };
   });
 
   return (
@@ -131,14 +127,12 @@ export function DayWheelChart({
       {showLabel && <p className="day-wheel-label">{label}</p>}
       <svg
         className="day-wheel-svg"
-        viewBox={`${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`}
+        viewBox={`${viewLeft} ${viewTop} ${viewWidth} ${viewHeight}`}
         role="img"
-        aria-label={`24-hour task wheel for ${label}`}
+        aria-label={`24-hour task arch for ${label}`}
       >
-        <circle
-          cx={cx}
-          cy={cy}
-          r={(rOuter + rInner) / 2}
+        <path
+          d={arcPath(cx, cy, bandRadius, archStart, archEnd)}
           className="day-wheel-band"
           fill="none"
           strokeWidth={rOuter - rInner}
@@ -149,42 +143,30 @@ export function DayWheelChart({
             className="day-wheel-elapsed"
           />
         )}
-        <circle
-          cx={cx}
-          cy={cy}
-          r={rOuter}
+        <path
+          d={arcPath(cx, cy, rOuter, archStart, archEnd)}
           className="day-wheel-track"
           fill="none"
         />
-        <circle
-          cx={cx}
-          cy={cy}
-          r={rInner}
+        <path
+          d={arcPath(cx, cy, rInner, archStart, archEnd)}
           className="day-wheel-hub"
           fill="none"
         />
-        {hourTicks.map(({ hour, a, b, labelPos }) => (
-          <g key={hour}>
-            <line
-              x1={a.x}
-              y1={a.y}
-              x2={b.x}
-              y2={b.y}
-              className={`day-wheel-tick${hour % 6 === 0 ? " is-major" : ""}`}
-            />
-            {hour % 6 === 0 && (
-              <text
-                x={labelPos.x}
-                y={labelPos.y}
-                className="day-wheel-hour"
-                textAnchor="middle"
-                dominantBaseline="middle"
-              >
-                {formatMajorHourLabel(hour)}
-              </text>
-            )}
-          </g>
-        ))}
+        {hourTicks.map(({ hour, a, b }) => {
+          const isMajor = hour % 6 === 0 || hour === 24;
+          return (
+            <g key={hour}>
+              <line
+                x1={a.x}
+                y1={a.y}
+                x2={b.x}
+                y2={b.y}
+                className={`day-wheel-tick${isMajor ? " is-major" : ""}`}
+              />
+            </g>
+          );
+        })}
         {slices.map((slice) => {
           const fullyPast =
             elapsed != null && slice.endMin <= elapsed && !slice.overdue;
@@ -212,19 +194,12 @@ export function DayWheelChart({
         ))}
         <text
           x={cx}
-          y={cy - 6}
+          y={cy - 8}
           className="day-wheel-center-label"
           textAnchor="middle"
+          dominantBaseline="auto"
         >
-          24h
-        </text>
-        <text
-          x={cx}
-          y={cy + 12}
-          className="day-wheel-center-count"
-          textAnchor="middle"
-        >
-          {slices.length}
+          AM | PM
         </text>
       </svg>
       {showLegend && (
