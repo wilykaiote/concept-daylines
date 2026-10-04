@@ -1351,7 +1351,7 @@ function CompactTaskRow({
   const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
   const resolvedParentTitle = normalizeOptionalField(parentTitle);
   const hasImpact = impactValue != null && impactPercent != null;
-  const hasMetaSchedule =
+  const hasBottomMeta =
     scheduleLabel != null || showUrgency || durationLabel != null;
   const hasParent = resolvedParentTitle != null;
   const typeLabel =
@@ -1367,7 +1367,6 @@ function CompactTaskRow({
   const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
   const titleAside = (
     <div className="task-row-title-aside">
-      <span className="task-row-type-label">{typeLabel}</span>
       {hasImpact && (
         <span
           className="task-row-impact"
@@ -1383,6 +1382,7 @@ function CompactTaskRow({
           </span>
         </span>
       )}
+      <span className="task-row-type-label">{typeLabel}</span>
     </div>
   );
 
@@ -1431,25 +1431,27 @@ function CompactTaskRow({
             <p className="task-row-title">{task.title}</p>
             {!hasParent && titleAside}
           </div>
-          {hasMetaSchedule && (
-            <div className="task-row-meta-schedule">
-              {showUrgency && (
-                <span className="task-row-urgency">{urgencyLabel}</span>
-              )}
-              {scheduleLabel != null && (
-                <span
-                  className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
-                >
-                  {scheduleLabel}
-                </span>
-              )}
-              {durationLabel != null && (
-                <span className="task-row-duration">{durationLabel}</span>
-              )}
-            </div>
-          )}
         </button>
       </div>
+      {hasBottomMeta && (
+        <div className="task-row-bottom">
+          <div className="task-row-bottom-start">
+            {showUrgency && (
+              <span className="task-row-urgency">{urgencyLabel}</span>
+            )}
+            {scheduleLabel != null && (
+              <span
+                className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
+              >
+                {scheduleLabel}
+              </span>
+            )}
+          </div>
+          {durationLabel != null && (
+            <span className="task-row-duration">{durationLabel}</span>
+          )}
+        </div>
+      )}
     </li>
   );
 }

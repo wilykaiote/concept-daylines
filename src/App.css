@@ -1470,13 +1470,38 @@
   background: var(--bg-raised);
 }
 
-.task-row-top {
+.task-row-top,
+.task-row-bottom {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
   width: 100%;
+}
+
+.task-row-top {
+  padding-bottom: 4px;
+}
+
+.task-row-bottom {
+  padding-top: 4px;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.task-row-bottom-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-row-bottom .task-row-duration {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .task-row-main {
@@ -1497,6 +1522,15 @@
 .task-list.is-compact .task-row-main,
 .task-overdue-tasks .task-row-main {
   gap: 10px;
+}
+
+.task-list.is-compact .task-row-bottom,
+.task-overdue-tasks .task-row-bottom,
+.routines-children .task-row-bottom,
+.projects-children .task-row-bottom,
+.home-focus-task .task-row-bottom {
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
 }
 
 .task-list.is-compact .task-complete,
@@ -1597,38 +1631,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.task-row-meta-schedule {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
-  min-width: 0;
-  width: 100%;
-}
-
-.task-row-body > .task-row-meta-schedule {
-  margin-top: auto;
-  padding-top: 2px;
-  font-size: 0.85rem;
-  color: var(--text);
-}
-
-.task-row-meta-schedule .task-row-duration {
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.task-list.is-compact .task-row-body > .task-row-meta-schedule,
-.task-overdue-tasks .task-row-body > .task-row-meta-schedule,
-.routines-children .task-row-body > .task-row-meta-schedule,
-.projects-children .task-row-body > .task-row-meta-schedule,
-.home-focus-task .task-row-body > .task-row-meta-schedule {
-  font-size: 0.72rem;
-  line-height: 1.2;
-  letter-spacing: 0.01em;
 }
 
 .task-row-urgency {
@@ -1878,7 +1880,7 @@
   gap: 8px;
   min-width: 0;
   width: 100%;
-  padding-bottom: 4px;
+  padding-bottom: 0;
 }
 
 .task-list.is-compact .task-row-title-row,
@@ -1886,7 +1888,7 @@
 .routines-children .task-row-title-row,
 .projects-children .task-row-title-row,
 .home-focus-task .task-row-title-row {
-  padding-bottom: 3px;
+  padding-bottom: 0;
 }
 
 .task-row-title {
@@ -1899,17 +1901,17 @@
 
 .task-row-title-aside {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: flex-start;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
   flex-shrink: 0;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
 }
 
 .task-row-type-label {
   flex-shrink: 0;
-  margin-top: 0.15em;
+  margin-top: 0;
   color: var(--text);
   font-size: 0.68rem;
   font-weight: 650;
@@ -1920,7 +1922,7 @@
 }
 
 .task-row-title-aside .task-row-impact {
-  align-self: flex-end;
+  align-self: center;
 }
 
 .task-list.is-compact .task-row-type-label,
