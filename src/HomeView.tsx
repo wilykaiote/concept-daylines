@@ -32,13 +32,6 @@ export function HomeView({
   onOverdueToggle,
   renderOverdueTask,
 }: HomeViewProps) {
-  let anchoredCount = 0;
-  let softCount = 0;
-  for (const slice of wheelSlices) {
-    if (slice.kind === "anchored") anchoredCount += 1;
-    else softCount += 1;
-  }
-  const overdueCount = overdueTasks.length;
   const [homeStepIndex, setHomeStepIndex] = useState(0);
   const canStepBack = homeStepIndex > 0;
   const canStepForward = homeStepIndex < HOME_STEP_COUNT - 1;
@@ -59,25 +52,10 @@ export function HomeView({
                 showLabel={false}
                 compact
               />
-              <ul className="home-wheel-key" aria-label="Day wheel color key">
-                <li className="home-wheel-key-item is-anchored">
-                  <span className="home-wheel-key-count">{anchoredCount}</span>
-                  Anchored
-                </li>
-                <li className="home-wheel-key-item is-soft">
-                  <span className="home-wheel-key-count">{softCount}</span>
-                  Soft
-                </li>
-                <li className="home-wheel-key-item is-overdue">
-                  <span className="home-wheel-key-count">{overdueCount}</span>
-                  Overdue
-                </li>
-              </ul>
             </div>
             <div className="home-top-main">
               {focusTask != null ? (
                 <div className="home-focus-current">
-                  <span className="home-focus-badge">Focus</span>
                   <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
                 </div>
               ) : (

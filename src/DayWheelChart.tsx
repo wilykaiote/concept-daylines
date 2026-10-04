@@ -1,4 +1,4 @@
-import { MINUTES_PER_DAY } from "./calendarTimeline";
+import { formatMinutesLabel, MINUTES_PER_DAY } from "./calendarTimeline";
 
 export type DayWheelSlice = {
   key: string;
@@ -84,18 +84,20 @@ export function DayWheelChart({
   // Diameter sits near the bottom of the arch content so the open half is cropped.
   const cy = 128;
   const rOuter = 112;
-  const rInner = 58;
+  const rInner = 82;
   // Ticks sit on the inside of the band (toward the hub).
   const tickOuter = rInner;
   const tickInner = rInner - 10;
   const windowMarkerInner = rInner - 4;
   const windowMarkerOuter = rOuter + 4;
+  const windowLabelRadius = rOuter + 16;
   const archStart = minutesToAngle(0);
   const archEnd = minutesToAngle(MINUTES_PER_DAY);
   const bandRadius = (rOuter + rInner) / 2;
-  const viewLeft = cx - windowMarkerOuter;
-  const viewRight = cx + windowMarkerOuter;
-  const viewTop = cy - windowMarkerOuter;
+  const viewPad = 22;
+  const viewLeft = cx - windowLabelRadius - viewPad;
+  const viewRight = cx + windowLabelRadius + viewPad;
+  const viewTop = cy - windowLabelRadius - 4;
   const viewBottom = cy;
   const viewWidth = viewRight - viewLeft;
   const viewHeight = viewBottom - viewTop;
@@ -108,10 +110,15 @@ export function DayWheelChart({
     .map((min) => {
       const clamped = Math.max(0, Math.min(MINUTES_PER_DAY, min));
       const angle = minutesToAngle(clamped);
+      const label = polar(cx, cy, windowLabelRadius, angle);
       return {
         key: clamped,
+        labelText: formatMinutesLabel(clamped),
         a: polar(cx, cy, windowMarkerInner, angle),
         b: polar(cx, cy, windowMarkerOuter, angle),
+        label,
+        textAnchor:
+          label.x < cx - 6 ? "end" : label.x > cx + 6 ? "start" : "middle",
       };
     });
 
@@ -182,24 +189,34 @@ export function DayWheelChart({
             </path>
           );
         })}
-        {windowMarkers.map(({ key, a, b }) => (
-          <line
-            key={`window-${key}`}
-            x1={a.x}
-            y1={a.y}
-            x2={b.x}
-            y2={b.y}
-            className="day-wheel-window-marker"
-          />
+        {windowMarkers.map(({ key, a, b, label, labelText, textAnchor }) => (
+          <g key={`window-${key}`}>
+            <line
+              x1={a.x}
+              y1={a.y}
+              x2={b.x}
+              y2={b.y}
+              className="day-wheel-window-marker"
+            />
+            <text
+              x={label.x}
+              y={label.y}
+              className="day-wheel-window-label"
+              textAnchor={textAnchor}
+              dominantBaseline="middle"
+            >
+              {labelText}
+            </text>
+          </g>
         ))}
         <text
           x={cx}
-          y={cy - 8}
+          y={cy - rInner + 14}
           className="day-wheel-center-label"
           textAnchor="middle"
-          dominantBaseline="auto"
+          dominantBaseline="hanging"
         >
-          AM | PM
+          AM · PM
         </text>
       </svg>
       {showLegend && (
