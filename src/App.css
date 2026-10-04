@@ -92,19 +92,28 @@
 
 .home-wheel {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  flex: 0 1 25%;
-  width: 25%;
-  max-width: 25%;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 8px;
+  flex: 0 1 35%;
+  width: 35%;
+  max-width: 35%;
   min-width: 0;
 }
 
-.home-top-row .home-focus-current,
-.home-top-row .home-focus-empty {
+.home-top-main {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
   flex: 1 1 auto;
-  width: auto;
   min-width: 0;
+}
+
+.home-top-main .home-focus-current,
+.home-top-main .home-focus-empty {
+  width: 100%;
   margin: 0;
 }
 
@@ -112,7 +121,7 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   width: 100%;
   min-width: 0;
@@ -126,10 +135,10 @@
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 10px 14px;
   min-width: 0;
-  flex: 1 1 auto;
+  width: 100%;
 }
 
 .home-wheel-key-col .home-overdue-toggle {
@@ -137,7 +146,7 @@
   width: auto;
   margin: 0;
   padding: 0;
-  justify-content: flex-end;
+  justify-content: flex-start;
   background: transparent;
 }
 
@@ -307,10 +316,8 @@
     max-width: 100%;
   }
 
-  .home-top-row .home-focus-current,
-  .home-top-row .home-focus-empty {
+  .home-top-main {
     width: 100%;
-    flex-basis: auto;
   }
 }
 
