@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
+import { DayScheduleTrack } from "./DayScheduleTrack";
 import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
+import { TwinelineCountdownButton } from "./TwinelineCountdownButton";
 import type { ComposerDraft } from "./composer";
+import type { ScheduleSegment } from "./schedule";
 
 const ENERGY_DIVIDER_PCT = 62;
 
@@ -8,9 +11,20 @@ type HomeViewProps = {
   wheelLabel: string;
   wheelSlices: DayWheelSlice[];
   wheelElapsedEndMin: number | null;
+  windowStartMin: number;
+  windowEndMin: number;
+  countdownRemaining: string;
+  targetTimeLabel: string;
+  windowStartLabel: string;
+  timePickerOpen: boolean;
+  daySnoozed: boolean;
+  outsideTaskWindow: boolean;
+  onCountdownClick: () => void;
   focusTask: ComposerDraft | null;
-  focusProgressPct: number;
-  focusCountdownLabel: string;
+  dayElapsedPct: number;
+  focusCountdownLabel: string | null;
+  focusTimelineMinutes: number;
+  focusScheduleSegments: ScheduleSegment[];
   renderFocusTask: (task: ComposerDraft) => ReactNode;
   overdueTasks: ComposerDraft[];
   overdueOpen: boolean;
@@ -22,9 +36,20 @@ export function HomeView({
   wheelLabel,
   wheelSlices,
   wheelElapsedEndMin,
+  windowStartMin,
+  windowEndMin,
+  countdownRemaining,
+  targetTimeLabel,
+  windowStartLabel,
+  timePickerOpen,
+  daySnoozed,
+  outsideTaskWindow,
+  onCountdownClick,
   focusTask,
-  focusProgressPct,
+  dayElapsedPct,
   focusCountdownLabel,
+  focusTimelineMinutes,
+  focusScheduleSegments,
   renderFocusTask,
   overdueTasks,
   overdueOpen,
@@ -41,19 +66,59 @@ export function HomeView({
                 label={wheelLabel}
                 slices={wheelSlices}
                 elapsedEndMin={wheelElapsedEndMin}
+                windowStartMin={windowStartMin}
+                windowEndMin={windowEndMin}
                 showLegend={false}
                 showLabel={false}
                 compact
               />
             </div>
-            <ul className="home-wheel-key" aria-label="Day wheel color key">
-              <li className="home-wheel-key-item is-anchored">Anchored</li>
-              <li className="home-wheel-key-item is-soft">Soft</li>
-              <li className="home-wheel-key-item is-overdue">Overdue</li>
-            </ul>
+            <div className="home-wheel-key-col">
+              <TwinelineCountdownButton
+                countdownRemaining={countdownRemaining}
+                targetTimeLabel={targetTimeLabel}
+                windowStartLabel={windowStartLabel}
+                timePickerOpen={timePickerOpen}
+                daySnoozed={daySnoozed}
+                outsideTaskWindow={outsideTaskWindow}
+                onClick={onCountdownClick}
+              />
+              <ul className="home-wheel-key" aria-label="Day wheel color key">
+                <li className="home-wheel-key-item is-anchored">Anchored</li>
+                <li className="home-wheel-key-item is-soft">Soft</li>
+                <li className="home-wheel-key-item is-overdue">Overdue</li>
+              </ul>
+            </div>
           </div>
 
           <div className="home-focus">
+            {focusTask != null ? (
+              <div className="home-focus-current">
+                <div className="home-focus-track-row">
+                  <DayScheduleTrack
+                    className="home-focus-track"
+                    segments={focusScheduleSegments}
+                    timelineMinutes={focusTimelineMinutes}
+                    elapsedPct={dayElapsedPct}
+                    windowStartMin={windowStartMin}
+                    windowEndMin={windowEndMin}
+                    aria-label={`Day progress ${Math.round(dayElapsedPct)} percent`}
+                  />
+                  {focusCountdownLabel != null && (
+                    <span
+                      className="home-focus-countdown"
+                      aria-label={`Time remaining ${focusCountdownLabel}`}
+                    >
+                      {focusCountdownLabel}
+                    </span>
+                  )}
+                </div>
+                <span className="home-focus-badge">Focus</span>
+                <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
+              </div>
+            ) : (
+              <p className="home-focus-empty">No focus task right now</p>
+            )}
             {overdueTasks.length > 0 && (
               <button
                 type="button"
@@ -83,34 +148,6 @@ export function HomeView({
                   {overdueTasks.map((task) => renderOverdueTask(task))}
                 </ul>
               </section>
-            )}
-            {focusTask != null ? (
-              <div className="home-focus-current">
-                <div className="home-focus-track-row">
-                  <span className="home-focus-badge">Focus</span>
-                  <div
-                    className="home-focus-track"
-                    role="img"
-                    aria-label={`Task progress ${Math.round(focusProgressPct)} percent`}
-                  >
-                    <div className="home-focus-track-bubble">
-                      <div
-                        className="home-focus-track-fill"
-                        style={{ width: `${focusProgressPct}%` }}
-                      />
-                    </div>
-                  </div>
-                  <span
-                    className="home-focus-countdown"
-                    aria-label={`Time remaining ${focusCountdownLabel}`}
-                  >
-                    {focusCountdownLabel}
-                  </span>
-                </div>
-                <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
-              </div>
-            ) : (
-              <p className="home-focus-empty">No focus task right now</p>
             )}
           </div>
 

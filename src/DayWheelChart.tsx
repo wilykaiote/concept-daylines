@@ -18,6 +18,13 @@ function minutesToAngle(min: number) {
   return (min / MINUTES_PER_DAY) * 360;
 }
 
+function formatMajorHourLabel(hour: number) {
+  if (hour === 0) return "12AM";
+  if (hour === 12) return "12PM";
+  if (hour === 6 || hour === 18) return "6";
+  return String(hour);
+}
+
 function donutSegment(
   cx: number,
   cy: number,
@@ -67,6 +74,9 @@ type DayWheelChartProps = {
   slices: DayWheelSlice[];
   /** Minutes from midnight; elapsed sector runs 0 → this value. */
   elapsedEndMin?: number | null;
+  /** Task window bounds in minutes from midnight. */
+  windowStartMin?: number | null;
+  windowEndMin?: number | null;
   showLegend?: boolean;
   showLabel?: boolean;
   compact?: boolean;
@@ -76,6 +86,8 @@ export function DayWheelChart({
   label,
   slices,
   elapsedEndMin = null,
+  windowStartMin = null,
+  windowEndMin = null,
   showLegend = true,
   showLabel = true,
   compact = false,
@@ -88,10 +100,23 @@ export function DayWheelChart({
   const rInner = 58;
   const tickOuter = 118;
   const tickInner = 108;
+  const windowMarkerInner = rInner - 4;
+  const windowMarkerOuter = tickOuter + 4;
   const elapsed =
     elapsedEndMin == null
       ? null
       : Math.max(0, Math.min(MINUTES_PER_DAY, elapsedEndMin));
+  const windowMarkers = [windowStartMin, windowEndMin]
+    .filter((min): min is number => min != null && Number.isFinite(min))
+    .map((min) => {
+      const clamped = Math.max(0, Math.min(MINUTES_PER_DAY, min));
+      const angle = minutesToAngle(clamped);
+      return {
+        key: clamped,
+        a: polar(cx, cy, windowMarkerInner, angle),
+        b: polar(cx, cy, windowMarkerOuter, angle),
+      };
+    });
 
   const hourTicks = Array.from({ length: 24 }, (_, hour) => {
     const angle = minutesToAngle(hour * 60);
@@ -155,7 +180,7 @@ export function DayWheelChart({
                 textAnchor="middle"
                 dominantBaseline="middle"
               >
-                {hour}
+                {formatMajorHourLabel(hour)}
               </text>
             )}
           </g>
@@ -175,6 +200,16 @@ export function DayWheelChart({
             </path>
           );
         })}
+        {windowMarkers.map(({ key, a, b }) => (
+          <line
+            key={`window-${key}`}
+            x1={a.x}
+            y1={a.y}
+            x2={b.x}
+            y2={b.y}
+            className="day-wheel-window-marker"
+          />
+        ))}
         <text
           x={cx}
           y={cy - 6}

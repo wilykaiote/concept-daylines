@@ -8,7 +8,9 @@ import { RoutinesView } from "./RoutinesView";
 import { ProjectsView } from "./ProjectsView";
 import { ProgramsView } from "./ProgramsView";
 import { ListsView } from "./ListsView";
+import { DayScheduleTrack } from "./DayScheduleTrack";
 import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
+import { TwinelineCountdownButton } from "./TwinelineCountdownButton";
 import { buildComposerDraft, type ComposerDraft } from "./composer";
 import {
   buildNextRecurringTask,
@@ -97,6 +99,57 @@ function taskDurationMinutesForWheel(task: ComposerDraft): number {
   return Math.max(1, Math.round(raw));
 }
 
+function placeOverdueTaskOnDay(
+  task: ComposerDraft,
+  undatedCursor: number,
+): { startMin: number; endMin: number; nextUndatedCursor: number } {
+  const duration = taskDurationMinutesForWheel(task);
+  const starts = parseTimeOfDay(task.starts_at);
+  const due = parseTimeOfDay(task.due_at);
+  let startMin: number;
+  let endMin: number;
+  let nextUndatedCursor = undatedCursor;
+  if (starts != null) {
+    startMin = starts;
+    endMin = Math.min(MINUTES_PER_DAY, starts + duration);
+  } else if (due != null) {
+    endMin = due;
+    startMin = Math.max(0, due - duration);
+  } else {
+    startMin = undatedCursor;
+    endMin = Math.min(MINUTES_PER_DAY, startMin + duration);
+    nextUndatedCursor = endMin;
+  }
+  if (endMin <= startMin) endMin = Math.min(MINUTES_PER_DAY, startMin + 1);
+  return { startMin, endMin, nextUndatedCursor };
+}
+
+function overdueTasksAsScheduleBlocks(
+  tasks: ComposerDraft[],
+  excludeIds: Set<string> = new Set(),
+): Array<{ startMin: number; endMin: number; task: ComposerDraft; overdue: boolean }> {
+  const blocks: Array<{
+    startMin: number;
+    endMin: number;
+    task: ComposerDraft;
+    overdue: boolean;
+  }> = [];
+  let undatedCursor = 0;
+  for (const task of tasks) {
+    if (task.id && excludeIds.has(task.id)) continue;
+    if (task.id) excludeIds.add(task.id);
+    const placed = placeOverdueTaskOnDay(task, undatedCursor);
+    undatedCursor = placed.nextUndatedCursor;
+    blocks.push({
+      startMin: placed.startMin,
+      endMin: placed.endMin,
+      task,
+      overdue: true,
+    });
+  }
+  return blocks;
+}
+
 function buildDayWheelSlices(
   blocks: Array<{
     key: string;
@@ -124,33 +177,13 @@ function buildDayWheelSlices(
     });
   }
 
-  let undatedCursor = 0;
-  for (const task of extraOverdueTasks) {
-    if (task.id && seen.has(task.id)) continue;
-    if (task.id) seen.add(task.id);
-    const duration = taskDurationMinutesForWheel(task);
-    const starts = parseTimeOfDay(task.starts_at);
-    const due = parseTimeOfDay(task.due_at);
-    let startMin: number;
-    let endMin: number;
-    if (starts != null) {
-      startMin = starts;
-      endMin = Math.min(MINUTES_PER_DAY, starts + duration);
-    } else if (due != null) {
-      endMin = due;
-      startMin = Math.max(0, due - duration);
-    } else {
-      startMin = undatedCursor;
-      endMin = Math.min(MINUTES_PER_DAY, startMin + duration);
-      undatedCursor = endMin;
-    }
-    if (endMin <= startMin) endMin = Math.min(MINUTES_PER_DAY, startMin + 1);
+  for (const block of overdueTasksAsScheduleBlocks(extraOverdueTasks, seen)) {
     slices.push({
-      key: `overdue-${task.id ?? task.title}`,
-      title: task.title,
-      startMin,
-      endMin,
-      kind: isAnchoredTask(task) ? "anchored" : "soft",
+      key: `overdue-${block.task.id ?? block.task.title}`,
+      title: block.task.title,
+      startMin: block.startMin,
+      endMin: block.endMin,
+      kind: isAnchoredTask(block.task) ? "anchored" : "soft",
       overdue: true,
     });
   }
@@ -1328,15 +1361,16 @@ function CompactTaskRow({
           : task.type === "log"
             ? "LOG"
             : "TASK";
+  const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
 
   return (
     <li
       data-task-id={task.id ?? undefined}
-      className={`task-row${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
+      className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
     >
       <button
         type="button"
-        className={`task-complete${popping ? " is-checked" : ""}`}
+        className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
         aria-label="Mark complete"
         disabled={popping}
         onClick={onComplete}
@@ -2038,18 +2072,27 @@ function App() {
   const selectedDayWindowStartMinutes = packWindowStartMinutes(
     getWindowStartTimeForDay(selectedDay),
   );
-  const selectedPackEnd =
+  const selectedDayPackEnd =
     selectedDayLayout?.packEndMin ??
     packWindowEndMinutes(selectedDayTargetTime, selectedDayWindowStartMinutes);
   const selectedIsToday = sameCalendarDay(selectedDay, todayStart);
-  const selectedWindowStart = selectedIsToday
-    ? Math.min(selectedPackEnd, Math.max(selectedDayWindowStartMinutes, nowMinutes))
-    : selectedDayWindowStartMinutes;
   const selectedDayBlocks = (selectedDayLayout?.blocks ?? []).map((block) => ({
     startMin: block.startMin,
     endMin: block.endMin,
     task: block.task,
+    overdue: block.overdue,
   }));
+  const selectedDayBlockIds = new Set(
+    selectedDayBlocks
+      .map((block) => block.task.id)
+      .filter((id): id is string => !!id),
+  );
+  const selectedScheduleBlocks = selectedIsToday
+    ? [
+        ...selectedDayBlocks,
+        ...overdueTasksAsScheduleBlocks(overdueTasks, new Set(selectedDayBlockIds)),
+      ]
+    : selectedDayBlocks;
   const selectedDayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
     selectedDayLayout?.blocks ?? [],
     selectedIsToday ? overdueTasks : [],
@@ -2058,27 +2101,27 @@ function App() {
   const todayFocusBlock =
     todayLayout?.blocks.find((block) => !block.overdue) ?? null;
   const todayFocusTask = todayFocusBlock?.task ?? null;
-  const focusSpanMs = todayFocusBlock
-    ? Math.max(60_000, (todayFocusBlock.endMin - todayFocusBlock.startMin) * 60_000)
-    : 60_000;
-  const focusStartMs = todayFocusBlock
-    ? todayStart.getTime() + todayFocusBlock.startMin * 60_000
-    : 0;
   const focusEndMs = todayFocusBlock
     ? todayStart.getTime() + todayFocusBlock.endMin * 60_000
-    : 0;
-  const focusElapsedMs = todayFocusBlock
-    ? Math.min(focusSpanMs, Math.max(0, countdownNow - focusStartMs))
-    : 0;
-  const focusProgressPct = todayFocusBlock
-    ? Math.min(100, Math.max(0, (focusElapsedMs / focusSpanMs) * 100))
     : 0;
   const focusRemainingMs = todayFocusBlock
     ? Math.max(0, focusEndMs - countdownNow)
     : 0;
-  const focusCountdownLabel = formatCountdown(focusRemainingMs, {
-    hideZeroHours: true,
-  });
+  const dayElapsedPct = Math.min(
+    100,
+    Math.max(0, (nowMinutes / MINUTES_PER_DAY) * 100),
+  );
+  const selectedDayElapsedPct = selectedIsToday
+    ? dayElapsedPct
+    : selectedDay.getTime() < todayStart.getTime()
+      ? 100
+      : 0;
+  const focusCountdownLabel =
+    todayFocusTask != null && isAnchoredTask(todayFocusTask)
+      ? formatCountdown(focusRemainingMs, {
+          hideZeroHours: true,
+        })
+      : null;
   const todayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
     todayLayout?.blocks ?? [],
     overdueTasks,
@@ -2105,12 +2148,35 @@ function App() {
       ? collectPushedFromTodayWindowTasks(calendarTaskLayout, todayStart, baselineIds)
       : [];
   const scheduleLayout = buildScheduleLayoutForWindow(
-    selectedDayBlocks,
-    selectedWindowStart,
-    selectedPackEnd,
+    selectedScheduleBlocks,
+    0,
+    MINUTES_PER_DAY,
     scheduleOverflowTasks,
   );
   const { timelineMinutes: scheduleTimelineMinutes, segments: scheduleSegments } = scheduleLayout;
+  const todayDayBlocks = (todayLayout?.blocks ?? []).map((block) => ({
+    startMin: block.startMin,
+    endMin: block.endMin,
+    task: block.task,
+    overdue: block.overdue,
+  }));
+  const todayDayBlockIds = new Set(
+    todayDayBlocks.map((block) => block.task.id).filter((id): id is string => !!id),
+  );
+  const todayScheduleBlocks = [
+    ...todayDayBlocks,
+    ...overdueTasksAsScheduleBlocks(overdueTasks, new Set(todayDayBlockIds)),
+  ];
+  const todayScheduleLayout = selectedIsToday
+    ? scheduleLayout
+    : buildScheduleLayoutForWindow(
+        todayScheduleBlocks,
+        0,
+        MINUTES_PER_DAY,
+        !outsideTaskWindow
+          ? collectPushedFromTodayWindowTasks(calendarTaskLayout, todayStart, baselineIds)
+          : [],
+      );
   const isTaskHighlighted = (id: string | null | undefined) => {
     if (!id) return false;
     if (focusedTaskId === id) return true;
@@ -3861,7 +3927,7 @@ function App() {
 
         for (const tab of TRAY_TABS) {
           total += measureWidth(tab.id, compact);
-          itemCount += 1;
+            itemCount += 1;
         }
 
         return total + (itemCount - 1) * TRAY_GAP + TRAY_BORDER <= available;
@@ -4305,9 +4371,30 @@ function App() {
             wheelLabel={formatTwinelineDateLabel(todayStart, new Date(countdownNow))}
             wheelSlices={todayWheelSlices}
             wheelElapsedEndMin={nowMinutes}
+            windowStartMin={todayWindowStartMinutes}
+            windowEndMin={todayPackEnd}
+            countdownRemaining={countdownRemaining}
+            targetTimeLabel={targetTimeLabel}
+            windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
+            timePickerOpen={timePickerOpen}
+            daySnoozed={daySnoozed}
+            outsideTaskWindow={outsideTaskWindow}
+            onCountdownClick={() => {
+              if (timePickerOpen) {
+                requestCloseTimePicker();
+                return;
+              }
+              if (!sameCalendarDay(selectedDay, todayStart)) {
+                selectDayFromUi(todayStart);
+              }
+              setActiveView("dayline");
+              openTimePicker();
+            }}
             focusTask={todayFocusTask}
-            focusProgressPct={focusProgressPct}
+            dayElapsedPct={dayElapsedPct}
             focusCountdownLabel={focusCountdownLabel}
+            focusTimelineMinutes={todayScheduleLayout.timelineMinutes}
+            focusScheduleSegments={todayScheduleLayout.segments}
             renderFocusTask={(task) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
@@ -4495,6 +4582,8 @@ function App() {
                             ? MINUTES_PER_DAY
                             : null
                       }
+                      windowStartMin={selectedDayWindowStartMinutes}
+                      windowEndMin={selectedDayPackEnd}
                     />
                   </ComposerOverlayMenu>
                   <button
@@ -4522,53 +4611,16 @@ function App() {
                     </span>
                   </button>
                 )}
-                <button
-                  type="button"
-                  className={`twineline-countdown-button${timePickerOpen ? " is-open" : ""}${
-                    daySnoozed || outsideTaskWindow ? " is-rest" : ""
-                  }`}
-                  aria-label={
-                    timePickerOpen
-                      ? daySnoozed
-                        ? "Close target time picker. Day is snoozed."
-                        : outsideTaskWindow
-                          ? `Close target time picker. Rest time until ${formatMinutesLabel(todayWindowStartMinutes)}.`
-                          : `Close target time picker. Currently ${targetTimeLabel}.`
-                      : daySnoozed
-                        ? "Day snoozed. Undated tasks are hidden. Change target time or turn snooze off."
-                        : outsideTaskWindow
-                          ? `Rest time. Outside task window until ${formatMinutesLabel(todayWindowStartMinutes)}. Change target time.`
-                          : `Countdown to ${targetTimeLabel}. Change target time.`
-                  }
-                  aria-expanded={timePickerOpen}
+                <TwinelineCountdownButton
+                  countdownRemaining={countdownRemaining}
+                  targetTimeLabel={targetTimeLabel}
+                  windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
+                  timePickerOpen={timePickerOpen}
+                  daySnoozed={daySnoozed}
+                  outsideTaskWindow={outsideTaskWindow}
                   onClick={() => (timePickerOpen ? requestCloseTimePicker() : openTimePicker())}
-                >
-                  {daySnoozed ? (
-                    <>
-                      <span className="twineline-countdown-remaining">SNOOZE</span>
-                      <span className="twineline-date-chevron" aria-hidden="true">
-                        {timePickerOpen ? "∨" : ">"}
-                      </span>
-                    </>
-                  ) : outsideTaskWindow ? (
-                    <>
-                      <span className="twineline-countdown-remaining">REST</span>
-                      <span className="twineline-date-chevron" aria-hidden="true">
-                        {timePickerOpen ? "∨" : ">"}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="twineline-countdown-remaining">{countdownRemaining}</span>
-                      {timePickerOpen && (
-                        <span className="twineline-date-chevron" aria-hidden="true">
-                          ∨
-                        </span>
-                      )}
-                    </>
-                  )}
-                </button>
-              </div>
+                />
+                </div>
             )}
             {calendarOpen && (
               <div className="twineline-calendar" aria-label="Choose a day">
@@ -4742,60 +4794,23 @@ function App() {
                   className="twineline-schedule"
                   aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
                 >
-                  <div
-                    className={`twineline-schedule-track${
-                      selectedIsToday && completedTodayCount > 0 ? " has-completed" : ""
-                    }`}
-                  >
-                    <div className="twineline-schedule-lane">
-                      {scheduleSegments.map((segment, index) => {
-                        const widthPercent =
-                          (Math.max(segment.minutes, segment.type === "task" ? 0.01 : 0) /
-                            scheduleTimelineMinutes) *
-                          100;
-                        return segment.type === "gap" ? (
-                          <div
-                            key={`gap-${index}`}
-                            className="twineline-schedule-gap"
-                            style={{ flex: `0 0 ${widthPercent}%` }}
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <button
-                            key={segment.task.id ?? `task-${index}`}
-                            type="button"
-                            data-schedule-task-id={segment.task.id ?? undefined}
-                            className={`twineline-schedule-block${isTaskHighlighted(segment.task.id) ? " is-highlighted" : ""}${isTaskPopping(segment.task.id) ? " is-popping" : ""}`}
-                            style={{ flex: `0 0 ${widthPercent}%` }}
-                            title={`${segment.task.title} · ${segment.minutes}m`}
-                            aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
-                            aria-pressed={focusedTaskId === segment.task.id}
-                            disabled={isTaskPopping(segment.task.id)}
-                            onClick={() => {
-                              if (!segment.task.id || isTaskPopping(segment.task.id)) return;
-                              setFocusedOverflowTaskIds(null);
-                              setFocusedTaskId(segment.task.id);
-                              scrollTaskIntoView(segment.task.id);
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                    {selectedIsToday && completedTodayCount > 0 && (
-                      <>
-                        <span className="twineline-schedule-completed-check" aria-hidden="true">
-                          <CheckIcon />
-                        </span>
-                        <span
-                          className="twineline-schedule-completed"
-                          aria-label={`${completedTodayCount} task${completedTodayCount === 1 ? "" : "s"} completed today`}
-                          title={`${completedTodayCount} completed today`}
-                        >
-                          {completedTodayCount}
-                        </span>
-                      </>
-                    )}
-                  </div>
+                  <DayScheduleTrack
+                    segments={scheduleSegments}
+                    timelineMinutes={scheduleTimelineMinutes}
+                    elapsedPct={selectedDayElapsedPct}
+                    windowStartMin={selectedDayWindowStartMinutes}
+                    windowEndMin={selectedDayPackEnd}
+                    completedCount={selectedIsToday ? completedTodayCount : 0}
+                    focusedTaskId={focusedTaskId}
+                    isTaskHighlighted={isTaskHighlighted}
+                    isTaskPopping={isTaskPopping}
+                    onTaskSelect={(task) => {
+                      if (!task.id || isTaskPopping(task.id)) return;
+                      setFocusedOverflowTaskIds(null);
+                      setFocusedTaskId(task.id);
+                      scrollTaskIntoView(task.id);
+                    }}
+                  />
                 </div>
               </>
             )}
@@ -4847,8 +4862,8 @@ function App() {
                     editTask(task);
                   }}
                 />
-              ))}
-            </ul>
+            ))}
+          </ul>
           </section>
         )}
         {activeView !== "home" &&
@@ -5136,17 +5151,17 @@ function App() {
                 {NAV_ITEMS.map(({ id, label, Icon }) => {
                   const tabCompact = compact && id !== "dayline";
                   return (
-                    <button
-                      key={id}
-                      type="button"
-                      tabIndex={-1}
-                      data-measure-id={id}
-                      data-compact={String(compact)}
+                  <button
+                    key={id}
+                    type="button"
+                    tabIndex={-1}
+                    data-measure-id={id}
+                    data-compact={String(compact)}
                       className={`app-tray-tab${tabCompact ? " is-compact" : ""}`}
-                    >
-                      <Icon />
+                  >
+                    <Icon />
                       {!tabCompact && <span>{label}</span>}
-                    </button>
+                  </button>
                   );
                 })}
                 <button
@@ -5166,9 +5181,9 @@ function App() {
             {TRAY_TABS.filter((tab) => tab.id === "home").map(({ id, label, Icon, ...tab }) => {
               const inertNav = "inertNav" in tab && tab.inertNav === true;
               return (
-                <button
+            <button
                   key={id}
-                  type="button"
+              type="button"
                   className={`app-tray-tab${trayCompact ? " is-compact" : ""}${
                     !inertNav && activeView === id ? " is-active" : ""
                   }`}
@@ -5180,24 +5195,24 @@ function App() {
                     setMoreMenuOpen(false);
                     selectView(id);
                   }}
-                  tabIndex={collapsed && !searchOpen ? 0 : -1}
+              tabIndex={collapsed && !searchOpen ? 0 : -1}
                   aria-label={label}
-                >
+            >
                   <Icon />
                   {!trayCompact && <span>{label}</span>}
-                </button>
+            </button>
               );
             })}
-            <button
-              type="button"
+              <button
+                type="button"
               className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
               onClick={() => selectView("dayline")}
-              tabIndex={collapsed && !searchOpen ? 0 : -1}
+                tabIndex={collapsed && !searchOpen ? 0 : -1}
               aria-label={DAYLINE_TAB.label}
-            >
+              >
               <DaylineIcon />
               <span>{DAYLINE_TAB.label}</span>
-            </button>
+              </button>
             {TRAY_TABS.filter((tab) => tab.id === "discover").map(({ id, label, Icon, ...tab }) => {
               const inertNav = "inertNav" in tab && tab.inertNav === true;
               return (
@@ -5241,19 +5256,19 @@ function App() {
                 >
                   {(copy) => (
                     <>
-                      {moreMenuItems.map(({ id, label, Icon }) => (
-                        <button
+                {moreMenuItems.map(({ id, label, Icon }) => (
+                  <button
                           key={`${copy}-${id}`}
-                          type="button"
-                          className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
-                          role="menuitem"
+                    type="button"
+                    className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
+                    role="menuitem"
                           tabIndex={copy === 1 ? 0 : -1}
-                          onClick={() => selectView(id)}
-                        >
-                          <Icon />
-                          <span>{label}</span>
-                        </button>
-                      ))}
+                    onClick={() => selectView(id)}
+                  >
+                    <Icon />
+                    <span>{label}</span>
+                  </button>
+                ))}
                       <button
                         key={`${copy}-search`}
                         type="button"
@@ -5314,15 +5329,15 @@ function App() {
               }}
             />
             {searchOpen && (
-              <button
-                ref={searchButtonRef}
-                type="button"
+          <button
+            ref={searchButtonRef}
+            type="button"
                 className="app-tray-search-close"
                 aria-label="Close search"
                 onClick={closeSearch}
               >
                 <CloseIcon />
-              </button>
+          </button>
             )}
           </div>
         </div>
@@ -5543,7 +5558,7 @@ function App() {
                             onClick={() => setTaskTimeModeValue("starts_at")}
                           >
                             Starts at
-                          </button>
+                  </button>
                           <button
                             type="button"
                             className={`app-due-date-mode-button${taskTimeMode === "due_at" ? " is-active" : ""}`}
@@ -5723,8 +5738,8 @@ function App() {
                                     setLinkQaScheduleMenuOpen((open) => !open);
                                   }}
                                 >
-                                  <CalendarIcon />
-                                </button>
+                    <CalendarIcon />
+                  </button>
                               </div>
                               <div className="app-composer-link-qa-impact">
                                 <ComposerOverlayMenu
@@ -6276,7 +6291,7 @@ function App() {
                               {label}
                             </button>
                           ))}
-                        </div>
+              </div>
                         <div className="app-duration-stepper">
                           <button
                             type="button"
@@ -6685,11 +6700,11 @@ function App() {
                         }
                   }
                 >
-                  {hasText ? (
+                {hasText ? (
                     editingTaskId != null ? (
                       <CheckIcon />
                     ) : (
-                      <SendIcon />
+                    <SendIcon />
                     )
                   ) : (
                     <ComposeAddIcon

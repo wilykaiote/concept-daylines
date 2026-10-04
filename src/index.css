@@ -9,6 +9,11 @@
   --accent-bg: rgba(170, 59, 255, 0.1);
   --accent-border: rgba(170, 59, 255, 0.5);
   --danger: #c62828;
+  --day-kind-anchored: color-mix(in srgb, var(--accent) 72%, var(--bg-raised));
+  --day-kind-soft: color-mix(in srgb, #3b82f6 40%, var(--bg-raised));
+  --day-kind-overdue: color-mix(in srgb, var(--danger) 78%, var(--bg-raised));
+  --day-elapsed: #3a3a40;
+  --day-wheel-remaining: #1a1a1e;
   --shadow:
     rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
