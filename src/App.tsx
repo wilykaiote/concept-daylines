@@ -1312,21 +1312,22 @@ function CompactTaskRow({
   const durationLabel = formatTaskDurationLabel(task.est_duration);
   const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
   const resolvedParentTitle = normalizeOptionalField(parentTitle);
-  const hasMetaLeft =
-    urgencyLabel != null || impactValue != null || scheduleLabel != null;
+  const hasMetaPrimary = urgencyLabel != null || impactValue != null;
+  const hasMetaSchedule = scheduleLabel != null;
+  const hasMetaLeft = hasMetaPrimary || hasMetaSchedule;
   const hasParent = resolvedParentTitle != null;
   const hasSide = hasParent || durationLabel != null;
   const hasDetails = hasMetaLeft || hasSide;
-  const typeIcon =
-    task.type === "event" ? (
-      <CalendarIcon />
-    ) : task.type === "item" ? (
-      <ShoppingBagIcon />
-    ) : (
-      <TasksListIcon />
-    );
   const typeLabel =
-    task.type === "event" ? "Event" : task.type === "item" ? "Item" : "Task";
+    task.type === "event"
+      ? "EVENT"
+      : task.type === "item"
+        ? "ITEM"
+        : task.type === "note"
+          ? "NOTE"
+          : task.type === "log"
+            ? "LOG"
+            : "TASK";
 
   return (
     <li
@@ -1361,42 +1362,44 @@ function CompactTaskRow({
       >
         <div className="task-row-title-row">
           <p className="task-row-title">{task.title}</p>
-          <span className="task-row-type-icon" aria-label={typeLabel} title={typeLabel}>
-            {typeIcon}
-          </span>
+          <span className="task-row-type-label">{typeLabel}</span>
         </div>
         {hasDetails && (
           <div className="task-row-details">
             <div className="task-row-details-main">
               {hasMetaLeft && (
                 <div className="task-row-meta">
-                  <div className="task-row-meta-left">
-                    {urgencyLabel != null && (
-                      <span className="task-row-urgency">{urgencyLabel}</span>
-                    )}
-                    {impactValue != null && impactPercent != null && (
-                      <span
-                        className="task-row-impact"
-                        role="img"
-                        aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
-                        title={`Impact ${impactValue}`}
-                      >
-                        <span className="task-row-impact-track" aria-hidden="true">
-                          <span
-                            className="task-row-impact-fill"
-                            style={{ width: `${impactPercent}%` }}
-                          />
+                  {hasMetaPrimary && (
+                    <div className="task-row-meta-primary">
+                      {urgencyLabel != null && (
+                        <span className="task-row-urgency">{urgencyLabel}</span>
+                      )}
+                      {impactValue != null && impactPercent != null && (
+                        <span
+                          className="task-row-impact"
+                          role="img"
+                          aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
+                          title={`Impact ${impactValue}`}
+                        >
+                          <span className="task-row-impact-track" aria-hidden="true">
+                            <span
+                              className="task-row-impact-fill"
+                              style={{ width: `${impactPercent}%` }}
+                            />
+                          </span>
                         </span>
-                      </span>
-                    )}
-                    {scheduleLabel != null && (
+                      )}
+                    </div>
+                  )}
+                  {hasMetaSchedule && (
+                    <div className="task-row-meta-schedule">
                       <span
                         className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
                       >
                         {scheduleLabel}
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
