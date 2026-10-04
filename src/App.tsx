@@ -2098,12 +2098,6 @@ function App() {
   const todayFocusBlock =
     todayLayout?.blocks.find((block) => !block.overdue) ?? null;
   const todayFocusTask = todayFocusBlock?.task ?? null;
-  const focusEndMs = todayFocusBlock
-    ? todayStart.getTime() + todayFocusBlock.endMin * 60_000
-    : 0;
-  const focusRemainingMs = todayFocusBlock
-    ? Math.max(0, focusEndMs - countdownNow)
-    : 0;
   const dayElapsedPct = Math.min(
     100,
     Math.max(0, (nowMinutes / MINUTES_PER_DAY) * 100),
@@ -2113,12 +2107,6 @@ function App() {
     : selectedDay.getTime() < todayStart.getTime()
       ? 100
       : 0;
-  const focusCountdownLabel =
-    todayFocusTask != null && isAnchoredTask(todayFocusTask)
-      ? formatCountdown(focusRemainingMs, {
-          hideZeroHours: true,
-        })
-      : null;
   const todayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
     todayLayout?.blocks ?? [],
     overdueTasks,
@@ -4390,7 +4378,6 @@ function App() {
             }}
             focusTask={todayFocusTask}
             dayElapsedPct={dayElapsedPct}
-            focusCountdownLabel={focusCountdownLabel}
             focusTimelineMinutes={todayScheduleLayout.timelineMinutes}
             focusScheduleSegments={todayScheduleLayout.segments}
             renderFocusTask={(task) => (

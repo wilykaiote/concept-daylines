@@ -96,17 +96,12 @@
 
 .home-wheel-key-col {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
-}
-
-.home-wheel-key-col .twineline-countdown-button {
-  grid-column: auto;
-  justify-self: auto;
-  padding-left: 0;
 }
 
 .home-wheel-key {
@@ -114,18 +109,52 @@
   margin: 0;
   padding: 0;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 10px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
   min-width: 0;
 }
 
 .home-wheel-key-item {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 0.78rem;
   color: var(--text);
+}
+
+.home-wheel-track-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  padding-top: 22px;
+  overflow: visible;
+}
+
+.home-window-countdown {
+  position: absolute;
+  top: 0;
+  z-index: 4;
+  transform: translateX(-50%);
+  max-width: 100%;
+}
+
+.home-window-countdown .twineline-countdown-button {
+  grid-column: auto;
+  justify-self: auto;
+  padding: 0;
+  color: var(--accent);
+}
+
+.home-window-countdown .twineline-countdown-button:hover,
+.home-window-countdown .twineline-countdown-button:focus-visible,
+.home-window-countdown .twineline-countdown-button.is-open {
+  color: var(--accent);
+}
+
+.home-window-countdown .twineline-countdown-remaining {
+  font-size: 0.82rem;
 }
 
 .home-wheel-key-item::before {
@@ -279,14 +308,6 @@
   width: 100%;
 }
 
-.home-focus-track-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-}
-
 .home-focus-badge {
   display: block;
   margin: 0;
@@ -297,19 +318,9 @@
   color: var(--accent);
 }
 
-.home-focus-countdown {
-  flex-shrink: 0;
-  padding-right: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  color: var(--text-h);
-}
-
 .home-focus-track {
-  flex: 1 1 auto;
+  --schedule-track-bg: var(--day-wheel-remaining);
+  width: 100%;
   min-width: 0;
   cursor: default;
 }

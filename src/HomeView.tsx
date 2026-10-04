@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { MINUTES_PER_DAY } from "./calendarTimeline";
 import { DayScheduleTrack } from "./DayScheduleTrack";
 import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
 import { TwinelineCountdownButton } from "./TwinelineCountdownButton";
@@ -22,7 +23,6 @@ type HomeViewProps = {
   onCountdownClick: () => void;
   focusTask: ComposerDraft | null;
   dayElapsedPct: number;
-  focusCountdownLabel: string | null;
   focusTimelineMinutes: number;
   focusScheduleSegments: ScheduleSegment[];
   renderFocusTask: (task: ComposerDraft) => ReactNode;
@@ -47,7 +47,6 @@ export function HomeView({
   onCountdownClick,
   focusTask,
   dayElapsedPct,
-  focusCountdownLabel,
   focusTimelineMinutes,
   focusScheduleSegments,
   renderFocusTask,
@@ -56,6 +55,8 @@ export function HomeView({
   onOverdueToggle,
   renderOverdueTask,
 }: HomeViewProps) {
+  const windowEndPct = (windowEndMin / MINUTES_PER_DAY) * 100;
+
   return (
     <div className="home-view">
       <div className="home-chrome">
@@ -74,45 +75,42 @@ export function HomeView({
               />
             </div>
             <div className="home-wheel-key-col">
-              <TwinelineCountdownButton
-                countdownRemaining={countdownRemaining}
-                targetTimeLabel={targetTimeLabel}
-                windowStartLabel={windowStartLabel}
-                timePickerOpen={timePickerOpen}
-                daySnoozed={daySnoozed}
-                outsideTaskWindow={outsideTaskWindow}
-                onClick={onCountdownClick}
-              />
               <ul className="home-wheel-key" aria-label="Day wheel color key">
                 <li className="home-wheel-key-item is-anchored">Anchored</li>
                 <li className="home-wheel-key-item is-soft">Soft</li>
                 <li className="home-wheel-key-item is-overdue">Overdue</li>
               </ul>
+              <div className="home-wheel-track-wrap">
+                <div
+                  className="home-window-countdown"
+                  style={{ left: `${windowEndPct}%` }}
+                >
+                  <TwinelineCountdownButton
+                    countdownRemaining={countdownRemaining}
+                    targetTimeLabel={targetTimeLabel}
+                    windowStartLabel={windowStartLabel}
+                    timePickerOpen={timePickerOpen}
+                    daySnoozed={daySnoozed}
+                    outsideTaskWindow={outsideTaskWindow}
+                    onClick={onCountdownClick}
+                  />
+                </div>
+                <DayScheduleTrack
+                  className="home-focus-track"
+                  segments={focusScheduleSegments}
+                  timelineMinutes={focusTimelineMinutes}
+                  elapsedPct={dayElapsedPct}
+                  windowStartMin={windowStartMin}
+                  windowEndMin={windowEndMin}
+                  aria-label={`Day progress ${Math.round(dayElapsedPct)} percent`}
+                />
+              </div>
             </div>
           </div>
 
           <div className="home-focus">
             {focusTask != null ? (
               <div className="home-focus-current">
-                <div className="home-focus-track-row">
-                  <DayScheduleTrack
-                    className="home-focus-track"
-                    segments={focusScheduleSegments}
-                    timelineMinutes={focusTimelineMinutes}
-                    elapsedPct={dayElapsedPct}
-                    windowStartMin={windowStartMin}
-                    windowEndMin={windowEndMin}
-                    aria-label={`Day progress ${Math.round(dayElapsedPct)} percent`}
-                  />
-                  {focusCountdownLabel != null && (
-                    <span
-                      className="home-focus-countdown"
-                      aria-label={`Time remaining ${focusCountdownLabel}`}
-                    >
-                      {focusCountdownLabel}
-                    </span>
-                  )}
-                </div>
                 <span className="home-focus-badge">Focus</span>
                 <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
               </div>
