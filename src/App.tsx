@@ -2055,8 +2055,30 @@ function App() {
     selectedIsToday ? overdueTasks : [],
   );
   const todayLayout = calendarLayoutByKey.get(dayKey(todayStart));
-  const todayFocusTask =
-    todayLayout?.blocks.find((block) => !block.overdue)?.task ?? null;
+  const todayFocusBlock =
+    todayLayout?.blocks.find((block) => !block.overdue) ?? null;
+  const todayFocusTask = todayFocusBlock?.task ?? null;
+  const focusSpanMs = todayFocusBlock
+    ? Math.max(60_000, (todayFocusBlock.endMin - todayFocusBlock.startMin) * 60_000)
+    : 60_000;
+  const focusStartMs = todayFocusBlock
+    ? todayStart.getTime() + todayFocusBlock.startMin * 60_000
+    : 0;
+  const focusEndMs = todayFocusBlock
+    ? todayStart.getTime() + todayFocusBlock.endMin * 60_000
+    : 0;
+  const focusElapsedMs = todayFocusBlock
+    ? Math.min(focusSpanMs, Math.max(0, countdownNow - focusStartMs))
+    : 0;
+  const focusProgressPct = todayFocusBlock
+    ? Math.min(100, Math.max(0, (focusElapsedMs / focusSpanMs) * 100))
+    : 0;
+  const focusRemainingMs = todayFocusBlock
+    ? Math.max(0, focusEndMs - countdownNow)
+    : 0;
+  const focusCountdownLabel = formatCountdown(focusRemainingMs, {
+    hideZeroHours: true,
+  });
   const todayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
     todayLayout?.blocks ?? [],
     overdueTasks,
@@ -3392,7 +3414,7 @@ function App() {
   const lastAutoRescheduleDayRef = useRef<string | null>(loadLastAutoRescheduleDay());
 
   useEffect(() => {
-    if (activeView !== "dayline") return;
+    if (activeView !== "dayline" && activeView !== "home") return;
 
     const tick = () => {
       const nowMs = Date.now();
@@ -4284,6 +4306,8 @@ function App() {
             wheelSlices={todayWheelSlices}
             wheelElapsedEndMin={nowMinutes}
             focusTask={todayFocusTask}
+            focusProgressPct={focusProgressPct}
+            focusCountdownLabel={focusCountdownLabel}
             renderFocusTask={(task) => (
               <CompactTaskRow
                 key={task.id ?? task.title}

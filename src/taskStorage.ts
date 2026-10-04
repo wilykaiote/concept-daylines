@@ -295,12 +295,19 @@ export function msUntilTargetTime(hhmm: string, now = new Date()): number {
   return target.getTime() - now.getTime();
 }
 
-export function formatCountdown(ms: number): string {
+export function formatCountdown(
+  ms: number,
+  options?: { hideZeroHours?: boolean },
+): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+  const parts =
+    options?.hideZeroHours && hours === 0
+      ? [minutes, seconds]
+      : [hours, minutes, seconds];
+  return parts.map((part) => String(part).padStart(2, "0")).join(":");
 }
 
 export function formatTargetTimeLabel(hhmm: string): string {
