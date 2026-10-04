@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
 import type { ComposerDraft } from "./composer";
 
 const ENERGY_DIVIDER_PCT = 62;
+const HOME_STEP_COUNT = 4;
 
 type HomeViewProps = {
   wheelLabel: string;
@@ -38,6 +39,9 @@ export function HomeView({
     else softCount += 1;
   }
   const overdueCount = overdueTasks.length;
+  const [homeStepIndex, setHomeStepIndex] = useState(0);
+  const canStepBack = homeStepIndex > 0;
+  const canStepForward = homeStepIndex < HOME_STEP_COUNT - 1;
 
   return (
     <div className="home-view">
@@ -79,8 +83,8 @@ export function HomeView({
               ) : (
                 <p className="home-focus-empty">No focus task right now</p>
               )}
-              {overdueTasks.length > 0 && (
-                <div className="home-wheel-key-col">
+              <div className="home-wheel-key-col">
+                {overdueTasks.length > 0 && (
                   <button
                     type="button"
                     className={`task-day-label task-overdue-toggle home-overdue-toggle${overdueOpen ? " is-open" : ""}`}
@@ -98,8 +102,48 @@ export function HomeView({
                       </span>
                     </span>
                   </button>
+                )}
+                <div
+                  className="home-step-nav"
+                  role="group"
+                  aria-label={`Step ${homeStepIndex + 1} of ${HOME_STEP_COUNT}`}
+                >
+                  <button
+                    type="button"
+                    className="home-step-nav-btn is-prev"
+                    aria-label="Previous step"
+                    disabled={!canStepBack}
+                    onClick={() => setHomeStepIndex((step) => Math.max(0, step - 1))}
+                  >
+                    ‹
+                  </button>
+                  <div className="home-step-nav-track" aria-hidden="true">
+                    <span
+                      className={`home-step-nav-edge${canStepBack ? "" : " is-start"}`}
+                    />
+                    {Array.from({ length: HOME_STEP_COUNT }, (_, index) => (
+                      <span
+                        key={index}
+                        className={`home-step-nav-dot${index === homeStepIndex ? " is-current" : ""}${index < homeStepIndex ? " is-past" : ""}`}
+                      />
+                    ))}
+                    <span
+                      className={`home-step-nav-edge${canStepForward ? "" : " is-end"}`}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="home-step-nav-btn is-next"
+                    aria-label="Next step"
+                    disabled={!canStepForward}
+                    onClick={() =>
+                      setHomeStepIndex((step) => Math.min(HOME_STEP_COUNT - 1, step + 1))
+                    }
+                  >
+                    ›
+                  </button>
                 </div>
-              )}
+              </div>
             </div>
           </div>
 
