@@ -14,7 +14,7 @@ const DISCOVER_TAGS = [
   "stretch",
 ] as const;
 
-type DiscoverRoutine = {
+type DiscoverCollection = {
   id: string;
   title: string;
   author: string;
@@ -26,7 +26,7 @@ type DiscoverRoutine = {
   popular?: boolean;
 };
 
-const DISCOVER_ROUTINES: DiscoverRoutine[] = [
+const DISCOVER_COLLECTIONS: DiscoverCollection[] = [
   {
     id: "d1",
     title: "Desk Reset 12",
@@ -165,14 +165,14 @@ export function DiscoverView() {
   };
 
   const popular = useMemo(
-    () => DISCOVER_ROUTINES.filter((r) => r.popular).sort((a, b) => b.saves - a.saves),
+    () => DISCOVER_COLLECTIONS.filter((r) => r.popular).sort((a, b) => b.saves - a.saves),
     [],
   );
 
   const feed = useMemo(() => {
-    return DISCOVER_ROUTINES.filter((routine) => {
-      if (activeType !== "All" && routine.type !== activeType) return false;
-      if (activeTags.length > 0 && !activeTags.every((tag) => routine.tags.includes(tag))) {
+    return DISCOVER_COLLECTIONS.filter((collection) => {
+      if (activeType !== "All" && collection.type !== activeType) return false;
+      if (activeTags.length > 0 && !activeTags.every((tag) => collection.tags.includes(tag))) {
         return false;
       }
       return true;
@@ -185,10 +185,10 @@ export function DiscoverView() {
         <header className="discover-header">
           <div className="discover-title-row">
             <h1 className="discover-title">Discover</h1>
-            <p className="discover-subtitle">Groups from other people</p>
+            <p className="discover-subtitle">Collections from other people</p>
           </div>
 
-          <div className="discover-filters" aria-label="Group types">
+          <div className="discover-filters" aria-label="Collection types">
             {DISCOVER_TYPES.map((type) => (
               <button
                 key={type}
@@ -223,53 +223,53 @@ export function DiscoverView() {
           <h2 className="discover-section-title">Most popular</h2>
         </div>
         <div className="discover-popular-rail">
-          {popular.map((routine) => (
-            <article key={routine.id} className="discover-popular-card">
-              <p className="discover-card-type">{routine.type}</p>
-              <h3 className="discover-card-title">{routine.title}</h3>
-              <p className="discover-card-author">{routine.author}</p>
-              <p className="discover-card-saves">{routine.saves.toLocaleString()} saves</p>
+          {popular.map((collection) => (
+            <article key={collection.id} className="discover-popular-card">
+              <p className="discover-card-type">{collection.type}</p>
+              <h3 className="discover-card-title">{collection.title}</h3>
+              <p className="discover-card-author">{collection.author}</p>
+              <p className="discover-card-saves">{collection.saves.toLocaleString()} saves</p>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="discover-feed" aria-label="Group feed">
+      <section className="discover-feed" aria-label="Collection feed">
         <div className="discover-section-head">
           <h2 className="discover-section-title">For you</h2>
-          <p className="discover-feed-count">{feed.length} groups</p>
+          <p className="discover-feed-count">{feed.length} collections</p>
         </div>
         {feed.length === 0 ? (
-          <p className="discover-feed-empty">No groups match these filters.</p>
+          <p className="discover-feed-empty">No collections match these filters.</p>
         ) : (
-          feed.map((routine) => (
-            <article key={routine.id} className="discover-feed-card">
+          feed.map((collection) => (
+            <article key={collection.id} className="discover-feed-card">
               <div className="discover-feed-media" aria-hidden="true">
-                <span>{routine.type}</span>
+                <span>{collection.type}</span>
               </div>
               <div className="discover-feed-body">
                 <div className="discover-feed-top">
                   <div className="discover-feed-avatar" aria-hidden="true">
-                    {routine.author.slice(0, 1)}
+                    {collection.author.slice(0, 1)}
                   </div>
                   <div className="discover-feed-meta">
-                    <p className="discover-feed-author">{routine.author}</p>
-                    <p className="discover-feed-handle">{routine.handle}</p>
+                    <p className="discover-feed-author">{collection.author}</p>
+                    <p className="discover-feed-handle">{collection.handle}</p>
                   </div>
                   <button type="button" className="discover-feed-save" disabled>
                     Save
                   </button>
                 </div>
-                <h3 className="discover-feed-title">{routine.title}</h3>
-                <p className="discover-feed-blurb">{routine.blurb}</p>
+                <h3 className="discover-feed-title">{collection.title}</h3>
+                <p className="discover-feed-blurb">{collection.blurb}</p>
                 <div className="discover-feed-tags">
-                  {routine.tags.map((tag) => (
+                  {collection.tags.map((tag) => (
                     <span key={tag} className="discover-feed-tag">
                       #{tag}
                     </span>
                   ))}
                 </div>
-                <p className="discover-feed-saves">{routine.saves.toLocaleString()} saves</p>
+                <p className="discover-feed-saves">{collection.saves.toLocaleString()} saves</p>
               </div>
             </article>
           ))

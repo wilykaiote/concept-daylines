@@ -34,6 +34,13 @@ function migrateUrgencyNowToAsap(drafts: ComposerDraft[]): {
   return { drafts: next, changed };
 }
 
+function normalizePlanDraft(draft: ComposerDraft): ComposerDraft {
+  if (draft.type === "project" || draft.type === "program" || draft.type === "plan") {
+    return { ...draft, type: "plan" };
+  }
+  return draft;
+}
+
 export function loadTasks(): ComposerDraft[] {
   try {
     const raw = localStorage.getItem(TASKS_STORAGE_KEY);
@@ -41,8 +48,10 @@ export function loadTasks(): ComposerDraft[] {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     const { drafts, changed } = migrateUrgencyNowToAsap(parsed.filter(isComposerDraft));
-    if (changed) saveTasks(drafts);
-    return drafts;
+    const normalized = drafts.map(normalizePlanDraft);
+    const typeChanged = normalized.some((draft, index) => draft.type !== drafts[index]?.type);
+    if (changed || typeChanged) saveTasks(normalized);
+    return normalized;
   } catch {
     return [];
   }
@@ -50,31 +59,50 @@ export function loadTasks(): ComposerDraft[] {
 
 export function saveTasks(tasks: ComposerDraft[]): void {
   try {
-    localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
+    localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks.map(normalizePlanDraft)));
   } catch {
     // Ignore quota / private-mode write failures.
   }
 }
 
-const ROUTINES_STORAGE_KEY = "twineline.routines";
+const COLLECTIONS_STORAGE_KEY = "twineline.collections";
+const LEGACY_ROUTINES_STORAGE_KEY = "twineline.routines";
 
-export function loadRoutines(): ComposerDraft[] {
+function normalizeCollectionDraft(draft: ComposerDraft): ComposerDraft {
+  if (draft.type === "routine" || draft.type === "grouping" || draft.type === "collection") {
+    return { ...draft, type: "collection" };
+  }
+  return draft;
+}
+
+export function loadCollections(): ComposerDraft[] {
   try {
-    const raw = localStorage.getItem(ROUTINES_STORAGE_KEY);
+    const raw =
+      localStorage.getItem(COLLECTIONS_STORAGE_KEY) ??
+      localStorage.getItem(LEGACY_ROUTINES_STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     const { drafts, changed } = migrateUrgencyNowToAsap(parsed.filter(isComposerDraft));
-    if (changed) saveRoutines(drafts);
-    return drafts;
+    const normalized = drafts.map(normalizeCollectionDraft);
+    const typeChanged = normalized.some((draft, index) => draft.type !== drafts[index]?.type);
+    if (changed || typeChanged || localStorage.getItem(COLLECTIONS_STORAGE_KEY) == null) {
+      saveCollections(normalized);
+      localStorage.removeItem(LEGACY_ROUTINES_STORAGE_KEY);
+    }
+    return normalized;
   } catch {
     return [];
   }
 }
 
-export function saveRoutines(routines: ComposerDraft[]): void {
+export function saveCollections(collections: ComposerDraft[]): void {
   try {
-    localStorage.setItem(ROUTINES_STORAGE_KEY, JSON.stringify(routines));
+    localStorage.setItem(
+      COLLECTIONS_STORAGE_KEY,
+      JSON.stringify(collections.map(normalizeCollectionDraft)),
+    );
+    localStorage.removeItem(LEGACY_ROUTINES_STORAGE_KEY);
   } catch {
     // Ignore quota / private-mode write failures.
   }

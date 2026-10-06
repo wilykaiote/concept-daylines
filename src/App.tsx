@@ -4,9 +4,8 @@ import "./App.css";
 import { HomeView } from "./HomeView";
 import { DiscoverView } from "./DiscoverView";
 import { SettingsView } from "./SettingsView";
-import { RoutinesView } from "./RoutinesView";
-import { ProjectsView } from "./ProjectsView";
-import { ProgramsView } from "./ProgramsView";
+import { CollectionsView } from "./CollectionsView";
+import { PlansView } from "./PlansView";
 import { ListsView } from "./ListsView";
 import { DayScheduleTrack } from "./DayScheduleTrack";
 import { type DayWheelSlice } from "./DayWheelChart";
@@ -33,7 +32,7 @@ import {
   loadTargetTimeOverrides,
   loadTaskGapMinutes,
   loadTasks,
-  loadRoutines,
+  loadCollections,
   loadTodayWindowBaseline,
   loadWindowStartOverrides,
   loadWindowStartTime,
@@ -49,7 +48,7 @@ import {
   saveTargetTimeOverrides,
   saveTaskGapMinutes,
   saveTasks,
-  saveRoutines,
+  saveCollections,
   saveTodayWindowBaseline,
   saveWindowStartOverrides,
   saveWindowStartTime,
@@ -90,7 +89,11 @@ function isUndatedTask(task: ComposerDraft): boolean {
 }
 
 function isAnchoredTask(task: ComposerDraft): boolean {
-  return parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null;
+  return (
+    parseTaskDate(task.date) != null ||
+    parseTimeOfDay(task.starts_at) != null ||
+    parseTimeOfDay(task.due_at) != null
+  );
 }
 
 function buildDayWheelSlices(
@@ -406,27 +409,6 @@ function MenuBarsIcon() {
   );
 }
 
-function ListIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M8 7h12M8 12h12M8 17h12"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M4 7h.01M4 12h.01M4 17h.01"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 function HomeIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -486,7 +468,7 @@ function CycleIcon() {
   );
 }
 
-function ProgramsIcon() {
+function PlansIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <rect
@@ -548,7 +530,7 @@ function ParentTaskIcon() {
   );
 }
 
-function GroupOrbitIcon() {
+function CollectionOrbitIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="12" cy="12" r="2.4" fill="none" stroke="currentColor" strokeWidth="1.8" />
@@ -903,28 +885,16 @@ function ComposeAddIcon({ Icon, showPlus = true }: { Icon: () => ReactElement; s
 
 const COMPOSE_KINDS = [
   {
-    id: "grouping",
-    label: "Group",
-    placeholder: "Name this group...",
-    Icon: GroupOrbitIcon,
+    id: "collection",
+    label: "Collection",
+    placeholder: "Name this collection...",
+    Icon: CollectionOrbitIcon,
   },
   {
-    id: "program",
-    label: "Program",
-    placeholder: "Name this program...",
-    Icon: ProgramsIcon,
-  },
-  {
-    id: "project",
-    label: "Project",
-    placeholder: "Name this project...",
-    Icon: ListIcon,
-  },
-  {
-    id: "routine",
-    label: "Group",
-    placeholder: "Name this group...",
-    Icon: GroupOrbitIcon,
+    id: "plan",
+    label: "Plan",
+    placeholder: "Name this plan...",
+    Icon: PlansIcon,
   },
   {
     id: "list",
@@ -951,20 +921,18 @@ const COMPOSE_KINDS = [
 ] as const;
 
 /** Kept for view-specific compose; hidden from the compose-type menu. */
-const GROUPING_COMPOSE_KIND_IDS = ["program", "project", "routine", "list"] as const;
-type GroupingComposeKind = (typeof GROUPING_COMPOSE_KIND_IDS)[number];
+const CONTAINER_QUICK_ADD_KIND_IDS = ["plan", "collection", "list"] as const;
+type ContainerQuickAddKind = (typeof CONTAINER_QUICK_ADD_KIND_IDS)[number];
 
-function isGroupingComposeKind(kind: string): kind is GroupingComposeKind {
-  return (GROUPING_COMPOSE_KIND_IDS as readonly string[]).includes(kind);
+function isContainerQuickAddKind(kind: string): kind is ContainerQuickAddKind {
+  return (CONTAINER_QUICK_ADD_KIND_IDS as readonly string[]).includes(kind);
 }
 
 /** Named containers — not scheduled like tasks. */
 const CONTAINER_COMPOSE_KIND_IDS = [
-  "grouping",
-  "program",
-  "project",
+  "collection",
+  "plan",
   "list",
-  "routine",
 ] as const;
 type ContainerComposeKind = (typeof CONTAINER_COMPOSE_KIND_IDS)[number];
 
@@ -972,14 +940,16 @@ function isContainerComposeKind(kind: string): kind is ContainerComposeKind {
   return (CONTAINER_COMPOSE_KIND_IDS as readonly string[]).includes(kind);
 }
 
+function isCollectionTaskType(type: string | null | undefined): boolean {
+  return type === "collection" || type === "routine" || type === "grouping";
+}
+
+function isPlanTaskType(type: string | null | undefined): boolean {
+  return type === "plan" || type === "project" || type === "program";
+}
+
 function isContainerTaskType(type: string | null | undefined): boolean {
-  return (
-    type === "program" ||
-    type === "project" ||
-    type === "list" ||
-    type === "grouping" ||
-    type === "routine"
-  );
+  return type === "list" || isPlanTaskType(type) || isCollectionTaskType(type);
 }
 
 const LINK_ALL_TYPE_ITEM = {
@@ -995,23 +965,21 @@ const LINK_ITEM_TYPE_ITEMS = [
   { id: "item", label: "Items", Icon: ShoppingBagIcon },
 ] as const;
 
-const LINK_GROUPING_TYPE_ITEMS = [
-  { id: "program", label: "Programs", Icon: ProgramsIcon },
-  { id: "project", label: "Projects", Icon: ListIcon },
-  { id: "routine", label: "Groups", Icon: GroupOrbitIcon },
+const LINK_CONTAINER_TYPE_ITEMS = [
+  { id: "plan", label: "Plans", Icon: PlansIcon },
+  { id: "collection", label: "Collections", Icon: CollectionOrbitIcon },
   { id: "list", label: "Lists", Icon: MenuBarsIcon },
 ] as const;
 
-const COMPOSE_GROUPING_TYPE_ITEMS = [
-  { id: "routine", label: "Group", Icon: GroupOrbitIcon },
-  { id: "project", label: "Project", Icon: ListIcon },
-  { id: "program", label: "Program", Icon: ProgramsIcon },
+const COMPOSE_CONTAINER_TYPE_ITEMS = [
+  { id: "collection", label: "Collection", Icon: CollectionOrbitIcon },
+  { id: "plan", label: "Plan", Icon: PlansIcon },
   { id: "list", label: "List", Icon: MenuBarsIcon },
 ] as const;
 
 const LINK_TYPE_PICKER_ITEMS = [
   ...LINK_ITEM_TYPE_ITEMS,
-  ...LINK_GROUPING_TYPE_ITEMS,
+  ...LINK_CONTAINER_TYPE_ITEMS,
   LINK_ALL_TYPE_ITEM,
 ] as const;
 type LinkPickerType = (typeof LINK_TYPE_PICKER_ITEMS)[number]["id"];
@@ -1025,8 +993,8 @@ function defaultLinkPickerType(composeKind: string): LinkPickerType {
   return isLinkPickerType(composeKind) ? composeKind : "all";
 }
 
-/** Top of compose-type menu: List / Group / Project / Program. */
-const COMPOSE_KIND_MENU_LEAD_IDS = ["list", "grouping", "project", "program"] as const;
+/** Top of compose-type menu: List / Collection / Plan. */
+const COMPOSE_KIND_MENU_LEAD_IDS = ["list", "collection", "plan"] as const;
 const COMPOSE_KIND_MENU_LEAD = COMPOSE_KIND_MENU_LEAD_IDS.map(
   (id) => COMPOSE_KINDS.find((kind) => kind.id === id)!,
 );
@@ -1034,8 +1002,8 @@ const COMPOSE_KIND_MENU_LEAD = COMPOSE_KIND_MENU_LEAD_IDS.map(
 const COMPOSE_KIND_MENU_ITEMS = COMPOSE_KINDS.filter(
   (kind) =>
     kind.id !== "assistant" &&
-    kind.id !== "grouping" &&
-    !isGroupingComposeKind(kind.id),
+    kind.id !== "collection" &&
+    !isContainerQuickAddKind(kind.id),
 );
 const ASSISTANT_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "assistant")!;
 
@@ -1044,7 +1012,8 @@ type LinkRelation = "parent" | "child";
 type LinkPrecedence = "before" | "after";
 
 function composeKindFromTaskType(type: string | null | undefined): ComposeKind {
-  if (type === "routine" || type === "grouping") return "grouping";
+  if (isCollectionTaskType(type)) return "collection";
+  if (isPlanTaskType(type)) return "plan";
   if (type != null && COMPOSE_KINDS.some((kind) => kind.id === type)) {
     return type as ComposeKind;
   }
@@ -1052,30 +1021,29 @@ function composeKindFromTaskType(type: string | null | undefined): ComposeKind {
 }
 
 /** Linking tool — available on every non-assistant compose type. */
-const GROUPING_TOOL_COMPOSE_KINDS = COMPOSE_KINDS.filter((kind) => kind.id !== "assistant").map(
+const LINKING_TOOL_COMPOSE_KINDS = COMPOSE_KINDS.filter((kind) => kind.id !== "assistant").map(
   (kind) => kind.id,
 );
-type GroupingToolComposeKind = (typeof GROUPING_TOOL_COMPOSE_KINDS)[number];
+type LinkingToolComposeKind = (typeof LINKING_TOOL_COMPOSE_KINDS)[number];
 
-function isGroupingToolComposeKind(kind: ComposeKind): kind is GroupingToolComposeKind {
-  return (GROUPING_TOOL_COMPOSE_KINDS as readonly string[]).includes(kind);
+function isLinkingToolComposeKind(kind: ComposeKind): kind is LinkingToolComposeKind {
+  return (LINKING_TOOL_COMPOSE_KINDS as readonly string[]).includes(kind);
 }
 
-const GROUPING_TOOL_HINT = "Linking";
+const LINKING_TOOL_HINT = "Linking";
 const TASK_POP_MS = 420;
 
 const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
 const HOME_TAB = { id: "home", label: "Home", Icon: HomeIcon } as const;
 const DISCOVER_TAB = { id: "discover", label: "Discover", Icon: DiscoverIcon } as const;
 const NOTES_TAB = { id: "notes", label: "Notes", Icon: NotesIcon } as const;
-const ROUTINES_TAB = { id: "routines", label: "Groups", Icon: GroupOrbitIcon } as const;
-const PROGRAMS_TAB = { id: "programs", label: "Programs", Icon: ProgramsIcon } as const;
+const COLLECTIONS_TAB = { id: "collections", label: "Collections", Icon: CollectionOrbitIcon } as const;
+const PLANS_TAB = { id: "plans", label: "Plans", Icon: PlansIcon } as const;
 
 const TRAY_TABS = [HOME_TAB, DISCOVER_TAB] as const;
 
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
-  { id: "projects", label: "Projects", Icon: ListIcon },
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
   { id: "groceries", label: "Groceries", Icon: FoodIcon },
   { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
@@ -1090,9 +1058,8 @@ const TEND_MENU_ITEMS = [
   { id: "settings", label: "Settings", Icon: SettingsIcon },
   { id: "profile", label: "Profile", Icon: ProfileIcon },
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
-  ROUTINES_TAB,
-  PROGRAMS_TAB,
-  { id: "projects", label: "Projects", Icon: ListIcon },
+  COLLECTIONS_TAB,
+  PLANS_TAB,
   NOTES_TAB,
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
 ] as const;
@@ -1232,9 +1199,9 @@ function CompactTaskRow({
   const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
   const resolvedParentTitle = normalizeOptionalField(parentTitle);
   const hasImpact = impactValue != null && impactPercent != null;
-  const hasBottomMeta =
-    scheduleLabel != null || showUrgency || durationLabel != null;
   const hasParent = resolvedParentTitle != null;
+  const hasTopMeta = scheduleLabel != null;
+  const hasBottomMeta = hasParent || showUrgency || durationLabel != null;
   const typeLabel =
     task.type === "event"
       ? "EVENT"
@@ -1272,12 +1239,13 @@ function CompactTaskRow({
       data-task-id={task.id ?? undefined}
       className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
     >
-      {hasParent && (
+      {hasTopMeta && (
         <div className="task-row-top">
-          <div className="task-row-parent">
-            <span className="task-row-parent-name">{resolvedParentTitle}</span>
-            <LinkIcon />
-          </div>
+          <span
+            className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
+          >
+            {scheduleLabel}
+          </span>
           {titleAside}
         </div>
       )}
@@ -1310,7 +1278,7 @@ function CompactTaskRow({
         >
           <div className="task-row-title-row">
             <p className="task-row-title">{task.title}</p>
-            {!hasParent && titleAside}
+            {!hasTopMeta && titleAside}
           </div>
         </button>
       </div>
@@ -1320,12 +1288,11 @@ function CompactTaskRow({
             {showUrgency && (
               <span className="task-row-urgency">{urgencyLabel}</span>
             )}
-            {scheduleLabel != null && (
-              <span
-                className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
-              >
-                {scheduleLabel}
-              </span>
+            {hasParent && (
+              <div className="task-row-parent">
+                <span className="task-row-parent-name">{resolvedParentTitle}</span>
+                <LinkIcon />
+              </div>
             )}
           </div>
           {durationLabel != null && (
@@ -1337,20 +1304,19 @@ function CompactTaskRow({
   );
 }
 
-const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, NOTES_TAB, ROUTINES_TAB, PROGRAMS_TAB, ...MORE_OPTIONS] as const;
+const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, NOTES_TAB, COLLECTIONS_TAB, PLANS_TAB, ...MORE_OPTIONS] as const;
 
 type ActiveView = (typeof NAV_ITEMS)[number]["id"];
 
 const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   dayline: "task",
   home: "task",
-  discover: "grouping",
+  discover: "collection",
   tasks: "task",
   notes: "note",
-  projects: "project",
+  plans: "plan",
   lists: "list",
-  routines: "grouping",
-  programs: "program",
+  collections: "collection",
   groceries: "item",
   nutrition: "item",
   fitness: "task",
@@ -1689,11 +1655,11 @@ function App() {
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
   const [linkRelation, setLinkRelation] = useState<LinkRelation>("parent");
   const [linkSearchQuery, setLinkSearchQuery] = useState("");
-  const [linkGroupingType, setLinkGroupingType] = useState<LinkPickerType>("all");
-  const [linkGroupingTypeMenuOpen, setLinkGroupingTypeMenuOpen] = useState(false);
+  const [linkContainerType, setLinkContainerType] = useState<LinkPickerType>("all");
+  const [linkContainerTypeMenuOpen, setLinkContainerTypeMenuOpen] = useState(false);
   const [linkQuickAddOpen, setLinkQuickAddOpen] = useState(false);
   const [linkQuickAddTitle, setLinkQuickAddTitle] = useState("");
-  const [linkQuickAddKind, setLinkQuickAddKind] = useState<GroupingComposeKind>("routine");
+  const [linkQuickAddKind, setLinkQuickAddKind] = useState<ContainerQuickAddKind>("collection");
   const [linkQuickAddKindMenuOpen, setLinkQuickAddKindMenuOpen] = useState(false);
   const [linkQaUrgencyMenuOpen, setLinkQaUrgencyMenuOpen] = useState(false);
   const [linkQaUrgencyActivated, setLinkQaUrgencyActivated] = useState(false);
@@ -1726,18 +1692,16 @@ function App() {
   const [tasks, setTasks] = useState<ComposerDraft[]>(() => {
     const loaded = loadTasks();
     const migrated = loaded
-      .filter((task) => task.type === "routine" || task.type === "grouping")
-      .map((task) => ({ ...task, type: "routine" }));
-    const rest = loaded.filter(
-      (task) => task.type !== "routine" && task.type !== "grouping",
-    );
+      .filter((task) => isCollectionTaskType(task.type))
+      .map((task) => ({ ...task, type: "collection" as const }));
+    const rest = loaded.filter((task) => !isCollectionTaskType(task.type));
     if (migrated.length > 0) {
       saveTasks(rest);
-      saveRoutines([...loadRoutines(), ...migrated]);
+      saveCollections([...loadCollections(), ...migrated]);
     }
     return rest;
   });
-  const [routines, setRoutines] = useState<ComposerDraft[]>(() => loadRoutines());
+  const [collections, setCollections] = useState<ComposerDraft[]>(() => loadCollections());
   const [poppingTaskIds, setPoppingTaskIds] = useState<string[]>([]);
   const [completedTodayCount, setCompletedTodayCount] = useState(0);
   const [completedTodayDayKey, setCompletedTodayDayKey] = useState(() =>
@@ -1839,6 +1803,12 @@ function App() {
   const taskTimeInputRef = useRef<HTMLInputElement>(null);
   const targetTimeInputRef = useRef<HTMLInputElement>(null);
   const windowStartInputRef = useRef<HTMLInputElement>(null);
+  const homeCountdownButtonRef = useRef<HTMLSpanElement>(null);
+  const daylineCountdownButtonRef = useRef<HTMLSpanElement>(null);
+  const timeFramesMenuRef = useRef<HTMLDivElement>(null);
+  const [timePickerSource, setTimePickerSource] = useState<"home" | "dayline">("dayline");
+  const timePickerAnchorRef =
+    timePickerSource === "home" ? homeCountdownButtonRef : daylineCountdownButtonRef;
   const scheduleDraftRef = useRef<{
     date: string | null;
     starts_at: string | null;
@@ -1846,8 +1816,8 @@ function App() {
     mode: "starts_at" | "due_at";
   }>({ date: null, starts_at: null, due_at: null, mode: "starts_at" });
   const parentTaskButtonRef = useRef<HTMLButtonElement>(null);
-  const linkGroupingTypeButtonRef = useRef<HTMLButtonElement>(null);
-  const linkGroupingTypeMenuRef = useRef<HTMLDivElement>(null);
+  const linkContainerTypeButtonRef = useRef<HTMLButtonElement>(null);
+  const linkContainerTypeMenuRef = useRef<HTMLDivElement>(null);
   const linkQuickAddKindButtonRef = useRef<HTMLButtonElement>(null);
   const linkQuickAddKindMenuRef = useRef<HTMLDivElement>(null);
   const linkQaUrgencyButtonRef = useRef<HTMLButtonElement>(null);
@@ -1876,17 +1846,18 @@ function App() {
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
   const SelectedComposeIcon = selectedComposeKind.Icon;
   const composePlaceholder = selectedComposeKind.placeholder;
-  const selectedLinkGroupingType =
-    LINK_TYPE_PICKER_ITEMS.find((item) => item.id === linkGroupingType) ??
+  const selectedLinkContainerType =
+    LINK_TYPE_PICKER_ITEMS.find((item) => item.id === linkContainerType) ??
     LINK_TYPE_PICKER_ITEMS[0];
+  const SelectedLinkContainerIcon = selectedLinkContainerType.Icon;
   const selectedLinkQuickAddType =
-    COMPOSE_GROUPING_TYPE_ITEMS.find((item) => item.id === linkQuickAddKind) ??
-    COMPOSE_GROUPING_TYPE_ITEMS[0];
+    COMPOSE_CONTAINER_TYPE_ITEMS.find((item) => item.id === linkQuickAddKind) ??
+    COMPOSE_CONTAINER_TYPE_ITEMS[0];
   const SelectedLinkQuickAddIcon = selectedLinkQuickAddType.Icon;
   const selectedLinkId = linkRelation === "parent" ? pendingParentId : pendingChildId;
-  const selectedLinkIsProgram =
+  const selectedLinkIsPlan =
     selectedLinkId != null &&
-    tasks.some((task) => task.id === selectedLinkId && task.type === "program");
+    tasks.some((task) => task.id === selectedLinkId && isPlanTaskType(task.type));
   const fabComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === COMPOSE_KIND_BY_VIEW[activeView]) ?? COMPOSE_KINDS[0];
   const FabComposeIcon = fabComposeKind.Icon;
@@ -1934,8 +1905,8 @@ function App() {
   const overdueTasks = calendarTasksLayout.overdueTasks;
   const parentTitleById = (() => {
     const map = new Map<string, string>();
-    for (const routine of routines) {
-      if (routine.id) map.set(routine.id, routine.title);
+    for (const collection of collections) {
+      if (collection.id) map.set(collection.id, collection.title);
     }
     for (const task of tasks) {
       if (task.id) map.set(task.id, task.title);
@@ -2116,12 +2087,18 @@ function App() {
     selectDayFromUi(day);
   };
 
-  const openTimePicker = () => {
+  const openTimePicker = (
+    day: Date = selectedDayRef.current,
+    source: "home" | "dayline" = "dayline",
+  ) => {
+    const dayStart = toStartOfDay(day);
     setCalendarOpen(false);
     setTimeSavePromptOpen(false);
-    const resolvedTarget = resolveTargetTime(selectedDay, defaultTargetTime, targetTimeOverrides);
+    setTimePickerSource(source);
+    setSelectedDay(dayStart);
+    const resolvedTarget = resolveTargetTime(dayStart, defaultTargetTime, targetTimeOverrides);
     const resolvedWindowStart = resolveWindowStartTime(
-      selectedDay,
+      dayStart,
       defaultWindowStartTime,
       windowStartOverrides,
     );
@@ -2129,6 +2106,14 @@ function App() {
     setWindowStartTime(resolvedWindowStart);
     setTimePickerBaseline({ target: resolvedTarget, windowStart: resolvedWindowStart });
     setTimePickerOpen(true);
+  };
+
+  const toggleTimePicker = (source: "home" | "dayline", day?: Date) => {
+    if (timePickerOpen && timePickerSource === source) {
+      requestCloseTimePicker();
+      return;
+    }
+    openTimePicker(day ?? selectedDayRef.current, source);
   };
 
   const finishCloseTimePicker = () => {
@@ -2439,7 +2424,7 @@ function App() {
     });
   };
 
-  /** Program / project / list — name + type only for now. */
+  /** Plan / list — name + type only for now. */
   const upsertContainerDraft = (draft: ComposerDraft) => {
     const containerDraft: ComposerDraft = {
       ...draft,
@@ -2488,10 +2473,10 @@ function App() {
     });
   };
 
-  const upsertGroupDraft = (draft: ComposerDraft) => {
+  const upsertCollectionDraft = (draft: ComposerDraft) => {
     const withLinks = applyLinkFields({
       ...draft,
-      type: "routine",
+      type: "collection",
       est_duration: null,
       urgency: null,
       impact: null,
@@ -2501,22 +2486,22 @@ function App() {
       recurring: null,
       auto_rescheduled: null,
     });
-    const groupDraft: ComposerDraft = {
+    const collectionDraft: ComposerDraft = {
       ...withLinks,
-      type: "routine",
+      type: "collection",
     };
-    const parentIdForChild = editingTaskId ?? groupDraft.id;
-    setRoutines((current) => {
-      if (!editingTaskId) return [groupDraft, ...current];
-      return current.map((routine) => {
-        if (routine.id !== editingTaskId) return routine;
+    const parentIdForChild = editingTaskId ?? collectionDraft.id;
+    setCollections((current) => {
+      if (!editingTaskId) return [collectionDraft, ...current];
+      return current.map((collection) => {
+        if (collection.id !== editingTaskId) return collection;
         return {
-          ...routine,
-          title: groupDraft.title,
-          type: "routine",
-          parent_id: groupDraft.parent_id,
-          after_id: groupDraft.after_id,
-          after: groupDraft.after,
+          ...collection,
+          title: collectionDraft.title,
+          type: "collection",
+          parent_id: collectionDraft.parent_id,
+          after_id: collectionDraft.after_id,
+          after: collectionDraft.after,
         };
       });
     });
@@ -2531,10 +2516,8 @@ function App() {
 
   const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
     task: upsertTaskDraft,
-    project: upsertContainerDraft,
-    program: upsertContainerDraft,
-    grouping: upsertGroupDraft,
-    routine: upsertGroupDraft,
+    plan: upsertContainerDraft,
+    collection: upsertCollectionDraft,
     event: (_draft) => {},
     list: upsertContainerDraft,
     note: (_draft) => {},
@@ -2545,7 +2528,7 @@ function App() {
 
   const resetLinkQuickAddFields = () => {
     setLinkQuickAddTitle("");
-    setLinkQuickAddKind("routine");
+    setLinkQuickAddKind("collection");
     setLinkQuickAddKindMenuOpen(false);
     setLinkQaUrgencyMenuOpen(false);
     setLinkQaUrgencyActivated(false);
@@ -2578,12 +2561,12 @@ function App() {
       due_at: !isContainerQuickAdd && linkQaTimeMode === "due_at" ? time : null,
     });
     if (!draft || !draft.id) return;
-    if (linkQuickAddKind === "routine") {
-      setRoutines((current) => [{ ...draft, type: "routine" }, ...current]);
+    if (linkQuickAddKind === "collection") {
+      setCollections((current) => [{ ...draft, type: "collection" }, ...current]);
     } else {
       setTasks((current) => [draft, ...current]);
     }
-    setLinkGroupingType(linkQuickAddKind);
+    setLinkContainerType(linkQuickAddKind);
     if (linkRelation === "parent") {
       setPendingParentId(draft.id);
       setPendingChildId(null);
@@ -2692,7 +2675,7 @@ function App() {
       setTaskStartsAt(schedule.starts_at ?? "");
       setTaskDueAt(schedule.due_at ?? "");
     }
-    setLinkGroupingTypeMenuOpen(false);
+    setLinkContainerTypeMenuOpen(false);
     setTaskToolHint(null);
   };
 
@@ -2714,12 +2697,12 @@ function App() {
     setImpactMenuOpen(false);
     setTaskToolHint((current) => {
       const next = current === title ? null : title;
-      if (next === GROUPING_TOOL_HINT) {
-        // Default to parent so picking a Group/Project attaches to the subject.
+      if (next === LINKING_TOOL_HINT) {
+        // Default to parent so picking a Collection/Plan attaches to the subject.
         setLinkRelation("parent");
         setLinkSearchQuery("");
-        setLinkGroupingTypeMenuOpen(false);
-        setLinkGroupingType(defaultLinkPickerType(composeKind));
+        setLinkContainerTypeMenuOpen(false);
+        setLinkContainerType(defaultLinkPickerType(composeKind));
         setLinkQuickAddOpen(false);
         resetLinkQuickAddFields();
         if (!(editingTaskId != null && pendingParentId != null)) {
@@ -2874,7 +2857,7 @@ function App() {
       task.after === "before" || task.after === "after" ? task.after : null,
     );
     setLinkPrecedenceMenuOpen(false);
-    setLinkGroupingType(defaultLinkPickerType(composeKindFromTaskType(task.type)));
+    setLinkContainerType(defaultLinkPickerType(composeKindFromTaskType(task.type)));
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setSearchOpen(false);
@@ -3063,7 +3046,7 @@ function App() {
     if (isContainerComposeKind(composeKind)) {
       return buildComposerDraft({
         title: content,
-        type: composeKind === "grouping" || composeKind === "routine" ? "routine" : composeKind,
+        type: composeKind === "collection" ? "collection" : composeKind,
       });
     }
     const schedule = resolveComposerSchedule();
@@ -3194,8 +3177,8 @@ function App() {
   }, [tasks]);
 
   useEffect(() => {
-    saveRoutines(routines);
-  }, [routines]);
+    saveCollections(collections);
+  }, [collections]);
 
   useEffect(() => {
     saveTaskGapMinutes(taskGapMinutes);
@@ -3689,7 +3672,7 @@ function App() {
   }, [collapsed]);
 
   useEffect(() => {
-    if (taskToolHint === GROUPING_TOOL_HINT && !isGroupingToolComposeKind(composeKind)) {
+    if (taskToolHint === LINKING_TOOL_HINT && !isLinkingToolComposeKind(composeKind)) {
       setTaskToolHint(null);
     }
   }, [composeKind, taskToolHint]);
@@ -3822,7 +3805,7 @@ function App() {
       if (urgencyMenuRef.current?.contains(target)) return;
       if (impactMenuRef.current?.contains(target)) return;
       if (taskToolHintMenuRef.current?.contains(target)) return;
-      if (linkGroupingTypeMenuRef.current?.contains(target)) return;
+      if (linkContainerTypeMenuRef.current?.contains(target)) return;
       if (linkQuickAddKindMenuRef.current?.contains(target)) return;
       if (linkQaScheduleMenuRef.current?.contains(target)) return;
       if (linkQaImpactMenuRef.current?.contains(target)) return;
@@ -3932,19 +3915,19 @@ function App() {
   }, [composeKindMenuOpen]);
 
   useEffect(() => {
-    if (!linkGroupingTypeMenuOpen) return;
+    if (!linkContainerTypeMenuOpen) return;
 
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (linkGroupingTypeMenuRef.current?.contains(target)) return;
-      if (linkGroupingTypeButtonRef.current?.contains(target)) return;
-      setLinkGroupingTypeMenuOpen(false);
+      if (linkContainerTypeMenuRef.current?.contains(target)) return;
+      if (linkContainerTypeButtonRef.current?.contains(target)) return;
+      setLinkContainerTypeMenuOpen(false);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [linkGroupingTypeMenuOpen]);
+  }, [linkContainerTypeMenuOpen]);
 
   useEffect(() => {
     if (!linkQuickAddKindMenuOpen) return;
@@ -4089,8 +4072,8 @@ function App() {
       if (!(target instanceof Node)) return;
       if (taskToolHintMenuRef.current?.contains(target)) return;
       if (taskToolHintAnchorRef.current?.contains(target)) return;
-      if (linkGroupingTypeMenuRef.current?.contains(target)) return;
-      if (linkGroupingTypeButtonRef.current?.contains(target)) return;
+      if (linkContainerTypeMenuRef.current?.contains(target)) return;
+      if (linkContainerTypeButtonRef.current?.contains(target)) return;
       if (linkQuickAddKindMenuRef.current?.contains(target)) return;
       if (linkQuickAddKindButtonRef.current?.contains(target)) return;
       if (linkQaScheduleMenuRef.current?.contains(target)) return;
@@ -4170,12 +4153,20 @@ function App() {
   }, [focusedTaskId, focusedOverflowTaskIds]);
 
   useEffect(() => {
+    if (!timePickerOpen) return;
+    const sourceView = timePickerSource === "home" ? "home" : "dayline";
+    if (activeView !== sourceView) finishCloseTimePicker();
+  }, [activeView, timePickerOpen, timePickerSource]);
+
+  useEffect(() => {
     if (!timePickerOpen || timeSavePromptOpen) return;
 
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (twinelineHeaderRef.current?.contains(target)) return;
+      if (timeFramesMenuRef.current?.contains(target)) return;
+      if (homeCountdownButtonRef.current?.contains(target)) return;
+      if (daylineCountdownButtonRef.current?.contains(target)) return;
       // Native time pickers render outside the header; keep the panel open while focused.
       const active = document.activeElement;
       if (
@@ -4196,6 +4187,91 @@ function App() {
   return (
     <div className="app">
       <main className="app-main" ref={mainRef}>
+        <ComposerOverlayMenu
+          open={timePickerOpen}
+          anchorRef={timePickerAnchorRef}
+          menuRef={timeFramesMenuRef}
+          align="center"
+          role="dialog"
+          className="home-time-picker-menu time-frames-menu"
+          aria-label="Choose time frames"
+        >
+          <div className="twineline-time-picker">
+            <div className="twineline-time-picker-heading">Time Frames</div>
+            <div className="twineline-time-picker-divider" role="presentation" />
+            <div className="twineline-time-picker-controls">
+              <div className="twineline-time-picker-row">
+                <span className="twineline-time-picker-label">Begins:</span>
+                <div className="app-due-date-field twineline-time-picker-field">
+                  <input
+                    ref={windowStartInputRef}
+                    type="time"
+                    value={windowStartTime}
+                    onChange={(event) => setWindowStartTimeValue(event.target.value)}
+                    onInput={(event) => setWindowStartTimeValue(event.currentTarget.value)}
+                    aria-label="Task window start time"
+                  />
+                </div>
+              </div>
+              <div className="twineline-time-picker-row">
+                <span className="twineline-time-picker-label">Ends:</span>
+                <div className="app-due-date-field twineline-time-picker-field">
+                  <input
+                    ref={targetTimeInputRef}
+                    type="time"
+                    value={targetTime}
+                    onChange={(event) => setTargetTimeValue(event.target.value)}
+                    onInput={(event) => setTargetTimeValue(event.currentTarget.value)}
+                    aria-label="Task window end time"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`twineline-snooze-toggle${daySnoozed ? " is-on" : ""}`}
+                aria-pressed={daySnoozed}
+                aria-label={daySnoozed ? "Turn off day snooze" : "Snooze the day"}
+                onClick={() => setDaySnoozedPreference(!daySnoozed)}
+              >
+                Snooze
+              </button>
+            </div>
+            {timeSavePromptOpen && (
+              <div
+                className="twineline-save-prompt"
+                role="dialog"
+                aria-label="Apply these changes to this day or all future days?"
+              >
+                <p className="twineline-save-prompt-title">
+                  Apply these changes to this day or all future days?
+                </p>
+                <div className="twineline-save-prompt-actions">
+                  <button
+                    type="button"
+                    className="twineline-save-prompt-secondary"
+                    onClick={discardTimeChanges}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="twineline-save-prompt-secondary"
+                    onClick={applyTargetTimeThisDay}
+                  >
+                    This Day
+                  </button>
+                  <button
+                    type="button"
+                    className="twineline-save-prompt-primary"
+                    onClick={applyTargetTimeAllFutureDays}
+                  >
+                    All Future Days
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </ComposerOverlayMenu>
         {activeView === "home" && (
           <HomeView
             wheelLabel={formatTwinelineDateLabel(todayStart, new Date(countdownNow))}
@@ -4203,6 +4279,20 @@ function App() {
             wheelElapsedEndMin={nowMinutes}
             windowStartMin={todayWindowStartMinutes}
             windowEndMin={todayPackEnd}
+            wheelCountdown={
+              <span ref={homeCountdownButtonRef} className="day-wheel-hub-countdown-anchor">
+                <TwinelineCountdownButton
+                  className="is-home-wheel"
+                  countdownRemaining={countdownRemaining}
+                  targetTimeLabel={targetTimeLabel}
+                  windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
+                  timePickerOpen={timePickerOpen && timePickerSource === "home"}
+                  daySnoozed={daySnoozed}
+                  outsideTaskWindow={outsideTaskWindow}
+                  onClick={() => toggleTimePicker("home", todayStart)}
+                />
+              </span>
+            }
             focusTask={todayFocusTask}
             renderFocusTask={(task) => (
               <CompactTaskRow
@@ -4258,11 +4348,11 @@ function App() {
             onTaskGapStep={stepTaskGap}
           />
         )}
-        {activeView === "routines" && (
-          <RoutinesView
-            routines={routines}
+        {activeView === "collections" && (
+          <CollectionsView
+            collections={collections}
             tasks={tasks}
-            renderChild={(task, routine) => (
+            renderChild={(task, collection) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
                 task={task}
@@ -4271,7 +4361,7 @@ function App() {
                 highlighted={isTaskHighlighted(task.id)}
                 popping={isTaskPopping(task.id)}
                 now={new Date(countdownNow)}
-                parentTitle={routine.title}
+                parentTitle={collection.title}
                 onComplete={() => requestCompleteTask(task.id)}
                 onEdit={() => {
                   if (task.id) {
@@ -4284,11 +4374,11 @@ function App() {
             )}
           />
         )}
-        {activeView === "projects" && (
-          <ProjectsView
-            projects={tasks.filter((task) => task.type === "project")}
+        {activeView === "plans" && (
+          <PlansView
+            plans={tasks.filter((task) => isPlanTaskType(task.type))}
             tasks={tasks}
-            renderChild={(task, project) => (
+            renderChild={(task, plan) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
                 task={task}
@@ -4297,33 +4387,7 @@ function App() {
                 highlighted={isTaskHighlighted(task.id)}
                 popping={isTaskPopping(task.id)}
                 now={new Date(countdownNow)}
-                parentTitle={project.title}
-                onComplete={() => requestCompleteTask(task.id)}
-                onEdit={() => {
-                  if (task.id) {
-                    setFocusedOverflowTaskIds(null);
-                    setFocusedTaskId(task.id);
-                  }
-                  editTask(task);
-                }}
-              />
-            )}
-          />
-        )}
-        {activeView === "programs" && (
-          <ProgramsView
-            programs={tasks.filter((task) => task.type === "program")}
-            tasks={tasks}
-            renderChild={(task, program) => (
-              <CompactTaskRow
-                key={task.id ?? task.title}
-                task={task}
-                overdue={false}
-                editing={editingTaskId === task.id}
-                highlighted={isTaskHighlighted(task.id)}
-                popping={isTaskPopping(task.id)}
-                now={new Date(countdownNow)}
-                parentTitle={program.title}
+                parentTitle={plan.title}
                 onComplete={() => requestCompleteTask(task.id)}
                 onEdit={() => {
                   if (task.id) {
@@ -4366,7 +4430,7 @@ function App() {
           <div className="twineline-chrome" ref={twinelineChromeRef}>
             <div className="twineline-chrome-slot" ref={twinelineSlotRef} aria-hidden="true" />
             <header
-              className={`twineline-countdown${calendarOpen ? " is-calendar-open" : ""}${timePickerOpen ? " is-time-open" : ""}`}
+              className={`twineline-countdown${calendarOpen ? " is-calendar-open" : ""}`}
               ref={twinelineHeaderRef}
             >
               <div className="twineline-countdown-slide" ref={twinelineSlideRef}>
@@ -4387,7 +4451,7 @@ function App() {
                       role="menuitem"
                       onClick={() => {
                         setTimelineMenuOpen(false);
-                        openTimePicker();
+                        toggleTimePicker("dayline");
                       }}
                     >
                       <span>Set task window</span>
@@ -4421,30 +4485,27 @@ function App() {
                     <HorizontalMoreIcon />
                   </button>
                 </div>
-                {!timePickerOpen ? (
-                  <button
-                    type="button"
-                    className="twineline-date"
-                    aria-label="Open calendar"
-                    aria-expanded={false}
-                    onClick={openCalendar}
-                  >
-                    <span>{formatMonthYearLabel(selectedDay)}</span>
-                  </button>
-                ) : (
-                  <span className="twineline-date-spacer" aria-hidden="true" />
-                )}
-                <TwinelineCountdownButton
-                  countdownRemaining={countdownRemaining}
-                  targetTimeLabel={targetTimeLabel}
-                  windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
-                  timePickerOpen={timePickerOpen}
-                  daySnoozed={daySnoozed}
-                  outsideTaskWindow={outsideTaskWindow}
-                  onClick={() =>
-                    timePickerOpen ? requestCloseTimePicker() : openTimePicker()
-                  }
-                />
+                <button
+                  type="button"
+                  className="twineline-date"
+                  aria-label="Open calendar"
+                  aria-expanded={false}
+                  onClick={openCalendar}
+                >
+                  <span>{formatMonthYearLabel(selectedDay)}</span>
+                </button>
+                <span ref={daylineCountdownButtonRef} className="twineline-countdown-button-anchor">
+                  <TwinelineCountdownButton
+                    className="is-dayline-chrome"
+                    countdownRemaining={countdownRemaining}
+                    targetTimeLabel={targetTimeLabel}
+                    windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
+                    timePickerOpen={timePickerOpen && timePickerSource === "dayline"}
+                    daySnoozed={daySnoozed}
+                    outsideTaskWindow={outsideTaskWindow}
+                    onClick={() => toggleTimePicker("dayline")}
+                  />
+                </span>
                 </div>
             )}
             {calendarOpen && (
@@ -4503,144 +4564,64 @@ function App() {
                 </div>
               </div>
             )}
-            {timePickerOpen ? (
-              <div className="twineline-time-picker" aria-label="Choose task window">
-                <div className="twineline-time-picker-heading">Task Window</div>
-                <div className="twineline-time-picker-divider" role="presentation" />
-                <div className="twineline-time-picker-controls">
-                  <div className="twineline-time-picker-row">
-                    <span className="twineline-time-picker-label">Begins:</span>
-                    <div className="app-due-date-field twineline-time-picker-field">
-                      <input
-                        ref={windowStartInputRef}
-                        type="time"
-                        value={windowStartTime}
-                        onChange={(event) => setWindowStartTimeValue(event.target.value)}
-                        onInput={(event) => setWindowStartTimeValue(event.currentTarget.value)}
-                        aria-label="Task window start time"
-                      />
-                    </div>
-                  </div>
-                  <div className="twineline-time-picker-row">
-                    <span className="twineline-time-picker-label">Ends:</span>
-                    <div className="app-due-date-field twineline-time-picker-field">
-                      <input
-                        ref={targetTimeInputRef}
-                        type="time"
-                        value={targetTime}
-                        onChange={(event) => setTargetTimeValue(event.target.value)}
-                        onInput={(event) => setTargetTimeValue(event.currentTarget.value)}
-                        aria-label="Task window end time"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className={`twineline-snooze-toggle${daySnoozed ? " is-on" : ""}`}
-                    aria-pressed={daySnoozed}
-                    aria-label={daySnoozed ? "Turn off day snooze" : "Snooze the day"}
-                    onClick={() => setDaySnoozedPreference(!daySnoozed)}
-                  >
-                    Snooze
-                  </button>
-                </div>
-                {timeSavePromptOpen && (
-                  <div
-                    className="twineline-save-prompt"
-                    role="dialog"
-                    aria-label="Apply these changes to this day or all future days?"
-                  >
-                    <p className="twineline-save-prompt-title">
-                      Apply these changes to this day or all future days?
-                    </p>
-                    <div className="twineline-save-prompt-actions">
-                      <button
-                        type="button"
-                        className="twineline-save-prompt-secondary"
-                        onClick={discardTimeChanges}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        className="twineline-save-prompt-secondary"
-                        onClick={applyTargetTimeThisDay}
-                      >
-                        This Day
-                      </button>
-                      <button
-                        type="button"
-                        className="twineline-save-prompt-primary"
-                        onClick={applyTargetTimeAllFutureDays}
-                      >
-                        All Future Days
-                      </button>
-                    </div>
-                  </div>
-                )}
+            {!calendarOpen && (
+              <div
+                ref={weekdayStripRef}
+                className="twineline-weekdays"
+                role="tablist"
+                aria-label="Upcoming days"
+                onScroll={(event) => {
+                  const el = event.currentTarget;
+                  if (el.scrollLeft + el.clientWidth > el.scrollWidth - 96) {
+                    setWeekdayDayCount((count) => count + 14);
+                  }
+                }}
+              >
+                {weekdayDays.map((dayDate) => {
+                  const weekday = WEEKDAY_BUTTONS[dayDate.getDay()];
+                  const key = dayKey(dayDate);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      data-weekday-day={key}
+                      className={`twineline-weekday${sameCalendarDay(dayDate, selectedDay) ? " is-selected" : ""}`}
+                      aria-selected={sameCalendarDay(dayDate, selectedDay)}
+                      aria-label={`${weekday.name} ${dayDate.getDate()}`}
+                      onClick={() => selectDayFromUi(dayDate)}
+                    >
+                      <span className="twineline-weekday-letter">{weekday.label}</span>
+                      <span className="twineline-weekday-date">{dayDate.getDate()}</span>
+                    </button>
+                  );
+                })}
               </div>
-            ) : (
-              <>
-                {!calendarOpen && (
-                  <div
-                    ref={weekdayStripRef}
-                    className="twineline-weekdays"
-                    role="tablist"
-                    aria-label="Upcoming days"
-                    onScroll={(event) => {
-                      const el = event.currentTarget;
-                      if (el.scrollLeft + el.clientWidth > el.scrollWidth - 96) {
-                        setWeekdayDayCount((count) => count + 14);
-                      }
-                    }}
-                  >
-                    {weekdayDays.map((dayDate) => {
-                      const weekday = WEEKDAY_BUTTONS[dayDate.getDay()];
-                      const key = dayKey(dayDate);
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          role="tab"
-                          data-weekday-day={key}
-                          className={`twineline-weekday${sameCalendarDay(dayDate, selectedDay) ? " is-selected" : ""}`}
-                          aria-selected={sameCalendarDay(dayDate, selectedDay)}
-                          aria-label={`${weekday.name} ${dayDate.getDate()}`}
-                          onClick={() => selectDayFromUi(dayDate)}
-                        >
-                          <span className="twineline-weekday-letter">{weekday.label}</span>
-                          <span className="twineline-weekday-date">{dayDate.getDate()}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                <div
-                  className="twineline-schedule"
-                  aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
-                >
-                  <div className="twineline-schedule-track-wrap">
-                    <DayScheduleTrack
-                      segments={scheduleSegments}
-                      timelineMinutes={scheduleTimelineMinutes}
-                      elapsedPct={selectedDayElapsedPct}
-                      windowStartMin={selectedDayWindowStartMinutes}
-                      windowEndMin={selectedDayPackEnd}
-                      completedCount={selectedIsToday ? completedTodayCount : 0}
-                      focusedTaskId={focusedTaskId}
-                      isTaskHighlighted={isTaskHighlighted}
-                      isTaskPopping={isTaskPopping}
-                      onTaskSelect={(task) => {
-                        if (!task.id || isTaskPopping(task.id)) return;
-                        setFocusedOverflowTaskIds(null);
-                        setFocusedTaskId(task.id);
-                        scrollTaskIntoView(task.id);
-                      }}
-                    />
-                  </div>
-                </div>
-              </>
             )}
+            <div
+              className="twineline-schedule"
+              aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
+            >
+              <div className="twineline-schedule-track-wrap">
+                <DayScheduleTrack
+                  segments={scheduleSegments}
+                  timelineMinutes={scheduleTimelineMinutes}
+                  elapsedPct={selectedDayElapsedPct}
+                  windowStartMin={selectedDayWindowStartMinutes}
+                  windowEndMin={selectedDayPackEnd}
+                  completedCount={selectedIsToday ? completedTodayCount : 0}
+                  focusedTaskId={focusedTaskId}
+                  isTaskHighlighted={isTaskHighlighted}
+                  isTaskPopping={isTaskPopping}
+                  onTaskSelect={(task) => {
+                    if (!task.id || isTaskPopping(task.id)) return;
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                    scrollTaskIntoView(task.id);
+                  }}
+                />
+              </div>
+            </div>
               </div>
               {showTimelineScrollTop && !calendarOpen && (
                 <div className="twineline-scroll-top-row">
@@ -4700,62 +4681,11 @@ function App() {
             </header>
           </div>
         )}
-        {activeView === "dayline" && !calendarOpen && overdueTasks.length > 0 && (
-          <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
-            <button
-              type="button"
-              className={`task-day-label task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
-              aria-expanded={overdueSectionOpen}
-              aria-controls="task-overdue-list"
-              onClick={() => setOverdueSectionOpen((open) => !open)}
-            >
-              <span>Overdue</span>
-              <span className="task-overdue-toggle-action">
-                <span className="task-overdue-toggle-reschedule">Reschedule</span>
-                <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                  {overdueSectionOpen ? "∨" : ">"}
-                </span>
-              </span>
-            </button>
-            {overdueSectionOpen && (
-              <section
-                ref={overdueSectionRef}
-                id="task-overdue-list"
-                className="task-overdue-section"
-                aria-label="Overdue tasks"
-              >
-                <ul className="task-day-tasks task-overdue-tasks">
-                  {overdueTasks.map((task) => (
-                    <CompactTaskRow
-                      key={task.id ?? task.title}
-                      task={task}
-                      overdue
-                      editing={editingTaskId === task.id}
-                      highlighted={isTaskHighlighted(task.id)}
-                      popping={isTaskPopping(task.id)}
-                      now={new Date(countdownNow)}
-                      parentTitle={parentTitleFor(task.parent_id)}
-                      onComplete={() => requestCompleteTask(task.id)}
-                      onEdit={() => {
-                        if (task.id) {
-                          setFocusedOverflowTaskIds(null);
-                          setFocusedTaskId(task.id);
-                        }
-                        editTask(task);
-                      }}
-                    />
-            ))}
-          </ul>
-              </section>
-            )}
-          </div>
-        )}
         {activeView !== "home" &&
           activeView !== "discover" &&
           activeView !== "settings" &&
-          activeView !== "routines" &&
-          activeView !== "projects" &&
-          activeView !== "programs" &&
+          activeView !== "collections" &&
+          activeView !== "plans" &&
           activeView !== "lists" &&
           (tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
@@ -4769,15 +4699,76 @@ function App() {
                 seenTaskIds.add(id);
                 return true;
               });
+              const isTodayGroup = day.dayKey === todayKey;
+              const showOverdueToggle =
+                isTodayGroup &&
+                activeView === "dayline" &&
+                !calendarOpen &&
+                overdueTasks.length > 0;
               return (
                 <section
                   key={day.dayKey}
                   className="task-day-group"
                   data-calendar-day={day.dayKey}
                 >
-                  <div className="task-day-label">
-                    {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                  <div className="task-day-label-row">
+                    <div className="task-day-label">
+                      {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                    </div>
+                    {showOverdueToggle && (
+                      <button
+                        type="button"
+                        className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
+                        aria-expanded={overdueSectionOpen}
+                        aria-controls="task-overdue-list"
+                        aria-label="Overflow overdue tasks"
+                        onClick={() => setOverdueSectionOpen((open) => !open)}
+                      >
+                        <span className="task-overdue-toggle-action">
+                          <span className="task-overdue-toggle-reschedule">Overflow</span>
+                          <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                            {overdueSectionOpen ? "∨" : ">"}
+                          </span>
+                        </span>
+                      </button>
+                    )}
                   </div>
+                  {showOverdueToggle && overdueSectionOpen && (
+                    <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
+                      <section
+                        ref={overdueSectionRef}
+                        id="task-overdue-list"
+                        className="task-overdue-section"
+                        aria-label="Overdue tasks"
+                      >
+                        <ul className="task-day-tasks task-overdue-tasks">
+                          {overdueTasks.map((task) => (
+                            <CompactTaskRow
+                              key={task.id ?? task.title}
+                              task={task}
+                              overdue
+                              editing={editingTaskId === task.id}
+                              highlighted={isTaskHighlighted(task.id)}
+                              popping={isTaskPopping(task.id)}
+                              now={new Date(countdownNow)}
+                              parentTitle={parentTitleFor(task.parent_id)}
+                              onComplete={() => requestCompleteTask(task.id)}
+                              onEdit={() => {
+                                if (task.id) {
+                                  setFocusedOverflowTaskIds(null);
+                                  setFocusedTaskId(task.id);
+                                }
+                                editTask(task);
+                              }}
+                            />
+                          ))}
+                        </ul>
+                        <p className="task-overdue-note">
+                          * Overflow items will be automatically rescheduled at the end of the day
+                        </p>
+                      </section>
+                    </div>
+                  )}
                   {dayTasks.length > 0 && (
                     <ul className="task-day-tasks">
                       {dayTasks.map((block) => (
@@ -5354,12 +5345,12 @@ function App() {
                   open={taskToolHint != null}
                   anchorRef={taskToolHintAnchorRef}
                   menuRef={taskToolHintMenuRef}
-                  matchWidthRef={taskToolHint === GROUPING_TOOL_HINT ? composerFieldRef : undefined}
+                  matchWidthRef={taskToolHint === LINKING_TOOL_HINT ? composerFieldRef : undefined}
                   role={taskToolHint === "Date & Time" ? "dialog" : "menu"}
                   className={`app-composer-tool-hint${
                     taskToolHint === "Date & Time"
                       ? " is-due-date"
-                      : taskToolHint === GROUPING_TOOL_HINT
+                      : taskToolHint === LINKING_TOOL_HINT
                         ? " is-linking"
                         : ""
                   }`}
@@ -5459,7 +5450,7 @@ function App() {
                         </button>
                       </div>
                     </>
-                  ) : taskToolHint === GROUPING_TOOL_HINT && isGroupingToolComposeKind(composeKind) ? (
+                  ) : taskToolHint === LINKING_TOOL_HINT && isLinkingToolComposeKind(composeKind) ? (
                     <>
                       <div className="app-composer-link-header">
                         <span className="app-composer-link-search-label">
@@ -5468,7 +5459,7 @@ function App() {
                         <button
                           type="button"
                           className={`app-composer-link-quick-add-toggle${linkQuickAddOpen ? " is-open" : ""}`}
-                          aria-label={linkQuickAddOpen ? "Cancel add grouping" : "Add new grouping"}
+                          aria-label={linkQuickAddOpen ? "Cancel add collection" : "Add new collection"}
                           aria-expanded={linkQuickAddOpen}
                           onClick={() => {
                             if (linkQuickAddOpen) {
@@ -5714,9 +5705,9 @@ function App() {
                                 menuRef={linkQuickAddKindMenuRef}
                                 align="end"
                                 className="app-compose-kind-menu"
-                                aria-label="Grouping type"
+                                aria-label="Collection type"
                               >
-                                {COMPOSE_GROUPING_TYPE_ITEMS.map(({ id, label, Icon }) => (
+                                {COMPOSE_CONTAINER_TYPE_ITEMS.map(({ id, label, Icon }) => (
                                   <button
                                     key={id}
                                     type="button"
@@ -5738,7 +5729,7 @@ function App() {
                                 ref={linkQuickAddKindButtonRef}
                                 type="button"
                                 className="app-compose-kind-button"
-                                aria-label="Choose grouping type"
+                                aria-label="Choose collection type"
                                 aria-expanded={linkQuickAddKindMenuOpen}
                                 onClick={() => {
                                   setLinkQaScheduleMenuOpen(false);
@@ -5755,7 +5746,7 @@ function App() {
                                   linkQuickAddTitle.trim() ? " is-ready" : ""
                                 }`}
                                 aria-label={
-                                  linkQuickAddTitle.trim() ? "Add grouping" : "Choose grouping type"
+                                  linkQuickAddTitle.trim() ? "Add collection" : "Choose collection type"
                                 }
                                 aria-expanded={
                                   linkQuickAddTitle.trim() ? undefined : linkQuickAddKindMenuOpen
@@ -5787,13 +5778,13 @@ function App() {
                         {(() => {
                           type LinkItem = { id: string; label: string; kindLabel: string };
                           const linkItems: LinkItem[] = [];
-                          const pushRoutines = () => {
-                            for (const routine of routines) {
-                              if (!routine.id) continue;
+                          const pushCollections = () => {
+                            for (const collection of collections) {
+                              if (!collection.id) continue;
                               linkItems.push({
-                                id: routine.id,
-                                label: routine.title,
-                                kindLabel: "Group",
+                                id: collection.id,
+                                label: collection.title,
+                                kindLabel: "Collection",
                               });
                             }
                           };
@@ -5815,16 +5806,14 @@ function App() {
                                       ? "Event"
                                       : task.type === "item"
                                         ? "Item"
-                                        : task.type === "program"
-                                          ? "Program"
-                                          : task.type === "project"
-                                            ? "Project"
-                                            : task.type === "list"
-                                              ? "List"
-                                              : task.type === "routine"
-                                                ? "Group"
-                                                : "Task"
-                                  : selectedLinkGroupingType.label;
+                                        : isPlanTaskType(task.type)
+                                          ? "Plan"
+                                          : task.type === "list"
+                                            ? "List"
+                                            : isCollectionTaskType(task.type)
+                                              ? "Collection"
+                                              : "Task"
+                                  : selectedLinkContainerType.label;
                               linkItems.push({
                                 id: task.id,
                                 label: task.title,
@@ -5832,21 +5821,20 @@ function App() {
                               });
                             }
                           };
-                          if (linkGroupingType === "all") {
-                            pushRoutines();
+                          if (linkContainerType === "all") {
+                            pushCollections();
                             pushTasks("any");
-                          } else if (linkGroupingType === "routine") {
-                            pushRoutines();
+                          } else if (linkContainerType === "collection") {
+                            pushCollections();
                           } else if (
-                            linkGroupingType === "task" ||
-                            linkGroupingType === "note" ||
-                            linkGroupingType === "event" ||
-                            linkGroupingType === "item" ||
-                            linkGroupingType === "program" ||
-                            linkGroupingType === "project" ||
-                            linkGroupingType === "list"
+                            linkContainerType === "task" ||
+                            linkContainerType === "note" ||
+                            linkContainerType === "event" ||
+                            linkContainerType === "item" ||
+                            linkContainerType === "plan" ||
+                            linkContainerType === "list"
                           ) {
-                            pushTasks(linkGroupingType);
+                            pushTasks(linkContainerType);
                           }
                           const query = linkSearchQuery.trim().toLowerCase();
                           const filteredItems =
@@ -5856,9 +5844,9 @@ function App() {
                                   item.label.toLowerCase().includes(query),
                                 );
                           if (filteredItems.length === 0) {
-                            const emptyKind = selectedLinkGroupingType.label.toLowerCase();
+                            const emptyKind = selectedLinkContainerType.label.toLowerCase();
                             const emptyLabel =
-                              linkGroupingType === "all"
+                              linkContainerType === "all"
                                 ? "No items yet"
                                 : `No ${emptyKind}${emptyKind.endsWith("s") ? "" : "s"} yet`;
                             return (
@@ -5883,13 +5871,13 @@ function App() {
                                 (linkRelation === "child" && pendingChildId === item.id)
                               }
                               onClick={() => {
-                                const itemIsProgram = tasks.some(
-                                  (task) => task.id === item.id && task.type === "program",
+                                const itemIsPlan = tasks.some(
+                                  (task) => task.id === item.id && isPlanTaskType(task.type),
                                 );
                                 if (linkRelation === "parent") {
                                   const next = pendingParentId === item.id ? null : item.id;
                                   const nextPrecedence =
-                                    next == null || !itemIsProgram ? null : linkPrecedence;
+                                    next == null || !itemIsPlan ? null : linkPrecedence;
                                   setPendingParentId(next);
                                   setPendingChildId(null);
                                   if (nextPrecedence == null) setLinkPrecedence(null);
@@ -5898,7 +5886,7 @@ function App() {
                                   const next = pendingChildId === item.id ? null : item.id;
                                   const previousChildId = pendingChildId;
                                   setPendingChildId(next);
-                                  if (next == null || !itemIsProgram) setLinkPrecedence(null);
+                                  if (next == null || !itemIsPlan) setLinkPrecedence(null);
                                   applyChildLinkToEditingTask(next, previousChildId);
                                 }
                                 setLinkPrecedenceMenuOpen(false);
@@ -5924,9 +5912,9 @@ function App() {
                         </label>
                         <div className="app-compose-action app-composer-link-type-picker">
                           <ComposerOverlayMenu
-                            open={linkGroupingTypeMenuOpen}
-                            anchorRef={linkGroupingTypeButtonRef}
-                            menuRef={linkGroupingTypeMenuRef}
+                            open={linkContainerTypeMenuOpen}
+                            anchorRef={linkContainerTypeButtonRef}
+                            menuRef={linkContainerTypeMenuRef}
                             align="end"
                             className="app-compose-kind-menu"
                             aria-label="Link type"
@@ -5935,11 +5923,11 @@ function App() {
                               <button
                                 key={id}
                                 type="button"
-                                className={`app-attach-menu-item${linkGroupingType === id ? " is-selected" : ""}`}
+                                className={`app-attach-menu-item${linkContainerType === id ? " is-selected" : ""}`}
                                 role="menuitem"
                                 onClick={() => {
-                                  setLinkGroupingType(id);
-                                  setLinkGroupingTypeMenuOpen(false);
+                                  setLinkContainerType(id);
+                                  setLinkContainerTypeMenuOpen(false);
                                 }}
                               >
                                 <Icon />
@@ -5947,15 +5935,15 @@ function App() {
                               </button>
                             ))}
                             <div className="app-compose-kind-menu-divider" role="separator" />
-                            {LINK_GROUPING_TYPE_ITEMS.map(({ id, label, Icon }) => (
+                            {LINK_CONTAINER_TYPE_ITEMS.map(({ id, label, Icon }) => (
                               <button
                                 key={id}
                                 type="button"
-                                className={`app-attach-menu-item${linkGroupingType === id ? " is-selected" : ""}`}
+                                className={`app-attach-menu-item${linkContainerType === id ? " is-selected" : ""}`}
                                 role="menuitem"
                                 onClick={() => {
-                                  setLinkGroupingType(id);
-                                  setLinkGroupingTypeMenuOpen(false);
+                                  setLinkContainerType(id);
+                                  setLinkContainerTypeMenuOpen(false);
                                 }}
                               >
                                 <Icon />
@@ -5965,11 +5953,11 @@ function App() {
                             <div className="app-compose-kind-menu-divider" role="separator" />
                             <button
                               type="button"
-                              className={`app-attach-menu-item${linkGroupingType === "all" ? " is-selected" : ""}`}
+                              className={`app-attach-menu-item${linkContainerType === "all" ? " is-selected" : ""}`}
                               role="menuitem"
                               onClick={() => {
-                                setLinkGroupingType("all");
-                                setLinkGroupingTypeMenuOpen(false);
+                                setLinkContainerType("all");
+                                setLinkContainerTypeMenuOpen(false);
                               }}
                             >
                               <LINK_ALL_TYPE_ITEM.Icon />
@@ -5977,14 +5965,17 @@ function App() {
                             </button>
                           </ComposerOverlayMenu>
                           <button
-                            ref={linkGroupingTypeButtonRef}
+                            ref={linkContainerTypeButtonRef}
                             type="button"
                             className="app-compose-kind-button"
                             aria-label="Choose link type"
-                            aria-expanded={linkGroupingTypeMenuOpen}
-                            onClick={() => setLinkGroupingTypeMenuOpen((open) => !open)}
+                            aria-expanded={linkContainerTypeMenuOpen}
+                            onClick={() => setLinkContainerTypeMenuOpen((open) => !open)}
                           >
-                            <span>{selectedLinkGroupingType.label}</span>
+                            <span>{selectedLinkContainerType.label}</span>
+                            <span className="app-compose-kind-lead-icon" aria-hidden="true">
+                              <SelectedLinkContainerIcon />
+                            </span>
                           </button>
                         </div>
                       </div>
@@ -6023,7 +6014,7 @@ function App() {
                             <span>Child</span>
                           </button>
                         </div>
-                        {selectedLinkIsProgram && (
+                        {selectedLinkIsPlan && (
                           <div className="app-composer-link-precedence">
                             <ComposerOverlayMenu
                               open={linkPrecedenceMenuOpen}
@@ -6037,8 +6028,8 @@ function App() {
                               <div className="app-duration-divider" aria-hidden="true" />
                               {(
                                 [
-                                  { id: "before" as const, label: "Before program" },
-                                  { id: "after" as const, label: "After program" },
+                                  { id: "before" as const, label: "Before plan" },
+                                  { id: "after" as const, label: "After plan" },
                                 ] as const
                               ).map(({ id, label }) => (
                                 <button
@@ -6065,7 +6056,7 @@ function App() {
                               className={`app-composer-tool app-composer-tool-precedence${
                                 linkPrecedence != null ? " is-activated" : ""
                               }${linkPrecedenceMenuOpen ? " is-open" : ""}`}
-                              aria-label="Start before or after program"
+                              aria-label="Start before or after plan"
                               aria-expanded={linkPrecedenceMenuOpen}
                               aria-pressed={linkPrecedence != null}
                               onClick={() => setLinkPrecedenceMenuOpen((open) => !open)}
@@ -6087,18 +6078,18 @@ function App() {
                     <NotesIcon />
                   </button>
                 )}
-                {isGroupingToolComposeKind(composeKind) && (
+                {isLinkingToolComposeKind(composeKind) && (
                   <button
                     ref={parentTaskButtonRef}
                     type="button"
                     className={`app-composer-tool app-composer-tool-linking${
                       pendingParentId != null || pendingChildId != null ? " is-activated" : ""
-                    }${taskToolHint === GROUPING_TOOL_HINT ? " is-open" : ""}`}
+                    }${taskToolHint === LINKING_TOOL_HINT ? " is-open" : ""}`}
                     aria-label="Linking"
-                    aria-expanded={taskToolHint === GROUPING_TOOL_HINT}
+                    aria-expanded={taskToolHint === LINKING_TOOL_HINT}
                     aria-pressed={pendingParentId != null || pendingChildId != null}
                     tabIndex={collapsed ? -1 : 0}
-                    onClick={(event) => openTaskToolHint(event.currentTarget, GROUPING_TOOL_HINT)}
+                    onClick={(event) => openTaskToolHint(event.currentTarget, LINKING_TOOL_HINT)}
                   >
                     <LinkIcon />
                   </button>
@@ -6445,12 +6436,7 @@ function App() {
                     <button
                       key={id}
                       type="button"
-                      className={`app-attach-menu-item${
-                        composeKind === id ||
-                        (id === "grouping" && composeKind === "routine")
-                          ? " is-selected"
-                          : ""
-                      }`}
+                      className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
                       role="menuitem"
                       onClick={() => {
                         setComposeKind(id);

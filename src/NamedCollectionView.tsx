@@ -46,16 +46,16 @@ export function NamedCollectionView({
       task.id !== container.id);
 
   return (
-    <div className="projects-view">
-      <header className="projects-header">
-        <h1 className="projects-title">{title}</h1>
-        <p className="projects-subtitle">{subtitle}</p>
+    <div className="named-view">
+      <header className="named-header">
+        <h1 className="named-title">{title}</h1>
+        <p className="named-subtitle">{subtitle}</p>
       </header>
 
       {containers.length === 0 ? (
-        <p className="projects-empty">{emptyText}</p>
+        <p className="named-empty">{emptyText}</p>
       ) : (
-        <div className="projects-list">
+        <div className="named-list">
           {containers.map((container) => {
             const containerKey = container.id ?? container.title;
             const children = tasks.filter((task) => matchesChild(task, container));
@@ -63,26 +63,26 @@ export function NamedCollectionView({
             return (
               <section
                 key={containerKey}
-                className={`projects-card${collapsed ? " is-collapsed" : ""}`}
+                className={`named-card${collapsed ? " is-collapsed" : ""}`}
               >
                 <button
                   type="button"
-                  className="projects-card-toggle"
+                  className="named-card-toggle"
                   aria-expanded={!collapsed}
                   onClick={() => toggleContainer(containerKey)}
                 >
-                  <span className="projects-card-chevron" aria-hidden="true" />
-                  <span className="projects-card-title">{container.title}</span>
-                  <span className="projects-card-count">
+                  <span className="named-card-chevron" aria-hidden="true" />
+                  <span className="named-card-title">{container.title}</span>
+                  <span className="named-card-count">
                     {children.length}{" "}
                     {children.length === 1 ? childNounSingular : childNounPlural}
                   </span>
                 </button>
                 {!collapsed &&
                   (children.length === 0 ? (
-                    <p className="projects-card-empty">{emptyChildrenText}</p>
+                    <p className="named-card-empty">{emptyChildrenText}</p>
                   ) : (
-                    <ul className="projects-children task-day-tasks">
+                    <ul className="named-children task-day-tasks">
                       {children.map((task) => renderChild(task, container))}
                     </ul>
                   ))}

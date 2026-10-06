@@ -11,6 +11,7 @@ type HomeViewProps = {
   wheelElapsedEndMin: number | null;
   windowStartMin: number;
   windowEndMin: number;
+  wheelCountdown: ReactNode;
   focusTask: ComposerDraft | null;
   renderFocusTask: (task: ComposerDraft) => ReactNode;
   overdueTasks: ComposerDraft[];
@@ -25,6 +26,7 @@ export function HomeView({
   wheelElapsedEndMin,
   windowStartMin,
   windowEndMin,
+  wheelCountdown,
   focusTask,
   renderFocusTask,
   overdueTasks,
@@ -51,6 +53,7 @@ export function HomeView({
                 showLegend={false}
                 showLabel={false}
                 compact
+                hubCenter={wheelCountdown}
               />
             </div>
             <div className="home-top-main">

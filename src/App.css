@@ -40,8 +40,8 @@
   padding-top: 0;
 }
 
-.app-main:has(.routines-view),
-.app-main:has(.projects-view) {
+.app-main:has(.collections-view),
+.app-main:has(.named-view) {
   padding-top: 0;
 }
 
@@ -1506,6 +1506,16 @@
   border-bottom: 0;
 }
 
+.task-day-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  padding-top: 6px;
+}
+
 .task-day-label {
   align-self: flex-start;
   margin: 0;
@@ -1516,13 +1526,22 @@
   letter-spacing: 0.02em;
 }
 
+.task-day-label-row .task-day-label {
+  align-self: center;
+  min-width: 0;
+}
+
 .task-overdue-scroll-block {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: 0 0 10px;
+  margin: 0;
   min-width: 0;
   width: 100%;
+}
+
+.task-day-group .task-overdue-scroll-block {
+  margin: 2px 0 4px;
 }
 
 .task-overdue-section {
@@ -1534,20 +1553,30 @@
   background: transparent;
 }
 
+.task-overdue-note {
+  margin: 2px 0 0;
+  padding: 6px 8px 2px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+}
+
 .task-overdue-tasks {
   margin-bottom: 0;
 }
 
 .task-overdue-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
+  justify-content: flex-end;
+  flex-shrink: 0;
   margin: 0;
-  padding: 8px 0 2px;
+  margin-left: auto;
+  padding: 0;
   border: 0;
-  background: var(--bg);
+  background: transparent;
   color: var(--text-h);
   font: inherit;
   font-size: 0.95rem;
@@ -1682,8 +1711,8 @@
 
 .task-list.is-compact .task-row-bottom,
 .task-overdue-tasks .task-row-bottom,
-.routines-children .task-row-bottom,
-.projects-children .task-row-bottom,
+.collections-children .task-row-bottom,
+.named-children .task-row-bottom,
 .home-focus-task .task-row-bottom {
   font-size: 0.72rem;
   letter-spacing: 0.01em;
@@ -1716,8 +1745,8 @@
 
 .task-list.is-compact .task-row-details,
 .task-overdue-tasks .task-row-details,
-.routines-children .task-row-details,
-.projects-children .task-row-details {
+.collections-children .task-row-details,
+.named-children .task-row-details {
   margin-top: 3px;
 }
 
@@ -1747,8 +1776,8 @@
 
 .task-list.is-compact .task-row-details-side,
 .task-overdue-tasks .task-row-details-side,
-.routines-children .task-row-details-side,
-.projects-children .task-row-details-side {
+.collections-children .task-row-details-side,
+.named-children .task-row-details-side {
   font-size: 0.72rem;
   line-height: 1.2;
   letter-spacing: 0.01em;
@@ -1772,8 +1801,8 @@
 
 .task-list.is-compact .task-row-parent,
 .task-overdue-tasks .task-row-parent,
-.routines-children .task-row-parent,
-.projects-children .task-row-parent,
+.collections-children .task-row-parent,
+.named-children .task-row-parent,
 .home-focus-task .task-row-parent {
   font-size: 0.72rem;
 }
@@ -1806,8 +1835,8 @@
 
 .task-list.is-compact .task-row-urgency,
 .task-overdue-tasks .task-row-urgency,
-.routines-children .task-row-urgency,
-.projects-children .task-row-urgency,
+.collections-children .task-row-urgency,
+.named-children .task-row-urgency,
 .home-focus-task .task-row-urgency {
   font-size: 0.62rem;
   letter-spacing: 0.05em;
@@ -1837,16 +1866,20 @@
 }
 
 .task-row-schedule {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
   color: var(--text);
   white-space: nowrap;
 }
 
-.task-row.is-anchored .task-row-schedule {
-  color: var(--accent);
-}
-
-.task-row-schedule.is-auto-rescheduled {
-  color: #e8a317;
+.task-list.is-compact .task-row-schedule,
+.task-overdue-tasks .task-row-schedule,
+.collections-children .task-row-schedule,
+.named-children .task-row-schedule,
+.home-focus-task .task-row-schedule {
+  font-size: 0.72rem;
 }
 
 .task-row-duration {
@@ -2043,8 +2076,8 @@
 
 .task-list.is-compact .task-row-title-row,
 .task-overdue-tasks .task-row-title-row,
-.routines-children .task-row-title-row,
-.projects-children .task-row-title-row,
+.collections-children .task-row-title-row,
+.named-children .task-row-title-row,
 .home-focus-task .task-row-title-row {
   padding-bottom: 0;
 }
@@ -2085,8 +2118,8 @@
 
 .task-list.is-compact .task-row-type-label,
 .task-overdue-tasks .task-row-type-label,
-.routines-children .task-row-type-label,
-.projects-children .task-row-type-label,
+.collections-children .task-row-type-label,
+.named-children .task-row-type-label,
 .home-focus-task .task-row-type-label {
   font-size: 0.62rem;
   letter-spacing: 0.05em;
@@ -2389,8 +2422,8 @@
   padding-top: calc(12px + var(--safe-top));
 }
 
-.routines-view,
-.projects-view {
+.collections-view,
+.named-view {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -2398,13 +2431,13 @@
   padding-top: calc(12px + var(--safe-top));
 }
 
-.projects-header {
+.named-header {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.projects-title {
+.named-title {
   margin: 0;
   color: var(--text-h);
   font-size: 1.35rem;
@@ -2412,25 +2445,25 @@
   line-height: 1.2;
 }
 
-.projects-subtitle {
+.named-subtitle {
   margin: 0;
   font-size: 0.88rem;
   color: var(--text);
 }
 
-.projects-empty {
+.named-empty {
   margin: 0;
   color: var(--text);
   font-size: 0.95rem;
 }
 
-.projects-list {
+.named-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.projects-card {
+.named-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2440,11 +2473,11 @@
   background: var(--bg-raised);
 }
 
-.projects-card.is-collapsed {
+.named-card.is-collapsed {
   gap: 0;
 }
 
-.projects-card-toggle {
+.named-card-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2458,13 +2491,13 @@
   cursor: pointer;
 }
 
-.projects-card-toggle:focus-visible {
+.named-card-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 6px;
 }
 
-.projects-card-chevron {
+.named-card-chevron {
   width: 0.55em;
   height: 0.55em;
   flex-shrink: 0;
@@ -2474,11 +2507,11 @@
   transition: transform 140ms ease;
 }
 
-.projects-card.is-collapsed .projects-card-chevron {
+.named-card.is-collapsed .named-card-chevron {
   transform: rotate(-45deg);
 }
 
-.projects-card-title {
+.named-card-title {
   flex: 1;
   min-width: 0;
   color: var(--text-h);
@@ -2490,21 +2523,21 @@
   white-space: nowrap;
 }
 
-.projects-card-count {
+.named-card-count {
   flex-shrink: 0;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text);
 }
 
-.projects-card-empty {
+.named-card-empty {
   margin: 0;
   padding-left: calc(0.55em + 8px);
   font-size: 0.85rem;
   color: var(--text);
 }
 
-.projects-children {
+.named-children {
   list-style: none;
   margin: 0;
   padding: 0 0 0 calc(0.55em + 8px);
@@ -2513,30 +2546,30 @@
   gap: 4px;
 }
 
-.projects-children .task-row {
+.named-children .task-row {
   align-items: flex-start;
   gap: 10px;
   padding: 8px 12px;
 }
 
-.projects-children .task-complete {
+.named-children .task-complete {
   width: 18px;
   height: 18px;
   margin-top: 2px;
 }
 
-.projects-children .task-row-title {
+.named-children .task-row-title {
   font-size: 0.95rem;
   line-height: 1.25;
 }
 
-.routines-header {
+.collections-header {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.routines-title {
+.collections-title {
   margin: 0;
   color: var(--text-h);
   font-size: 1.35rem;
@@ -2544,25 +2577,25 @@
   line-height: 1.2;
 }
 
-.routines-subtitle {
+.collections-subtitle {
   margin: 0;
   font-size: 0.88rem;
   color: var(--text);
 }
 
-.routines-empty {
+.collections-empty {
   margin: 0;
   color: var(--text);
   font-size: 0.95rem;
 }
 
-.routines-list {
+.collections-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.routines-card {
+.collections-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2572,14 +2605,14 @@
   background: var(--bg-raised);
 }
 
-.routines-card-head {
+.collections-card-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
 }
 
-.routines-card-title {
+.collections-card-title {
   margin: 0;
   color: var(--text-h);
   font-size: 1.05rem;
@@ -2587,20 +2620,20 @@
   line-height: 1.25;
 }
 
-.routines-card-count {
+.collections-card-count {
   flex-shrink: 0;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text);
 }
 
-.routines-card-empty {
+.collections-card-empty {
   margin: 0;
   font-size: 0.85rem;
   color: var(--text);
 }
 
-.routines-children {
+.collections-children {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -2609,19 +2642,19 @@
   gap: 4px;
 }
 
-.routines-children .task-row {
+.collections-children .task-row {
   align-items: flex-start;
   gap: 10px;
   padding: 8px 12px;
 }
 
-.routines-children .task-complete {
+.collections-children .task-complete {
   width: 18px;
   height: 18px;
   margin-top: 2px;
 }
 
-.routines-children .task-row-title {
+.collections-children .task-row-title {
   font-size: 0.95rem;
   line-height: 1.25;
 }
@@ -2685,12 +2718,58 @@
 }
 
 .day-wheel {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
   width: 100%;
   min-width: 0;
+}
+
+.day-wheel-hub-center {
+  position: absolute;
+  left: 50%;
+  top: 82%;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.day-wheel-hub-countdown-anchor {
+  display: inline-flex;
+  pointer-events: auto;
+}
+
+.day-wheel-hub-center .twineline-countdown-button {
+  pointer-events: auto;
+  min-height: 0;
+  padding: 0;
+  font-size: clamp(0.85rem, 3.6vw, 1.15rem);
+  font-weight: 700;
+}
+
+.home-time-picker-menu,
+.time-frames-menu {
+  min-width: min(320px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  padding: 12px;
+  gap: 0;
+}
+
+.home-time-picker-menu .twineline-time-picker,
+.time-frames-menu .twineline-time-picker {
+  width: 100%;
+  padding: 0;
+}
+
+.twineline-countdown-button-anchor {
+  display: inline-flex;
+  justify-self: end;
 }
 
 .day-wheel-label {
@@ -3466,12 +3545,18 @@
 }
 
 .app-compose-kind-lead-icon {
-  width: 1em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .app-compose-kind-lead-icon svg {
-  width: 1em;
-  height: 1em;
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 
 .app-compose-kind-button {

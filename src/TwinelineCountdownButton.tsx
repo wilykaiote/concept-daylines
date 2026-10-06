@@ -5,6 +5,7 @@ type TwinelineCountdownButtonProps = {
   timePickerOpen: boolean;
   daySnoozed: boolean;
   outsideTaskWindow: boolean;
+  className?: string;
   onClick: () => void;
 };
 
@@ -15,6 +16,7 @@ export function TwinelineCountdownButton({
   timePickerOpen,
   daySnoozed,
   outsideTaskWindow,
+  className = "",
   onClick,
 }: TwinelineCountdownButtonProps) {
   return (
@@ -22,7 +24,7 @@ export function TwinelineCountdownButton({
       type="button"
       className={`twineline-countdown-button${timePickerOpen ? " is-open" : ""}${
         daySnoozed || outsideTaskWindow ? " is-rest" : ""
-      }`}
+      }${className ? ` ${className}` : ""}`}
       aria-label={
         timePickerOpen
           ? daySnoozed

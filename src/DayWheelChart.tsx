@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { formatMinutesLabel, MINUTES_PER_DAY } from "./calendarTimeline";
 
 export type DayWheelSlice = {
@@ -67,6 +68,8 @@ type DayWheelChartProps = {
   showLegend?: boolean;
   showLabel?: boolean;
   compact?: boolean;
+  /** Overlay content centered in the hub (keeps AM · PM). */
+  hubCenter?: ReactNode;
 };
 
 export function DayWheelChart({
@@ -78,6 +81,7 @@ export function DayWheelChart({
   showLegend = true,
   showLabel = true,
   compact = false,
+  hubCenter = null,
 }: DayWheelChartProps) {
   const size = 260;
   const cx = size / 2;
@@ -133,6 +137,7 @@ export function DayWheelChart({
   return (
     <div className={`day-wheel${compact ? " is-compact" : ""}`}>
       {showLabel && <p className="day-wheel-label">{label}</p>}
+      {hubCenter != null && <div className="day-wheel-hub-center">{hubCenter}</div>}
       <svg
         className="day-wheel-svg"
         viewBox={`${viewLeft} ${viewTop} ${viewWidth} ${viewHeight}`}
