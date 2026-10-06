@@ -1200,8 +1200,8 @@ function CompactTaskRow({
   const resolvedParentTitle = normalizeOptionalField(parentTitle);
   const hasImpact = impactValue != null && impactPercent != null;
   const hasParent = resolvedParentTitle != null;
-  const hasTopMeta = scheduleLabel != null;
-  const hasBottomMeta = hasParent || showUrgency || durationLabel != null;
+  const topMetaLabel = scheduleLabel ?? (showUrgency ? urgencyLabel : null);
+  const hasTopMeta = topMetaLabel != null;
   const typeLabel =
     task.type === "event"
       ? "EVENT"
@@ -1241,65 +1241,64 @@ function CompactTaskRow({
     >
       {hasTopMeta && (
         <div className="task-row-top">
-          <span
-            className={`task-row-schedule${task.auto_rescheduled ? " is-auto-rescheduled" : ""}`}
-          >
-            {scheduleLabel}
-          </span>
+          {scheduleLabel != null ? (
+            <span className="task-row-schedule">{scheduleLabel}</span>
+          ) : (
+            <span className="task-row-urgency">{urgencyLabel}</span>
+          )}
           {titleAside}
         </div>
       )}
-      <div className="task-row-main">
-        <button
-          type="button"
-          className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
-          aria-label="Mark complete"
-          disabled={popping}
-          onClick={onComplete}
-        >
-          <span className="task-complete-check" aria-hidden="true">
-            <svg viewBox="0 0 16 16" fill="none">
-              <path
-                d="M3.2 8.2 6.4 11.4 12.8 4.6"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                pathLength="1"
-              />
-            </svg>
-          </span>
-        </button>
-        <button
-          type="button"
-          className="task-row-body"
-          onClick={onEdit}
-          aria-label={`Edit task ${task.title}`}
-        >
-          <div className="task-row-title-row">
-            <p className="task-row-title">{task.title}</p>
-            {!hasTopMeta && titleAside}
+      <div className="task-row-content">
+        <div className="task-row-content-main">
+          <div className="task-row-main">
+            <button
+              type="button"
+              className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
+              aria-label="Mark complete"
+              disabled={popping}
+              onClick={onComplete}
+            >
+              <span className="task-complete-check" aria-hidden="true">
+                <svg viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M3.2 8.2 6.4 11.4 12.8 4.6"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    pathLength="1"
+                  />
+                </svg>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="task-row-body"
+              onClick={onEdit}
+              aria-label={`Edit task ${task.title}`}
+            >
+              <div className="task-row-title-row">
+                <p className="task-row-title">{task.title}</p>
+                {!hasTopMeta && titleAside}
+              </div>
+            </button>
           </div>
-        </button>
-      </div>
-      {hasBottomMeta && (
-        <div className="task-row-bottom">
-          <div className="task-row-bottom-start">
-            {showUrgency && (
-              <span className="task-row-urgency">{urgencyLabel}</span>
-            )}
-            {hasParent && (
+          {hasParent && (
+            <div className="task-row-bottom">
               <div className="task-row-parent">
                 <span className="task-row-parent-name">{resolvedParentTitle}</span>
                 <LinkIcon />
               </div>
-            )}
-          </div>
-          {durationLabel != null && (
-            <span className="task-row-duration">{durationLabel}</span>
+            </div>
           )}
         </div>
-      )}
+        {durationLabel != null && (
+          <div className="task-row-duration-slot">
+            <span className="task-row-duration">{durationLabel}</span>
+          </div>
+        )}
+      </div>
     </li>
   );
 }
@@ -2717,6 +2716,10 @@ function App() {
   const composerDate = normalizeOptionalField(taskDate);
   const composerStartsAt = normalizeOptionalField(taskStartsAt);
   const composerDueAt = normalizeOptionalField(taskDueAt);
+  const composerScheduleKind =
+    composerDate != null || composerStartsAt != null || composerDueAt != null
+      ? "anchored"
+      : "soft";
   const dueDateActivated = composerDate != null;
   const dueDateButtonClassName = [
     "app-composer-tool",
@@ -3639,14 +3642,47 @@ function App() {
     const el = composeInputRef.current;
     if (!el) return;
 
+    const MIN_TEXTAREA_HEIGHT = 46;
+    const COLLAPSE_CLEARANCE = 28;
+
     const syncHeight = () => {
       if (collapsed || el.clientWidth < 40) {
-        el.style.height = "46px";
+        el.style.height = `${MIN_TEXTAREA_HEIGHT}px`;
+        el.style.maxHeight = "";
         return;
       }
+
+      const vv = window.visualViewport;
+      const viewTop = vv?.offsetTop ?? 0;
+      const field = composerFieldRef.current;
+      const tools = field?.querySelector<HTMLElement>(".app-composer-tools");
+      const savePrompt = field?.querySelector<HTMLElement>(".twineline-save-prompt");
+      const fieldRow = el.closest<HTMLElement>(".app-composer-field-row");
+
+      let maxTextarea = 160;
+      if (field) {
+        const fieldRect = field.getBoundingClientRect();
+        const fieldStyles = getComputedStyle(field);
+        const fieldPadY =
+          (Number.parseFloat(fieldStyles.paddingTop) || 0) +
+          (Number.parseFloat(fieldStyles.paddingBottom) || 0);
+        const toolsH = tools?.offsetHeight ?? 0;
+        const savePromptH = savePrompt?.offsetHeight ?? 0;
+        const rowExtras = fieldRow ? Math.max(0, fieldRow.offsetHeight - el.offsetHeight) : 0;
+        const maxFieldHeight = Math.max(
+          MIN_TEXTAREA_HEIGHT,
+          fieldRect.bottom - (viewTop + COLLAPSE_CLEARANCE),
+        );
+        maxTextarea = Math.max(
+          MIN_TEXTAREA_HEIGHT,
+          Math.floor(maxFieldHeight - fieldPadY - toolsH - savePromptH - rowExtras),
+        );
+      }
+
+      el.style.maxHeight = `${maxTextarea}px`;
       // Measure from the min height so empty/short text doesn't inflate scrollHeight.
-      el.style.height = "46px";
-      const next = Math.min(Math.max(el.scrollHeight, 46), 160);
+      el.style.height = `${MIN_TEXTAREA_HEIGHT}px`;
+      const next = Math.min(Math.max(el.scrollHeight, MIN_TEXTAREA_HEIGHT), maxTextarea);
       el.style.height = `${next}px`;
     };
 
@@ -3657,11 +3693,19 @@ function App() {
     });
     const observer = new ResizeObserver(syncHeight);
     observer.observe(el);
+    if (composerFieldRef.current) observer.observe(composerFieldRef.current);
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", syncHeight);
+    vv?.addEventListener("scroll", syncHeight);
+    window.addEventListener("resize", syncHeight);
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      vv?.removeEventListener("resize", syncHeight);
+      vv?.removeEventListener("scroll", syncHeight);
+      window.removeEventListener("resize", syncHeight);
     };
-  }, [content, collapsed, composeKind, editingTaskId]);
+  }, [content, collapsed, composeKind, editingTaskId, composerSavePromptOpen]);
 
   useEffect(() => {
     if (collapsed) return;
@@ -4314,6 +4358,31 @@ function App() {
                 }}
               />
             )}
+            plans={tasks
+              .filter((task) => isPlanTaskType(task.type) && task.id != null)
+              .map((plan) => {
+                const planId = plan.id as string;
+                const todayNext = (todayLayout?.blocks ?? []).find(
+                  (block) =>
+                    !block.overdue &&
+                    block.task.parent_id === planId &&
+                    block.task.id !== planId &&
+                    !isPlanTaskType(block.task.type),
+                );
+                const fallbackNext = tasks.find(
+                  (task) =>
+                    task.parent_id === planId &&
+                    task.id !== planId &&
+                    !isPlanTaskType(task.type) &&
+                    !isContainerTaskType(task.type),
+                );
+                return {
+                  id: planId,
+                  title: plan.title,
+                  nextTaskTitle: todayNext?.task.title ?? fallbackNext?.title ?? null,
+                };
+              })}
+            onSelectPlan={() => setActiveView("plans")}
             overdueTasks={overdueTasks}
             overdueOpen={homeOverdueSectionOpen}
             onOverdueToggle={() => setHomeOverdueSectionOpen((open) => !open)}
@@ -4761,8 +4830,8 @@ function App() {
                                 editTask(task);
                               }}
                             />
-                          ))}
-                        </ul>
+            ))}
+          </ul>
                         <p className="task-overdue-note">
                           * Overflow items will be automatically rescheduled at the end of the day
                         </p>
@@ -4882,20 +4951,15 @@ function App() {
                         <span className="calendar-timeline-outside-stub-label">{stub.label}</span>
                       </button>
                     ))}
-                    {view.blocks.map((block) => (
+                    {view.blocks.map((block) => {
+                      const scheduleKind = isAnchoredTask(block.task) ? "anchored" : "soft";
+                      return (
                       <div
                         key={block.key}
                         data-task-id={block.taskId ?? undefined}
-                        className={`calendar-timeline-block${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${block.overdue ? " is-overdue" : ""}${isTaskPopping(block.taskId) ? " is-popping" : ""}`}
+                        className={`calendar-timeline-block is-${scheduleKind}${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${block.overdue ? " is-overdue" : ""}${isTaskPopping(block.taskId) ? " is-popping" : ""}`}
                         style={{ top: block.topPx, height: block.heightPx }}
                       >
-                        <button
-                          type="button"
-                          className="task-complete"
-                          aria-label="Mark complete"
-                          disabled={isTaskPopping(block.taskId)}
-                          onClick={() => requestCompleteTask(block.taskId)}
-                        />
                         <button
                           type="button"
                           className="calendar-timeline-block-body"
@@ -4911,7 +4975,8 @@ function App() {
                           <span className="calendar-timeline-block-title">{block.title}</span>
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </section>
@@ -4922,12 +4987,7 @@ function App() {
       </main>
 
       {activeView === "dayline" && (
-        <div
-          className={`task-view-controls${collapsed ? "" : " is-hidden"}`}
-          ref={taskViewControlsRef}
-          aria-hidden={!collapsed}
-          {...(!collapsed ? { inert: true } : {})}
-        >
+        <div className="task-view-controls" ref={taskViewControlsRef}>
           <button
             type="button"
             className="task-view-toggle"
@@ -5212,7 +5272,7 @@ function App() {
                 <div className="app-composer-complete-slot">
                   <button
                     type="button"
-                    className="task-complete"
+                    className={`task-complete is-${composerScheduleKind}`}
                     aria-label="Mark complete"
                     tabIndex={collapsed ? -1 : 0}
                     onClick={() => requestCompleteTask(editingTaskId)}
@@ -5225,13 +5285,8 @@ function App() {
                 rows={1}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" || e.shiftKey) return;
-                  e.preventDefault();
-                  e.currentTarget.form?.requestSubmit();
-                }}
                 placeholder={composePlaceholder}
-                enterKeyHint="send"
+                enterKeyHint="enter"
                 autoComplete="off"
                 tabIndex={collapsed ? -1 : 0}
               />

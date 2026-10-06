@@ -2,8 +2,20 @@ import { useState, type ReactNode } from "react";
 import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
 import type { ComposerDraft } from "./composer";
 
-const ENERGY_DIVIDER_PCT = 62;
 const HOME_STEP_COUNT = 4;
+
+const PLACEHOLDER_PLANS = [
+  { id: "placeholder-focus", title: "Deep Focus", nextTaskTitle: "Outline the draft" },
+  { id: "placeholder-move", title: "Daily Move", nextTaskTitle: "10-minute walk" },
+  { id: "placeholder-reset", title: "Evening Reset", nextTaskTitle: "Clear the desk" },
+  { id: "placeholder-fuel", title: "Fuel Plan", nextTaskTitle: "Prep lunch" },
+] as const;
+
+type HomePlanTile = {
+  id: string;
+  title: string;
+  nextTaskTitle: string | null;
+};
 
 type HomeViewProps = {
   wheelLabel: string;
@@ -12,6 +24,8 @@ type HomeViewProps = {
   windowStartMin: number;
   windowEndMin: number;
   wheelCountdown: ReactNode;
+  plans: HomePlanTile[];
+  onSelectPlan: (planId: string) => void;
   focusTask: ComposerDraft | null;
   renderFocusTask: (task: ComposerDraft) => ReactNode;
   overdueTasks: ComposerDraft[];
@@ -27,6 +41,8 @@ export function HomeView({
   windowStartMin,
   windowEndMin,
   wheelCountdown,
+  plans,
+  onSelectPlan,
   focusTask,
   renderFocusTask,
   overdueTasks,
@@ -37,6 +53,7 @@ export function HomeView({
   const [homeStepIndex, setHomeStepIndex] = useState(0);
   const canStepBack = homeStepIndex > 0;
   const canStepForward = homeStepIndex < HOME_STEP_COUNT - 1;
+  const planTiles = plans.length > 0 ? plans : [...PLACEHOLDER_PLANS];
 
   return (
     <div className="home-view">
@@ -142,32 +159,29 @@ export function HomeView({
             </div>
           )}
 
-          <div className="home-side">
-            <div
-              className="home-energy"
-              role="img"
-              aria-label={`Energy balance, marker at ${ENERGY_DIVIDER_PCT}% toward out`}
-            >
-              <div className="home-energy-labels">
-                <span>IN</span>
-                <span>OUT</span>
-              </div>
-              <div className="home-energy-track">
-                <span
-                  className="home-energy-divider"
-                  style={{ left: `${ENERGY_DIVIDER_PCT}%` }}
-                />
-              </div>
-            </div>
-            <div className="home-rings" aria-hidden="true">
-              <div className="home-ring-slot">
-                <span className="home-ring" />
-              </div>
-              <div className="home-ring-slot">
-                <span className="home-ring" />
-              </div>
-              <div className="home-ring-slot">
-                <span className="home-ring" />
+          <div className="home-plans" aria-label="Plans">
+            <div className="home-plans-scroll">
+              <div className="home-plans-grid">
+                {planTiles.map((plan) => (
+                  <div key={plan.id} className="home-plan-card">
+                    <button
+                      type="button"
+                      className="home-plan-app"
+                      onClick={() => onSelectPlan(plan.id)}
+                    >
+                      <span className="home-plan-app-icon" aria-hidden="true">
+                        {plan.title.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="home-plan-app-label">{plan.title}</span>
+                    </button>
+                    <div className="home-plan-next">
+                      <span className="home-plan-next-kicker">Next up</span>
+                      <span className="home-plan-next-title">
+                        {plan.nextTaskTitle?.trim() || "Nothing queued"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
