@@ -158,34 +158,32 @@ export function HomeView({
               </section>
             </div>
           )}
+        </header>
+      </div>
 
-          <div className="home-plans" aria-label="Plans">
-            <div className="home-plans-scroll">
-              <div className="home-plans-grid">
-                {planTiles.map((plan) => (
-                  <div key={plan.id} className="home-plan-card">
-                    <button
-                      type="button"
-                      className="home-plan-app"
-                      onClick={() => onSelectPlan(plan.id)}
-                    >
-                      <span className="home-plan-app-icon" aria-hidden="true">
-                        {plan.title.slice(0, 1).toUpperCase()}
-                      </span>
-                      <span className="home-plan-app-label">{plan.title}</span>
-                    </button>
-                    <div className="home-plan-next">
-                      <span className="home-plan-next-kicker">Next up</span>
-                      <span className="home-plan-next-title">
-                        {plan.nextTaskTitle?.trim() || "Nothing queued"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+      <div className="home-plans" aria-label="Plans">
+        <div className="home-plans-grid">
+          {planTiles.map((plan) => (
+            <div key={plan.id} className="home-plan-card">
+              <button
+                type="button"
+                className="home-plan-app"
+                onClick={() => onSelectPlan(plan.id)}
+              >
+                <span className="home-plan-app-icon" aria-hidden="true">
+                  {plan.title.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="home-plan-app-label">{plan.title}</span>
+              </button>
+              <div className="home-plan-next">
+                <span className="home-plan-next-kicker">Next up</span>
+                <span className="home-plan-next-title">
+                  {plan.nextTaskTitle?.trim() || "Nothing queued"}
+                </span>
               </div>
             </div>
-          </div>
-        </header>
+          ))}
+        </div>
       </div>
     </div>
   );

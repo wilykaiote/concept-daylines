@@ -1758,6 +1758,10 @@ function App() {
   const twinelineHeaderRef = useRef<HTMLElement>(null);
   const twinelineSlideRef = useRef<HTMLDivElement>(null);
   const lastScrollTopRef = useRef(0);
+  const viewScrollTopRef = useRef<Partial<Record<ActiveView, number>>>({});
+  const pendingViewScrollTopRef = useRef<number | null>(null);
+  const activeViewRef = useRef(activeView);
+  activeViewRef.current = activeView;
   const chromeHiddenRef = useRef(false);
   const chromeLockRef = useRef(false);
   const chromeCooldownUntilRef = useRef(0);
@@ -2054,6 +2058,13 @@ function App() {
       return;
     }
 
+    // Only move the shared main scroller while Dayline is active so other
+    // views keep their own scroll position.
+    if (activeViewRef.current !== "dayline") {
+      pendingTimelineScrollDayRef.current = clamped;
+      return;
+    }
+
     pendingTimelineScrollDayRef.current = null;
     timelineScrollSyncLockRef.current = true;
     const chromeHeight = twinelineChromeRef.current?.offsetHeight ?? 0;
@@ -2172,6 +2183,7 @@ function App() {
     behavior: ScrollBehavior = "smooth",
     options?: { preserveChrome?: boolean },
   ) => {
+    if (activeViewRef.current !== "dayline") return false;
     const main = mainRef.current;
     const row = main?.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`);
     if (!main || !(row instanceof HTMLElement)) return false;
@@ -2988,8 +3000,19 @@ function App() {
 
   const taskTimeValue = taskTimeMode === "starts_at" ? taskStartsAt : taskDueAt;
 
-  const selectView = (id: ActiveView) => {
+  const switchActiveView = (id: ActiveView) => {
+    if (id !== activeViewRef.current) {
+      const main = mainRef.current;
+      if (main) {
+        viewScrollTopRef.current[activeViewRef.current] = main.scrollTop;
+      }
+      pendingViewScrollTopRef.current = viewScrollTopRef.current[id] ?? 0;
+    }
     setActiveView(id);
+  };
+
+  const selectView = (id: ActiveView) => {
+    switchActiveView(id);
     if (!content.trim()) {
       setComposeKind(COMPOSE_KIND_BY_VIEW[id]);
     }
@@ -3375,6 +3398,16 @@ function App() {
     }
   }, [activeView]);
 
+  useLayoutEffect(() => {
+    const top = pendingViewScrollTopRef.current;
+    if (top === null) return;
+    pendingViewScrollTopRef.current = null;
+    const main = mainRef.current;
+    if (!main) return;
+    main.scrollTop = top;
+    lastScrollTopRef.current = top;
+  }, [activeView]);
+
   useEffect(() => {
     const main = mainRef.current;
     if (!main) return;
@@ -3486,6 +3519,9 @@ function App() {
   }, [calendarLayoutSpanKey, timelineRangeStart, timelineDayCount, calendarTaskLayout]);
 
   useLayoutEffect(() => {
+    // Keep pending targets queued off-Dayline; never move main for Home/etc.
+    if (activeViewRef.current !== "dayline") return;
+
     const preserveChrome = pendingViewPreserveChromeRef.current;
     const chromeHiddenSnapshot = pendingViewChromeHiddenRef.current;
     const taskId = pendingViewScrollTaskIdRef.current;
@@ -3542,7 +3578,14 @@ function App() {
         chromeLockRef.current = false;
       }, 0);
     }
-  }, [tasksCompact, timelineRangeStart, timelineDayCount, timelineDays.length, calendarLayoutSpanKey]);
+  }, [
+    activeView,
+    tasksCompact,
+    timelineRangeStart,
+    timelineDayCount,
+    timelineDays.length,
+    calendarLayoutSpanKey,
+  ]);
 
   useLayoutEffect(() => {
     if (activeView !== "dayline") return;
@@ -4382,7 +4425,7 @@ function App() {
                   nextTaskTitle: todayNext?.task.title ?? fallbackNext?.title ?? null,
                 };
               })}
-            onSelectPlan={() => setActiveView("plans")}
+            onSelectPlan={() => selectView("plans")}
             overdueTasks={overdueTasks}
             overdueOpen={homeOverdueSectionOpen}
             onOverdueToggle={() => setHomeOverdueSectionOpen((open) => !open)}

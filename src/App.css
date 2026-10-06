@@ -275,15 +275,8 @@
 .home-plans {
   min-width: 0;
   width: 100%;
-}
-
-.home-plans-scroll {
-  max-height: min(280px, 42vh);
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  padding: 2px 2px 4px;
+  padding: 14px 0 8px;
+  box-sizing: border-box;
 }
 
 .home-plans-grid {
