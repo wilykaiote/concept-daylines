@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
 import { formatMinutesLabel, MINUTES_PER_DAY } from "./calendarTimeline";
+import { daySkyColorAtMinutes } from "./daySky";
+
+/** Angular sky samples along the arch (same orientation as task wedges). */
+const SKY_SEGMENT_MINUTES = 8;
 
 export type DayWheelSlice = {
   key: string;
@@ -89,6 +93,8 @@ export function DayWheelChart({
   const cy = 128;
   const rOuter = 112;
   const rInner = 82;
+  // Task wedges poke slightly past the outer track ring.
+  const rSliceOuter = rOuter + 4;
   // Ticks sit on the inside of the band (toward the hub).
   const tickOuter = rInner;
   const tickInner = rInner - 10;
@@ -128,11 +134,35 @@ export function DayWheelChart({
     });
 
   const hourTicks = Array.from({ length: 25 }, (_, hour) => {
-    const angle = minutesToAngle(hour * 60);
+    const minute = hour * 60;
+    const angle = minutesToAngle(minute);
     const a = polar(cx, cy, tickInner, angle);
     const b = polar(cx, cy, tickOuter, angle);
-    return { hour, a, b };
+    const past = elapsed != null && minute <= elapsed;
+    return {
+      hour,
+      a,
+      b,
+      past,
+      pastColor: past ? daySkyColorAtMinutes(minute) : null,
+    };
   });
+  const elapsedSkySegments =
+    elapsed == null || elapsed <= 0
+      ? []
+      : Array.from(
+          { length: Math.ceil(elapsed / SKY_SEGMENT_MINUTES) },
+          (_, index) => {
+            const startMin = index * SKY_SEGMENT_MINUTES;
+            const endMin = Math.min(elapsed, startMin + SKY_SEGMENT_MINUTES);
+            return {
+              key: `sky-${startMin}`,
+              startMin,
+              endMin,
+              color: daySkyColorAtMinutes((startMin + endMin) / 2),
+            };
+          },
+        );
 
   return (
     <div className={`day-wheel${compact ? " is-compact" : ""}`}>
@@ -150,12 +180,14 @@ export function DayWheelChart({
           fill="none"
           strokeWidth={rOuter - rInner}
         />
-        {elapsed != null && elapsed > 0 && (
+        {elapsedSkySegments.map(({ key, startMin, endMin, color }) => (
           <path
-            d={donutSegment(cx, cy, rOuter, rInner, 0, elapsed)}
+            key={key}
+            d={donutSegment(cx, cy, rOuter, rInner, startMin, endMin)}
             className="day-wheel-elapsed"
+            fill={color}
           />
-        )}
+        ))}
         <path
           d={arcPath(cx, cy, rOuter, archStart, archEnd)}
           className="day-wheel-track"
@@ -166,7 +198,7 @@ export function DayWheelChart({
           className="day-wheel-hub"
           fill="none"
         />
-        {hourTicks.map(({ hour, a, b }) => {
+        {hourTicks.map(({ hour, a, b, past, pastColor }) => {
           const isMajor = hour % 6 === 0 || hour === 24;
           return (
             <g key={hour}>
@@ -175,7 +207,8 @@ export function DayWheelChart({
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                className={`day-wheel-tick${isMajor ? " is-major" : ""}`}
+                className={`day-wheel-tick${isMajor ? " is-major" : ""}${past ? " is-past" : ""}`}
+                style={pastColor ? { stroke: pastColor } : undefined}
               />
             </g>
           );
@@ -186,7 +219,7 @@ export function DayWheelChart({
           return (
             <path
               key={slice.key}
-              d={donutSegment(cx, cy, rOuter, rInner, slice.startMin, slice.endMin)}
+              d={donutSegment(cx, cy, rSliceOuter, rInner, slice.startMin, slice.endMin)}
               className={`day-wheel-slice is-${slice.kind}${slice.overdue ? " is-overdue" : ""}${fullyPast ? " is-past" : ""}`}
             >
               <title>

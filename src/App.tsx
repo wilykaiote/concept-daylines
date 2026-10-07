@@ -1702,10 +1702,6 @@ function App() {
   });
   const [collections, setCollections] = useState<ComposerDraft[]>(() => loadCollections());
   const [poppingTaskIds, setPoppingTaskIds] = useState<string[]>([]);
-  const [completedTodayCount, setCompletedTodayCount] = useState(0);
-  const [completedTodayDayKey, setCompletedTodayDayKey] = useState(() =>
-    dayKey(toStartOfDay(new Date())),
-  );
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTaskBaseline, setEditTaskBaseline] = useState<{
     title: string;
@@ -2768,7 +2764,6 @@ function App() {
       const next = buildNextRecurringTask(completed, new Date(countdownNowRef.current));
       return next ? [next, ...without] : without;
     });
-    setCompletedTodayCount((count) => count + 1);
     if (editingTaskId === id) {
       resetComposerFields();
       setCollapsed(true);
@@ -3623,14 +3618,7 @@ function App() {
     const observer = new ResizeObserver(syncSlotHeight);
     observer.observe(slide);
     return () => observer.disconnect();
-  }, [activeView, calendarOpen, timePickerOpen, completedTodayCount, weekdayDayCount, overdueTasks.length]);
-
-  useEffect(() => {
-    const todayCompletedDayKey = dayKey(todayStart);
-    if (completedTodayDayKey === todayCompletedDayKey) return;
-    setCompletedTodayDayKey(todayCompletedDayKey);
-    setCompletedTodayCount(0);
-  }, [todayStart, completedTodayDayKey]);
+  }, [activeView, calendarOpen, timePickerOpen, weekdayDayCount, overdueTasks.length]);
 
   useEffect(() => {
     const end = addDays(todayStart, weekdayDayCount - 1);
@@ -4721,7 +4709,6 @@ function App() {
                   elapsedPct={selectedDayElapsedPct}
                   windowStartMin={selectedDayWindowStartMinutes}
                   windowEndMin={selectedDayPackEnd}
-                  completedCount={selectedIsToday ? completedTodayCount : 0}
                   focusedTaskId={focusedTaskId}
                   isTaskHighlighted={isTaskHighlighted}
                   isTaskPopping={isTaskPopping}

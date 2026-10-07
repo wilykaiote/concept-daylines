@@ -1299,9 +1299,11 @@
   min-height: 22px;
   overflow: visible;
   z-index: 1;
+  container-type: inline-size;
+  container-name: schedule-lane;
 }
 
-.twineline-schedule-time-band,
+.twineline-schedule-ruler,
 .twineline-schedule-lane-blocks {
   -webkit-mask-image: linear-gradient(
     to right,
@@ -1319,36 +1321,68 @@
   );
 }
 
-.twineline-schedule-time-band {
+.twineline-schedule-ruler {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  /* A little over half the lane height. */
-  height: 55%;
-  transform: translateY(-50%);
-  border-radius: 0 999px 999px 0;
-  overflow: hidden;
+  inset: 0;
   pointer-events: none;
   z-index: 0;
 }
 
-.twineline-schedule-remaining {
+.twineline-schedule-ruler-line {
   position: absolute;
-  inset: 0;
-  background: var(--day-wheel-remaining);
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 5px;
+  transform: translateY(-50%);
+  background: color-mix(in srgb, var(--border) 88%, var(--text));
+}
+
+.twineline-schedule-ruler-tick {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 1px;
+  height: 11px;
+  transform: translate(-50%, -50%);
+  background: color-mix(in srgb, var(--border) 70%, var(--text));
+  transition: background 200ms linear;
+}
+
+.twineline-schedule-ruler-tick.is-major {
+  width: 1.5px;
+  height: 16px;
+  background: color-mix(in srgb, var(--text) 45%, var(--border));
+}
+
+.twineline-schedule-ruler-tick.is-past,
+.twineline-schedule-ruler-tick.is-major.is-past {
+  background-color: transparent;
+  background-image: var(--schedule-day-sky);
+  background-repeat: no-repeat;
+  background-size: 100cqw 100%;
+  background-position: calc(-100cqw * var(--tick-pct, 0)) 0;
 }
 
 .twineline-schedule-elapsed {
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 0;
+  top: 50%;
+  height: 5px;
+  transform: translateY(-50%);
   border-radius: 0;
-  background: var(--day-elapsed);
+  overflow: hidden;
   pointer-events: none;
   z-index: 1;
   transition: width 200ms linear;
+}
+
+.twineline-schedule-elapsed-sky {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--schedule-day-sky);
 }
 
 .twineline-schedule-lane-blocks {
@@ -1365,8 +1399,9 @@
 
 .twineline-schedule-window-marker {
   position: absolute;
-  top: 22.5%;
-  height: 55%;
+  top: 0;
+  bottom: 0;
+  height: auto;
   width: 0;
   border-left: 2px dashed color-mix(in srgb, var(--accent) 70%, var(--border));
   transform: translateX(-50%);
@@ -1387,27 +1422,31 @@
   min-width: 4px;
   margin: 0;
   padding: 0;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 5px;
-  background: var(--day-kind-soft);
+  background: var(--bg-raised);
   box-shadow: none;
   cursor: pointer;
   isolation: isolate;
   transition:
     background 0.15s ease,
+    border-color 0.15s ease,
     box-shadow 0.15s ease;
 }
 
 .twineline-schedule-block.is-anchored {
-  background: var(--day-kind-anchored);
+  border-color: color-mix(in srgb, var(--day-kind-anchored) 55%, var(--border));
+  background: color-mix(in srgb, var(--day-kind-anchored) 28%, var(--bg-raised));
 }
 
 .twineline-schedule-block.is-soft {
-  background: var(--day-kind-soft);
+  border-color: color-mix(in srgb, var(--day-kind-soft) 55%, var(--border));
+  background: color-mix(in srgb, var(--day-kind-soft) 28%, var(--bg-raised));
 }
 
 .twineline-schedule-block.is-overdue {
-  background: var(--day-kind-overdue);
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+  background: color-mix(in srgb, var(--danger) 18%, var(--bg-raised));
 }
 
 @keyframes schedule-balloon-pop {
@@ -1466,46 +1505,6 @@
 .twineline-schedule-block:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
-}
-
-.twineline-schedule-completed-check {
-  position: relative;
-  z-index: 1;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 12px;
-  height: 12px;
-  margin-left: 2px;
-  color: var(--text);
-  pointer-events: none;
-}
-
-.twineline-schedule-completed-check svg {
-  width: 12px;
-  height: 12px;
-  display: block;
-}
-
-.twineline-schedule-completed {
-  position: relative;
-  z-index: 1;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  margin: 0 2px 0 0;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--bg-raised);
-  box-shadow: inset 0 0 0 1px var(--border);
-  color: var(--text-h);
-  font-size: 0.7rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  pointer-events: none;
 }
 
 .task-list-empty {
@@ -2848,10 +2847,6 @@
   stroke: var(--day-wheel-remaining);
 }
 
-.day-wheel-elapsed {
-  fill: var(--day-elapsed);
-}
-
 .day-wheel-track {
   stroke: var(--border);
   stroke-width: 1.5;
@@ -2894,20 +2889,20 @@
 }
 
 .day-wheel-slice.is-anchored {
-  fill: var(--day-kind-anchored);
-  stroke: var(--bg);
+  fill: color-mix(in srgb, var(--day-kind-anchored) 28%, var(--bg-raised));
+  stroke: color-mix(in srgb, var(--day-kind-anchored) 55%, var(--border));
   stroke-width: 1;
 }
 
 .day-wheel-slice.is-soft {
-  fill: var(--day-kind-soft);
-  stroke: var(--bg);
+  fill: color-mix(in srgb, var(--day-kind-soft) 28%, var(--bg-raised));
+  stroke: color-mix(in srgb, var(--day-kind-soft) 55%, var(--border));
   stroke-width: 1;
 }
 
 .day-wheel-slice.is-overdue {
-  fill: var(--day-kind-overdue);
-  stroke: var(--bg);
+  fill: color-mix(in srgb, var(--danger) 18%, var(--bg-raised));
+  stroke: color-mix(in srgb, var(--danger) 50%, var(--border));
   stroke-width: 1;
   opacity: 1;
 }

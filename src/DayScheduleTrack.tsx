@@ -1,6 +1,10 @@
+import type { CSSProperties } from "react";
 import { MINUTES_PER_DAY, parseTimeOfDay } from "./calendarTimeline";
 import type { ComposerDraft } from "./composer";
+import { daySkyCssStops } from "./daySky";
 import type { ScheduleSegment } from "./schedule";
+
+const SCHEDULE_DAY_SKY = daySkyCssStops();
 
 function scheduleBlockKind(
   task: ComposerDraft,
@@ -13,21 +17,6 @@ function scheduleBlockKind(
   return "soft";
 }
 
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M5 12.5 10 17.5 19 7"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export type DayScheduleTrackProps = {
   segments: ScheduleSegment[];
   timelineMinutes: number;
@@ -37,7 +26,6 @@ export type DayScheduleTrackProps = {
   windowEndMin?: number;
   className?: string;
   "aria-label"?: string;
-  completedCount?: number;
   focusedTaskId?: string | null;
   isTaskHighlighted?: (taskId: string | null | undefined) => boolean;
   isTaskPopping?: (taskId: string | null | undefined) => boolean;
@@ -52,7 +40,6 @@ export function DayScheduleTrack({
   windowEndMin,
   className,
   "aria-label": ariaLabel,
-  completedCount = 0,
   focusedTaskId = null,
   isTaskHighlighted,
   isTaskPopping,
@@ -62,30 +49,65 @@ export function DayScheduleTrack({
     windowStartMin == null ? null : (windowStartMin / MINUTES_PER_DAY) * 100;
   const windowEndPct =
     windowEndMin == null ? null : (windowEndMin / MINUTES_PER_DAY) * 100;
-  const showCompleted = completedCount > 0;
   const interactive = onTaskSelect != null;
+  const hourTicks = Array.from({ length: 25 }, (_, hour) => {
+    const leftPct = (hour / 24) * 100;
+    return {
+      hour,
+      leftPct,
+      major: hour % 6 === 0,
+      past: leftPct <= elapsedPct,
+    };
+  });
 
   return (
     <div
-      className={[
-        "twineline-schedule-track",
-        showCompleted ? "has-completed" : "",
-        className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={["twineline-schedule-track", className].filter(Boolean).join(" ")}
       role={ariaLabel ? "img" : undefined}
       aria-label={ariaLabel}
     >
       <div className="twineline-schedule-lane">
-        <div className="twineline-schedule-time-band" aria-hidden="true">
-          <div className="twineline-schedule-remaining" />
+        <div
+          className="twineline-schedule-ruler"
+          aria-hidden="true"
+          style={
+            {
+              "--schedule-day-sky": `linear-gradient(to right, ${SCHEDULE_DAY_SKY})`,
+            } as CSSProperties
+          }
+        >
+          <div className="twineline-schedule-ruler-line" />
           {elapsedPct > 0 && (
             <div
               className="twineline-schedule-elapsed"
               style={{ width: `${elapsedPct}%` }}
-            />
+            >
+              <div
+                className="twineline-schedule-elapsed-sky"
+                style={{
+                  width: `${(100 / Math.max(elapsedPct, 0.001)) * 100}%`,
+                }}
+              />
+            </div>
           )}
+          {hourTicks.map(({ hour, leftPct, major, past }) => (
+            <span
+              key={hour}
+              className={[
+                "twineline-schedule-ruler-tick",
+                major ? "is-major" : "",
+                past ? "is-past" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              style={
+                {
+                  left: `${leftPct}%`,
+                  "--tick-pct": String(leftPct / 100),
+                } as CSSProperties
+              }
+            />
+          ))}
         </div>
         {windowStartPct != null && (
           <div
@@ -162,20 +184,6 @@ export function DayScheduleTrack({
           })}
         </div>
       </div>
-      {showCompleted && (
-        <>
-          <span className="twineline-schedule-completed-check" aria-hidden="true">
-            <CheckIcon />
-          </span>
-          <span
-            className="twineline-schedule-completed"
-            aria-label={`${completedCount} task${completedCount === 1 ? "" : "s"} completed today`}
-            title={`${completedCount} completed today`}
-          >
-            {completedCount}
-          </span>
-        </>
-      )}
     </div>
   );
 }
