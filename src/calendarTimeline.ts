@@ -248,54 +248,6 @@ function isPlacementOverdue(task: ComposerDraft, placementDay: Date): boolean {
   return toStartOfDay(placementDay).getTime() > scheduled.getTime();
 }
 
-function placeDuration(
-  byDay: Map<string, PackBlock[]>,
-  task: ComposerDraft,
-  startDay: Date,
-  startMin: number,
-  duration: number,
-  getPackEnd: (day: Date) => number,
-  getWindowStart: (day: Date) => number,
-  now: Date,
-  forceOverdue = false,
-  allowSpill = true,
-) {
-  let remaining = duration;
-  let day = toStartOfDay(startDay);
-  let cursor = startMin;
-  let segment = 0;
-  const today = toStartOfDay(now);
-
-  while (remaining > 0) {
-    if (day.getTime() < today.getTime()) {
-      day = addDays(day, 1);
-      cursor = getWindowStart(day);
-      continue;
-    }
-    const packEnd = getPackEnd(day);
-    const packStart = packStartForDay(day, now, packEnd, getWindowStart(day));
-    cursor = Math.max(cursor, packStart);
-    if (cursor >= packEnd) {
-      if (!allowSpill) break;
-      day = addDays(day, 1);
-      cursor = getWindowStart(day);
-      continue;
-    }
-    const room = packEnd - cursor;
-    const take = Math.min(remaining, room);
-    const overdue = forceOverdue || isPlacementOverdue(task, day);
-    pushBlock(byDay, day, task, cursor, cursor + take, segment, overdue);
-    segment += 1;
-    remaining -= take;
-    cursor += take;
-    if (remaining > 0) {
-      if (!allowSpill) break;
-      day = addDays(day, 1);
-      cursor = getWindowStart(day);
-    }
-  }
-}
-
 /** Pin a timed task on its date without checking soft/timed collisions. */
 function resolveTimedStartMin(
   task: ComposerDraft,
@@ -342,6 +294,39 @@ function occupiedIntervalsForDay(byDay: Map<string, PackBlock[]>, key: string): 
     .sort((a, b) => a.start - b.start);
 }
 
+function mergeIntervals(intervals: Interval[]): Interval[] {
+  if (intervals.length === 0) return [];
+  const sorted = [...intervals].sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: Interval[] = [{ start: sorted[0].start, end: sorted[0].end }];
+  for (let i = 1; i < sorted.length; i += 1) {
+    const prev = merged[merged.length - 1];
+    const next = sorted[i];
+    if (next.start <= prev.end) {
+      prev.end = Math.max(prev.end, next.end);
+    } else {
+      merged.push({ start: next.start, end: next.end });
+    }
+  }
+  return merged;
+}
+
+/** Expand occupied ranges by gap on both sides so softs keep aggression clearance. */
+function inflateOccupied(
+  occupied: Interval[],
+  gapMinutes: number,
+  packStart: number,
+  packEnd: number,
+): Interval[] {
+  const gap = Math.max(0, gapMinutes);
+  if (gap === 0) return mergeIntervals(occupied);
+  return mergeIntervals(
+    occupied.map((interval) => ({
+      start: Math.max(packStart, interval.start - gap),
+      end: Math.min(packEnd, interval.end + gap),
+    })),
+  );
+}
+
 function freeIntervals(packStart: number, packEnd: number, occupied: Interval[]): Interval[] {
   const free: Interval[] = [];
   let cursor = packStart;
@@ -356,68 +341,38 @@ function freeIntervals(packStart: number, packEnd: number, occupied: Interval[])
   return free;
 }
 
-/** Map a position along concatenated free intervals back to a real time range. */
-function realRangeFromVirtual(
-  free: Interval[],
-  virtualStart: number,
-  length: number,
-): Interval | null {
-  let virtualCursor = 0;
-  for (let i = 0; i < free.length; i += 1) {
-    const len = free[i].end - free[i].start;
-    if (virtualStart <= virtualCursor + len) {
-      const offset = Math.max(0, virtualStart - virtualCursor);
-      const start = free[i].start + offset;
-      if (start + length <= free[i].end) {
-        return { start, end: start + length };
-      }
-      for (let j = i + 1; j < free.length; j += 1) {
-        if (free[j].end - free[j].start >= length) {
-          return { start: free[j].start, end: free[j].start + length };
-        }
-      }
-      return null;
+/** Earliest contiguous free hole that can hold `minutes`. */
+function firstFitRange(free: Interval[], minutes: number): Interval | null {
+  for (const hole of free) {
+    if (hole.end - hole.start >= minutes) {
+      return { start: hole.start, end: hole.start + minutes };
     }
-    virtualCursor += len;
   }
   return null;
 }
 
-function placeSoftBatchWithGap(
-  byDay: Map<string, PackBlock[]>,
-  day: Date,
-  fitted: Array<{ task: ComposerDraft; minutes: number; forceOverdue: boolean }>,
-  free: Interval[],
-  packStart: number,
-  getPackEnd: (day: Date) => number,
-  getWindowStart: (day: Date) => number,
-  now: Date,
-  gapMinutes: number,
-) {
+/**
+ * Remove a placed soft range (plus trailing gap) from the free-interval list.
+ * Trailing gap keeps soft↔soft spacing without re-querying occupancy.
+ */
+function consumeFreeWithGap(free: Interval[], placed: Interval, gapMinutes: number): Interval[] {
   const gap = Math.max(0, gapMinutes);
-  let virtualCursor = 0;
-
-  for (const item of fitted) {
-    const overdue = item.forceOverdue || isPlacementOverdue(item.task, day);
-    const range = realRangeFromVirtual(free, virtualCursor, item.minutes);
-    if (range) {
-      pushBlock(byDay, day, item.task, range.start, range.end, 0, overdue);
-    } else {
-      placeDuration(
-        byDay,
-        item.task,
-        day,
-        packStart,
-        item.minutes,
-        getPackEnd,
-        getWindowStart,
-        now,
-        overdue,
-        false,
-      );
+  const cutStart = placed.start;
+  const cutEnd = placed.end + gap;
+  const next: Interval[] = [];
+  for (const hole of free) {
+    if (cutEnd <= hole.start || cutStart >= hole.end) {
+      next.push(hole);
+      continue;
     }
-    virtualCursor += item.minutes + gap;
+    if (hole.start < cutStart) {
+      next.push({ start: hole.start, end: cutStart });
+    }
+    if (cutEnd < hole.end) {
+      next.push({ start: cutEnd, end: hole.end });
+    }
   }
+  return next.filter((hole) => hole.end > hole.start);
 }
 
 function packSoftTasks(
@@ -428,6 +383,7 @@ function packSoftTasks(
   getPackEnd: (day: Date) => number,
   getWindowStart: (day: Date) => number,
   overdueTasks: ComposerDraft[],
+  deferredTasks: ComposerDraft[],
   gapMinutes: number,
 ) {
   const undatedQueue = [...undated].sort(compareSoftPriority);
@@ -436,12 +392,14 @@ function packSoftTasks(
     dateOnlyQueues.set(key, [...list].sort(compareSoftPriority));
   }
 
-  let day = toStartOfDay(now);
+  const todayStart = toStartOfDay(now);
+  let day = todayStart;
   let guard = 0;
   const gap = Math.max(0, gapMinutes);
+  let undatedPackedToday = false;
 
   const hasRemaining = () =>
-    undatedQueue.length > 0 ||
+    (!undatedPackedToday && undatedQueue.length > 0) ||
     [...dateOnlyQueues.values()].some((list) => list.length > 0);
 
   const drainDateOnlyToOverdue = (key: string) => {
@@ -452,113 +410,78 @@ function packSoftTasks(
     dateOnlyQueues.set(key, stranded);
   };
 
+  const drainUndatedToDeferred = () => {
+    while (undatedQueue.length > 0) {
+      deferredTasks.push(undatedQueue.shift()!);
+    }
+    undatedPackedToday = true;
+  };
+
   while (hasRemaining() && guard < 1000) {
     guard += 1;
     const key = dayKey(day);
+    const isToday = day.getTime() === todayStart.getTime();
     const packEnd = getPackEnd(day);
     const packStart = packStartForDay(day, now, packEnd, getWindowStart(day));
     if (packStart >= packEnd) {
       // Pack window closed for this day — date-only tasks cannot be placed.
       drainDateOnlyToOverdue(key);
+      if (isToday) drainUndatedToDeferred();
       day = addDays(day, 1);
       continue;
     }
 
-    const free = freeIntervals(packStart, packEnd, occupiedIntervalsForDay(byDay, key));
-    const freeTotal = free.reduce((sum, interval) => sum + (interval.end - interval.start), 0);
-    if (freeTotal <= 0) {
+    const occupied = inflateOccupied(
+      occupiedIntervalsForDay(byDay, key),
+      gap,
+      packStart,
+      packEnd,
+    );
+    let free = freeIntervals(packStart, packEnd, occupied);
+    if (free.length === 0) {
       drainDateOnlyToOverdue(key);
+      if (isToday) drainUndatedToDeferred();
       day = addDays(day, 1);
       continue;
     }
 
     const sameDayQueue = dateOnlyQueues.get(key) ?? [];
-    const fitted: Array<{ task: ComposerDraft; minutes: number; forceOverdue: boolean }> = [];
-    let used = 0;
 
-    const takeFitting = (queue: ComposerDraft[], forceOverdue: boolean) => {
-      while (queue.length > 0) {
-        const minutes = taskDurationMinutes(queue[0]);
-        const nextUsed = used + minutes + (fitted.length > 0 ? gap : 0);
-        if (nextUsed <= freeTotal) {
-          fitted.push({ task: queue.shift()!, minutes, forceOverdue });
-          used = nextUsed;
-        } else {
-          break;
-        }
-      }
-    };
-
-    // Prefer date-only for D, then undated — spaced by master gap.
-    takeFitting(sameDayQueue, false);
-    takeFitting(undatedQueue, false);
-
-    if (fitted.length === 0) {
-      // Nothing fits whole; undated may force-place / spill days. Date-only → overdue.
-      if (sameDayQueue.length > 0) {
+    // Priority 1: date-only / soft-anchored for this day. Fail → Rescheduling.
+    while (sameDayQueue.length > 0) {
+      const task = sameDayQueue[0];
+      const minutes = taskDurationMinutes(task);
+      const range = firstFitRange(free, minutes);
+      if (!range) {
         overdueTasks.push(sameDayQueue.shift()!);
-        dateOnlyQueues.set(key, sameDayQueue);
         continue;
       }
-      if (undatedQueue.length > 0) {
-        const task = undatedQueue.shift()!;
-        const minutes = taskDurationMinutes(task);
-        if (free[0]) {
-          placeDuration(
-            byDay,
-            task,
-            day,
-            free[0].start,
-            minutes,
-            getPackEnd,
-            getWindowStart,
-            now,
-            false,
-            false,
-          );
-        } else {
-          const nextDay = addDays(day, 1);
-          placeDuration(
-            byDay,
-            task,
-            nextDay,
-            getWindowStart(nextDay),
-            minutes,
-            getPackEnd,
-            getWindowStart,
-            now,
-            false,
-          );
-        }
-      }
-      dateOnlyQueues.set(key, sameDayQueue);
-      day = addDays(day, 1);
-      continue;
+      sameDayQueue.shift();
+      const overdue = isPlacementOverdue(task, day);
+      pushBlock(byDay, day, task, range.start, range.end, 0, overdue);
+      free = consumeFreeWithGap(free, range, gap);
     }
-
-    placeSoftBatchWithGap(
-      byDay,
-      day,
-      fitted,
-      free,
-      packStart,
-      getPackEnd,
-      getWindowStart,
-      now,
-      gap,
-    );
-
-    // Remaining same-day date-only could not fit → overdue group (do not reschedule).
-    while (sameDayQueue.length > 0) {
-      overdueTasks.push(sameDayQueue.shift()!);
-    }
-
     dateOnlyQueues.set(key, sameDayQueue);
+
+    // Priority 2: undated softs fill today's leftover holes only; else Deferring.
+    if (isToday) {
+      while (undatedQueue.length > 0) {
+        const task = undatedQueue[0];
+        const minutes = taskDurationMinutes(task);
+        const range = firstFitRange(free, minutes);
+        if (!range) break;
+        undatedQueue.shift();
+        pushBlock(byDay, day, task, range.start, range.end, 0, false);
+        free = consumeFreeWithGap(free, range, gap);
+      }
+      drainUndatedToDeferred();
+    }
+
     day = addDays(day, 1);
   }
 
   // Anything still queued for today-or-earlier could not be placed.
-  const todayKey = dayKey(toStartOfDay(now));
+  const todayKey = dayKey(todayStart);
   for (const [key, list] of dateOnlyQueues) {
     if (list.length === 0) continue;
     if (key <= todayKey) {
@@ -566,6 +489,7 @@ function packSoftTasks(
       dateOnlyQueues.set(key, list);
     }
   }
+  drainUndatedToDeferred();
 }
 
 function sortOverdueTasks(tasks: ComposerDraft[]): ComposerDraft[] {
@@ -681,7 +605,10 @@ function buildHourMarkers(visibleStartMin: number): CalendarDayLayout["hourMarke
 
 export type CalendarTasksLayout = {
   days: CalendarDayLayout[];
+  /** Dated/timed tasks that need rescheduling (Overflow → Rescheduling). */
   overdueTasks: ComposerDraft[];
+  /** Undated softs that no longer fit today (Overflow → Deferring). */
+  deferredTasks: ComposerDraft[];
 };
 
 /**
@@ -767,6 +694,7 @@ export function layoutCalendarTasks(
   const nowMin = minutesFromMidnight(now);
   const byDay = new Map<string, PackBlock[]>();
   const overdueTasks: ComposerDraft[] = [];
+  const deferredTasks: ComposerDraft[] = [];
 
   const timed: ComposerDraft[] = [];
   const dateOnlyByDay = new Map<string, ComposerDraft[]>();
@@ -828,6 +756,7 @@ export function layoutCalendarTasks(
     getPackEnd,
     getWindowStart,
     overdueTasks,
+    deferredTasks,
     gapMinutes,
   );
 
@@ -890,7 +819,7 @@ export function layoutCalendarTasks(
     });
   }
 
-  // Safety: any missed dated task that never got a block still belongs in Overdue.
+  // Safety: missed/unplaced tasks still belong in the right Overflow bucket.
   const placedIds = new Set<string>();
   for (const blocks of byDay.values()) {
     for (const block of blocks) {
@@ -900,27 +829,38 @@ export function layoutCalendarTasks(
   const overdueIds = new Set(
     overdueTasks.map((task) => task.id).filter((id): id is string => !!id),
   );
+  const deferredIds = new Set(
+    deferredTasks.map((task) => task.id).filter((id): id is string => !!id),
+  );
   for (const task of tasks) {
-    if (!task.id || placedIds.has(task.id) || overdueIds.has(task.id)) continue;
+    if (!task.id || placedIds.has(task.id)) continue;
+    if (overdueIds.has(task.id) || deferredIds.has(task.id)) continue;
     if (isAnchoredTaskMissed(task, now, getPackEnd(todayStart), getWindowStart(todayStart))) {
       overdueTasks.push(task);
       overdueIds.add(task.id);
       continue;
     }
-    // Date-only today-or-earlier that the soft packer never placed still belongs
-    // in Overdue rather than vanishing.
-    if (classifyTask(task) === "dateOnly") {
+    const kind = classifyTask(task);
+    // Date-only today-or-earlier that the soft packer never placed → Rescheduling.
+    if (kind === "dateOnly") {
       const scheduled = parseTaskDate(task.date);
       if (scheduled && scheduled.getTime() <= todayStart.getTime()) {
         overdueTasks.push(task);
         overdueIds.add(task.id);
       }
+      continue;
+    }
+    // Unplaced undated soft → Deferring.
+    if (kind === "undated") {
+      deferredTasks.push(task);
+      deferredIds.add(task.id);
     }
   }
 
   return {
     days: layouts,
     overdueTasks: sortOverdueTasks(overdueTasks),
+    deferredTasks: [...deferredTasks].sort(compareSoftPriority),
   };
 }
 

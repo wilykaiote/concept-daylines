@@ -1579,10 +1579,64 @@
 .task-overdue-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
   margin: 0;
   padding: 0;
   background: transparent;
+}
+
+.task-overflow-bucket {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.task-overflow-bucket-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 2px 0 0;
+}
+
+.task-overflow-bucket-label {
+  margin: 0;
+  margin-left: auto;
+  padding: 0;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-align: right;
+  text-transform: none;
+  opacity: 0.72;
+}
+
+.task-overflow-select-btn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text-h);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.task-overflow-select-btn:hover {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--border));
+  background: color-mix(in srgb, var(--text) 6%, var(--bg-raised));
+}
+
+.task-overflow-select-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .task-overdue-note {
@@ -1663,6 +1717,26 @@
   font-size: 0.85rem;
   font-weight: 500;
   line-height: 1;
+}
+
+.task-overdue-toggle.is-defer-only .task-overdue-toggle-action {
+  border-color: var(--border);
+  background: var(--bg-raised);
+}
+
+.task-overdue-toggle.is-defer-only:hover .task-overdue-toggle-action {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--border));
+  background: color-mix(in srgb, var(--text) 6%, var(--bg-raised));
+}
+
+.task-overdue-toggle.is-defer-only.is-open .task-overdue-toggle-action {
+  border-color: color-mix(in srgb, var(--text) 35%, var(--border));
+  background: color-mix(in srgb, var(--text) 8%, var(--bg-raised));
+}
+
+.task-overdue-toggle.is-defer-only .task-overdue-toggle-reschedule,
+.task-overdue-toggle.is-defer-only .task-overdue-toggle-chevron {
+  color: var(--text-h);
 }
 
 .task-day-tasks {

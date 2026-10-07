@@ -1730,6 +1730,8 @@ function App() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [overdueSectionOpen, setOverdueSectionOpen] = useState(true);
   const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(false);
+  const [overflowRescheduleSelecting, setOverflowRescheduleSelecting] = useState(false);
+  const [overflowDeferSelecting, setOverflowDeferSelecting] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [timePickerBaseline, setTimePickerBaseline] = useState<{
     target: string;
@@ -1902,6 +1904,9 @@ function App() {
   );
   const calendarTaskLayout = calendarTasksLayout.days;
   const overdueTasks = calendarTasksLayout.overdueTasks;
+  const deferredTasks = calendarTasksLayout.deferredTasks;
+  const overflowTaskCount = overdueTasks.length + deferredTasks.length;
+  const overflowDeferOnly = overdueTasks.length === 0 && deferredTasks.length > 0;
   const parentTitleById = (() => {
     const map = new Map<string, string>();
     for (const collection of collections) {
@@ -3618,7 +3623,7 @@ function App() {
     const observer = new ResizeObserver(syncSlotHeight);
     observer.observe(slide);
     return () => observer.disconnect();
-  }, [activeView, calendarOpen, timePickerOpen, weekdayDayCount, overdueTasks.length]);
+  }, [activeView, calendarOpen, timePickerOpen, weekdayDayCount, overflowTaskCount]);
 
   useEffect(() => {
     const end = addDays(todayStart, weekdayDayCount - 1);
@@ -4414,9 +4419,30 @@ function App() {
                 };
               })}
             onSelectPlan={() => selectView("plans")}
+            deferredTasks={deferredTasks}
             overdueTasks={overdueTasks}
             overdueOpen={homeOverdueSectionOpen}
             onOverdueToggle={() => setHomeOverdueSectionOpen((open) => !open)}
+            renderDeferredTask={(task) => (
+              <CompactTaskRow
+                key={task.id ?? task.title}
+                task={task}
+                overdue={false}
+                editing={editingTaskId === task.id}
+                highlighted={isTaskHighlighted(task.id)}
+                popping={isTaskPopping(task.id)}
+                now={new Date(countdownNow)}
+                parentTitle={parentTitleFor(task.parent_id)}
+                onComplete={() => requestCompleteTask(task.id)}
+                onEdit={() => {
+                  if (task.id) {
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                  }
+                  editTask(task);
+                }}
+              />
+            )}
             renderOverdueTask={(task) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
@@ -4736,7 +4762,7 @@ function App() {
                       const main = mainRef.current;
                       const overdueBlock = overdueScrollBlockRef.current;
                       const includeOverdue =
-                        overdueTasks.length > 0 && overdueBlock instanceof HTMLElement;
+                        overflowTaskCount > 0 && overdueBlock instanceof HTMLElement;
 
                       if (main) {
                         timelineScrollSyncLockRef.current = true;
@@ -4803,7 +4829,7 @@ function App() {
                 isTodayGroup &&
                 activeView === "dayline" &&
                 !calendarOpen &&
-                overdueTasks.length > 0;
+                overflowTaskCount > 0;
               return (
                 <section
                   key={day.dayKey}
@@ -4817,10 +4843,10 @@ function App() {
                     {showOverdueToggle && (
                       <button
                         type="button"
-                        className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}`}
+                        className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
                         aria-expanded={overdueSectionOpen}
                         aria-controls="task-overdue-list"
-                        aria-label="Overflow overdue tasks"
+                        aria-label="Overflow tasks"
                         onClick={() => setOverdueSectionOpen((open) => !open)}
                       >
                         <span className="task-overdue-toggle-action">
@@ -4838,32 +4864,89 @@ function App() {
                         ref={overdueSectionRef}
                         id="task-overdue-list"
                         className="task-overdue-section"
-                        aria-label="Overdue tasks"
+                        aria-label="Overflow tasks"
                       >
-                        <ul className="task-day-tasks task-overdue-tasks">
-                          {overdueTasks.map((task) => (
-                            <CompactTaskRow
-                              key={task.id ?? task.title}
-                              task={task}
-                              overdue
-                              editing={editingTaskId === task.id}
-                              highlighted={isTaskHighlighted(task.id)}
-                              popping={isTaskPopping(task.id)}
-                              now={new Date(countdownNow)}
-                              parentTitle={parentTitleFor(task.parent_id)}
-                              onComplete={() => requestCompleteTask(task.id)}
-                              onEdit={() => {
-                                if (task.id) {
-                                  setFocusedOverflowTaskIds(null);
-                                  setFocusedTaskId(task.id);
+                        {overdueTasks.length > 0 && (
+                          <div className="task-overflow-bucket">
+                            <div className="task-overflow-bucket-header">
+                              <button
+                                type="button"
+                                className="task-overflow-select-btn"
+                                onClick={() =>
+                                  setOverflowRescheduleSelecting((open) => !open)
                                 }
-                                editTask(task);
-                              }}
-                            />
-            ))}
-          </ul>
+                              >
+                                {overflowRescheduleSelecting ? "Cancel" : "Select"}
+                              </button>
+                              <span className="task-overflow-bucket-label">
+                                * Auto Rescheduling At End of Day
+                              </span>
+                            </div>
+                            <ul className="task-day-tasks task-overdue-tasks">
+                              {overdueTasks.map((task) => (
+                                <CompactTaskRow
+                                  key={task.id ?? task.title}
+                                  task={task}
+                                  overdue
+                                  editing={editingTaskId === task.id}
+                                  highlighted={isTaskHighlighted(task.id)}
+                                  popping={isTaskPopping(task.id)}
+                                  now={new Date(countdownNow)}
+                                  parentTitle={parentTitleFor(task.parent_id)}
+                                  onComplete={() => requestCompleteTask(task.id)}
+                                  onEdit={() => {
+                                    if (task.id) {
+                                      setFocusedOverflowTaskIds(null);
+                                      setFocusedTaskId(task.id);
+                                    }
+                                    editTask(task);
+                                  }}
+                                />
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {deferredTasks.length > 0 && (
+                          <div className="task-overflow-bucket">
+                            <div className="task-overflow-bucket-header">
+                              <button
+                                type="button"
+                                className="task-overflow-select-btn"
+                                onClick={() => setOverflowDeferSelecting((open) => !open)}
+                              >
+                                {overflowDeferSelecting ? "Cancel" : "Select"}
+                              </button>
+                              <span className="task-overflow-bucket-label">
+                                * Auto Deferring At End of Day
+                              </span>
+                            </div>
+                            <ul className="task-day-tasks task-overdue-tasks">
+                              {deferredTasks.map((task) => (
+                                <CompactTaskRow
+                                  key={task.id ?? task.title}
+                                  task={task}
+                                  overdue={false}
+                                  editing={editingTaskId === task.id}
+                                  highlighted={isTaskHighlighted(task.id)}
+                                  popping={isTaskPopping(task.id)}
+                                  now={new Date(countdownNow)}
+                                  parentTitle={parentTitleFor(task.parent_id)}
+                                  onComplete={() => requestCompleteTask(task.id)}
+                                  onEdit={() => {
+                                    if (task.id) {
+                                      setFocusedOverflowTaskIds(null);
+                                      setFocusedTaskId(task.id);
+                                    }
+                                    editTask(task);
+                                  }}
+                                />
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                         <p className="task-overdue-note">
-                          * Overflow items will be automatically rescheduled at the end of the day
+                          * Deferring items roll forward and Rescheduling items are
+                          auto-rescheduled at the end of the day
                         </p>
                       </section>
                     </div>

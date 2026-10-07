@@ -28,9 +28,11 @@ type HomeViewProps = {
   onSelectPlan: (planId: string) => void;
   focusTask: ComposerDraft | null;
   renderFocusTask: (task: ComposerDraft) => ReactNode;
+  deferredTasks: ComposerDraft[];
   overdueTasks: ComposerDraft[];
   overdueOpen: boolean;
   onOverdueToggle: () => void;
+  renderDeferredTask: (task: ComposerDraft) => ReactNode;
   renderOverdueTask: (task: ComposerDraft) => ReactNode;
 };
 
@@ -45,15 +47,21 @@ export function HomeView({
   onSelectPlan,
   focusTask,
   renderFocusTask,
+  deferredTasks,
   overdueTasks,
   overdueOpen,
   onOverdueToggle,
+  renderDeferredTask,
   renderOverdueTask,
 }: HomeViewProps) {
   const [homeStepIndex, setHomeStepIndex] = useState(0);
+  const [rescheduleSelecting, setRescheduleSelecting] = useState(false);
+  const [deferSelecting, setDeferSelecting] = useState(false);
   const canStepBack = homeStepIndex > 0;
   const canStepForward = homeStepIndex < HOME_STEP_COUNT - 1;
   const planTiles = plans.length > 0 ? plans : [...PLACEHOLDER_PLANS];
+  const overflowCount = deferredTasks.length + overdueTasks.length;
+  const overflowDeferOnly = overdueTasks.length === 0 && deferredTasks.length > 0;
 
   return (
     <div className="home-view">
@@ -82,10 +90,10 @@ export function HomeView({
                 <p className="home-focus-empty">No focus task right now</p>
               )}
               <div className="home-wheel-key-col">
-                {overdueTasks.length > 0 && (
+                {overflowCount > 0 && (
                   <button
                     type="button"
-                    className={`task-day-label task-overdue-toggle home-overdue-toggle${overdueOpen ? " is-open" : ""}`}
+                    className={`task-day-label task-overdue-toggle home-overdue-toggle${overdueOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
                     aria-expanded={overdueOpen}
                     aria-controls="home-overdue-list"
                     aria-label="Reschedule overdue tasks"
@@ -145,16 +153,51 @@ export function HomeView({
             </div>
           </div>
 
-          {overdueTasks.length > 0 && overdueOpen && (
+          {overflowCount > 0 && overdueOpen && (
             <div className="home-focus">
               <section
                 id="home-overdue-list"
                 className="task-overdue-section home-overdue-section"
-                aria-label="Overdue tasks"
+                aria-label="Overflow tasks"
               >
-                <ul className="task-day-tasks task-overdue-tasks">
-                  {overdueTasks.map((task) => renderOverdueTask(task))}
-                </ul>
+                {overdueTasks.length > 0 && (
+                  <div className="task-overflow-bucket">
+                    <div className="task-overflow-bucket-header">
+                      <button
+                        type="button"
+                        className="task-overflow-select-btn"
+                        onClick={() => setRescheduleSelecting((open) => !open)}
+                      >
+                        {rescheduleSelecting ? "Cancel" : "Select"}
+                      </button>
+                      <span className="task-overflow-bucket-label">
+                        * Auto Rescheduling At End of Day
+                      </span>
+                    </div>
+                    <ul className="task-day-tasks task-overdue-tasks">
+                      {overdueTasks.map((task) => renderOverdueTask(task))}
+                    </ul>
+                  </div>
+                )}
+                {deferredTasks.length > 0 && (
+                  <div className="task-overflow-bucket">
+                    <div className="task-overflow-bucket-header">
+                      <button
+                        type="button"
+                        className="task-overflow-select-btn"
+                        onClick={() => setDeferSelecting((open) => !open)}
+                      >
+                        {deferSelecting ? "Cancel" : "Select"}
+                      </button>
+                      <span className="task-overflow-bucket-label">
+                        * Auto Deferring At End of Day
+                      </span>
+                    </div>
+                    <ul className="task-day-tasks task-overdue-tasks">
+                      {deferredTasks.map((task) => renderDeferredTask(task))}
+                    </ul>
+                  </div>
+                )}
               </section>
             </div>
           )}
