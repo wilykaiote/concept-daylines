@@ -1002,7 +1002,7 @@ const TEND_MENU_ITEMS = [
 
 const URGENCY_OPTIONS = ["Future", "Later", "Soon", "ASAP"] as const;
 type UrgencyOption = (typeof URGENCY_OPTIONS)[number];
-const DEFAULT_URGENCY: UrgencyOption = "ASAP";
+const DEFAULT_URGENCY: UrgencyOption = "Soon";
 const DEFAULT_IMPACT = 10;
 const IMPACT_MIN = 0;
 const IMPACT_MAX = 50;
@@ -1344,7 +1344,12 @@ function ComposerOverlayMenu({
   matchWidthRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
-  const [coords, setCoords] = useState<{ top: number; left: number; width?: number } | null>(null);
+  const [coords, setCoords] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    width?: number;
+  } | null>(null);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -1381,12 +1386,22 @@ function ComposerOverlayMenu({
             : rect.left;
       left = Math.min(Math.max(left, viewLeft + pad), viewRight - menuWidth - pad);
 
-      let top = rect.top - menuHeight - gap;
-      if (top < viewTop + pad) {
-        top = Math.min(rect.bottom + gap, viewBottom - menuHeight - pad);
+      // Prefer opening above the anchor, pinned by `bottom` so height changes
+      // (e.g. expanding date/time fields) grow upward without bouncing the panel.
+      const spaceAbove = rect.top - viewTop - pad - gap;
+      const openAbove = menuHeight <= spaceAbove || spaceAbove >= viewBottom - rect.bottom - pad;
+      if (openAbove) {
+        const bottom = window.innerHeight - rect.top + gap;
+        setCoords(
+          matchRect
+            ? { bottom, left, width: matchRect.width }
+            : { bottom, left },
+        );
+        return;
       }
-      top = Math.min(Math.max(top, viewTop + pad), Math.max(viewTop + pad, viewBottom - menuHeight - pad));
 
+      let top = rect.bottom + gap;
+      top = Math.min(Math.max(top, viewTop + pad), Math.max(viewTop + pad, viewBottom - menuHeight - pad));
       setCoords(matchRect ? { top, left, width: matchRect.width } : { top, left });
     };
 
@@ -1426,7 +1441,8 @@ function ComposerOverlayMenu({
       style={
         coords
           ? {
-              top: coords.top,
+              top: coords.top ?? "auto",
+              bottom: coords.bottom ?? "auto",
               left: coords.left,
               ...(coords.width != null ? { width: coords.width } : {}),
             }
@@ -1640,8 +1656,7 @@ function App() {
   const [recurringUnit, setRecurringUnit] = useState<RecurringUnit>(DEFAULT_RECURRING_UNIT);
   const [recurringCount, setRecurringCount] = useState(DEFAULT_RECURRING_COUNT);
   const [recurringInput, setRecurringInput] = useState(String(DEFAULT_RECURRING_COUNT));
-  const [urgencyMenuOpen, setUrgencyMenuOpen] = useState(false);
-  const [urgencyActivated, setUrgencyActivated] = useState(false);
+  const [urgencyActivated, setUrgencyActivated] = useState(true);
   const [urgency, setUrgency] = useState<UrgencyOption>(DEFAULT_URGENCY);
   const [impactMenuOpen, setImpactMenuOpen] = useState(false);
   const [impactActivated, setImpactActivated] = useState(false);
@@ -1650,6 +1665,10 @@ function App() {
   const [taskStartsAt, setTaskStartsAt] = useState("");
   const [taskDueAt, setTaskDueAt] = useState("");
   const [taskTimeMode, setTaskTimeMode] = useState<"starts_at" | "due_at">("starts_at");
+  /** When set, Date & Time inputs are shown. */
+  const [dateTimeAnchor, setDateTimeAnchor] = useState<
+    "today" | "tomorrow" | "starts_on" | "due_by" | null
+  >(null);
   const [composerAutoRescheduled, setComposerAutoRescheduled] = useState(false);
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
   const [linkRelation, setLinkRelation] = useState<LinkRelation>("parent");
@@ -1797,7 +1816,6 @@ function App() {
   const durationMenuRef = useRef<HTMLDivElement>(null);
   const durationButtonRef = useRef<HTMLButtonElement>(null);
   const recurringMenuRef = useRef<HTMLDivElement>(null);
-  const urgencyMenuRef = useRef<HTMLDivElement>(null);
   const impactMenuRef = useRef<HTMLDivElement>(null);
   const taskToolHintMenuRef = useRef<HTMLDivElement>(null);
   const taskToolHintAnchorRef = useRef<HTMLElement | null>(null);
@@ -1830,7 +1848,6 @@ function App() {
   const linkQaScheduleButtonRef = useRef<HTMLButtonElement>(null);
   const linkQaScheduleMenuRef = useRef<HTMLDivElement>(null);
   const linkQuickAddInputRef = useRef<HTMLInputElement>(null);
-  const urgencyButtonRef = useRef<HTMLButtonElement>(null);
   const impactButtonRef = useRef<HTMLButtonElement>(null);
   const cycleButtonRef = useRef<HTMLButtonElement>(null);
   const toolsCenterRef = useRef<HTMLDivElement>(null);
@@ -2610,8 +2627,7 @@ function App() {
     setRecurringUnit(DEFAULT_RECURRING_UNIT);
     setRecurringCount(DEFAULT_RECURRING_COUNT);
     setRecurringInput(String(DEFAULT_RECURRING_COUNT));
-    setUrgencyMenuOpen(false);
-    setUrgencyActivated(false);
+    setUrgencyActivated(true);
     setUrgency(DEFAULT_URGENCY);
     setImpactMenuOpen(false);
     setImpactActivated(false);
@@ -2620,6 +2636,7 @@ function App() {
     setTaskStartsAt("");
     setTaskDueAt("");
     setTaskTimeMode("starts_at");
+    setDateTimeAnchor(null);
     setComposerAutoRescheduled(false);
     syncScheduleDraftRef({
       date: null,
@@ -2657,15 +2674,16 @@ function App() {
     const mode = draft.mode;
     const dateInput = taskDateInputRef.current;
     const timeInput = taskTimeInputRef.current;
+    // Only trust mounted inputs while the schedule panel is open; when collapsed
+    // the controlled inputs are empty and must not wipe draft/state.
+    const trustInputs = dateTimeAnchor != null && (dateInput != null || timeInput != null);
 
-    // When the Date & Time fields are mounted, trust them — including empty
-    // (do not resurrect a stale time/date from React state via ??).
-    let date = dateInput
-      ? normalizeOptionalField(dateInput.value)
+    let date = trustInputs
+      ? normalizeOptionalField(dateInput?.value ?? "")
       : normalizeOptionalField(draft.date) ?? normalizeOptionalField(taskDate);
 
-    let time = timeInput
-      ? normalizeOptionalField(timeInput.value)?.slice(0, 5) ?? null
+    let time = trustInputs
+      ? normalizeOptionalField(timeInput?.value ?? "")?.slice(0, 5) ?? null
       : mode === "starts_at"
         ? normalizeOptionalField(draft.starts_at) ?? normalizeOptionalField(taskStartsAt)
         : normalizeOptionalField(draft.due_at) ?? normalizeOptionalField(taskDueAt);
@@ -2713,8 +2731,7 @@ function App() {
     setComposeKindMenuOpen(false);
     setDurationMenuOpen(false);
     setRecurringMenuOpen(false);
-    setUrgencyMenuOpen(false);
-    setImpactMenuOpen(false);
+        setImpactMenuOpen(false);
     setTaskToolHint((current) => {
       const next = current === title ? null : title;
       if (next === LINKING_TOOL_HINT) {
@@ -2743,6 +2760,7 @@ function App() {
   const dueDateActivated = composerDate != null;
   const dueDateButtonClassName = [
     "app-composer-tool",
+    "app-composer-tool-accent",
     "app-composer-tool-schedule",
     dueDateActivated && !composerAutoRescheduled ? "is-activated" : "",
     dueDateActivated && composerAutoRescheduled ? "is-auto-rescheduled" : "",
@@ -2850,9 +2868,10 @@ function App() {
       setRecurringCount(DEFAULT_RECURRING_COUNT);
       setRecurringInput(String(DEFAULT_RECURRING_COUNT));
     }
+    const hasSchedule =
+      nextDate != null || nextStartsAt != null || nextDueAt != null;
     setUrgency(nextUrgency);
-    setUrgencyActivated(task.urgency != null);
-    setUrgencyMenuOpen(false);
+    setUrgencyActivated(task.urgency != null || !hasSchedule);
     setImpact(nextImpact);
     setImpactActivated(task.impact != null);
     setImpactMenuOpen(false);
@@ -2862,6 +2881,13 @@ function App() {
     setComposerAutoRescheduled(task.auto_rescheduled === true);
     const nextMode = nextDueAt && !nextStartsAt ? "due_at" : "starts_at";
     setTaskTimeMode(nextMode);
+    setDateTimeAnchor(
+      nextDate != null || nextStartsAt != null || nextDueAt != null
+        ? nextMode === "due_at"
+          ? "due_by"
+          : "starts_on"
+        : null,
+    );
     syncScheduleDraftRef({
       date: nextDate,
       starts_at: nextStartsAt,
@@ -2886,21 +2912,25 @@ function App() {
     setCollapsed(false);
   };
 
-  const applyComposerScheduleToEditingTask = () => {
-    if (!editingTaskId) return;
-    const schedule = resolveComposerSchedule();
-    setTaskDate(schedule.date ?? "");
-    setTaskStartsAt(schedule.starts_at ?? "");
-    setTaskDueAt(schedule.due_at ?? "");
+  const clearTaskDueDate = () => {
+    setTaskDate("");
+    setTaskStartsAt("");
+    setTaskDueAt("");
+    setDateTimeAnchor(null);
     setComposerAutoRescheduled(false);
+    syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
+  };
+
+  const clearEditingTaskSchedule = () => {
+    if (!editingTaskId) return;
     setTasks((current) =>
       current.map((task) =>
         task.id === editingTaskId
           ? {
               ...task,
-              date: schedule.date,
-              starts_at: schedule.starts_at,
-              due_at: schedule.due_at,
+              date: null,
+              starts_at: null,
+              due_at: null,
               auto_rescheduled: false,
             }
           : task,
@@ -2908,37 +2938,9 @@ function App() {
     );
     setEditTaskBaseline((baseline) =>
       baseline
-        ? {
-            ...baseline,
-            date: schedule.date,
-            starts_at: schedule.starts_at,
-            due_at: schedule.due_at,
-          }
+        ? { ...baseline, date: null, starts_at: null, due_at: null }
         : baseline,
     );
-    if (
-      isAnchoredTaskMissed(
-        {
-          date: schedule.date,
-          starts_at: schedule.starts_at,
-          due_at: schedule.due_at,
-          est_duration: estDurationMinutes,
-        } as ComposerDraft,
-        new Date(countdownNow),
-        todayPackEnd,
-        todayWindowStartMinutes,
-      )
-    ) {
-      setOverdueSectionOpen(true);
-    }
-  };
-
-  const clearTaskDueDate = () => {
-    setTaskDate("");
-    setTaskStartsAt("");
-    setTaskDueAt("");
-    setComposerAutoRescheduled(false);
-    syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
   };
 
   const setTaskDateValue = (value: string) => {
@@ -3044,8 +3046,7 @@ function App() {
     setComposeKindMenuOpen(false);
     setDurationMenuOpen(false);
     setRecurringMenuOpen(false);
-    setUrgencyMenuOpen(false);
-    setImpactMenuOpen(false);
+        setImpactMenuOpen(false);
     closeTaskToolHint();
     setComposerSavePromptOpen(false);
     if (editingTaskId) {
@@ -3061,8 +3062,7 @@ function App() {
       setComposeKindMenuOpen(false);
       setDurationMenuOpen(false);
       setRecurringMenuOpen(false);
-      setUrgencyMenuOpen(false);
-      setImpactMenuOpen(false);
+            setImpactMenuOpen(false);
       closeTaskToolHint();
       setComposerSavePromptOpen(true);
       return;
@@ -3085,11 +3085,13 @@ function App() {
     setTaskDate(schedule.date ?? "");
     setTaskStartsAt(schedule.starts_at ?? "");
     setTaskDueAt(schedule.due_at ?? "");
+    const hasSchedule =
+      schedule.date != null || schedule.starts_at != null || schedule.due_at != null;
     return buildComposerDraft({
       title: content,
       type: composeKind,
       est_duration: estDurationMinutes,
-      urgency,
+      urgency: hasSchedule ? null : urgencyActivated ? urgency : null,
       impact,
       date: schedule.date,
       starts_at: schedule.starts_at,
@@ -3800,7 +3802,6 @@ function App() {
       if (composeKindMenuRef.current?.contains(target)) return;
       if (durationMenuRef.current?.contains(target)) return;
       if (recurringMenuRef.current?.contains(target)) return;
-      if (urgencyMenuRef.current?.contains(target)) return;
       if (impactMenuRef.current?.contains(target)) return;
       if (taskToolHintMenuRef.current?.contains(target)) return;
       if (linkContainerTypeMenuRef.current?.contains(target)) return;
@@ -3848,7 +3849,6 @@ function App() {
         composeKindMenuOpen ||
         durationMenuOpen ||
         recurringMenuOpen ||
-        urgencyMenuOpen ||
         impactMenuOpen ||
         taskToolHint != null
       ) {
@@ -3856,8 +3856,7 @@ function App() {
         setComposeKindMenuOpen(false);
         setDurationMenuOpen(false);
         setRecurringMenuOpen(false);
-        setUrgencyMenuOpen(false);
-        setImpactMenuOpen(false);
+                setImpactMenuOpen(false);
         closeTaskToolHint();
         return;
       }
@@ -3873,7 +3872,6 @@ function App() {
     composeKindMenuOpen,
     durationMenuOpen,
     recurringMenuOpen,
-    urgencyMenuOpen,
     impactMenuOpen,
     taskToolHint,
     editingTaskId,
@@ -4016,20 +4014,6 @@ function App() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [recurringMenuOpen]);
 
-  useEffect(() => {
-    if (!urgencyMenuOpen) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (urgencyMenuRef.current?.contains(target)) return;
-      if (urgencyButtonRef.current?.contains(target)) return;
-      setUrgencyMenuOpen(false);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [urgencyMenuOpen]);
 
   useEffect(() => {
     if (!impactMenuOpen) return;
@@ -5527,8 +5511,7 @@ function App() {
                     onClick={() => {
                       setComposeKindMenuOpen(false);
                       setDurationMenuOpen(false);
-                      setUrgencyMenuOpen(false);
-                      setImpactMenuOpen(false);
+                                            setImpactMenuOpen(false);
                       closeTaskToolHint();
                       setAttachMenuOpen((open) => !open);
                     }}
@@ -5546,7 +5529,11 @@ function App() {
                   open={taskToolHint != null}
                   anchorRef={taskToolHintAnchorRef}
                   menuRef={taskToolHintMenuRef}
-                  matchWidthRef={taskToolHint === LINKING_TOOL_HINT ? composerFieldRef : undefined}
+                  matchWidthRef={
+                    taskToolHint === LINKING_TOOL_HINT || taskToolHint === "Date & Time"
+                      ? composerFieldRef
+                      : undefined
+                  }
                   role={taskToolHint === "Date & Time" ? "dialog" : "menu"}
                   className={`app-composer-tool-hint${
                     taskToolHint === "Date & Time"
@@ -5559,96 +5546,127 @@ function App() {
                 >
                   {taskToolHint === "Date & Time" ? (
                     <>
-                      <p className="app-due-date-title">Date &amp; Time</p>
+                      <p className="app-due-date-title app-due-date-urgency-label">Urgency</p>
                       <div className="app-due-date-divider" aria-hidden="true" />
                       <div className="app-due-date-fields">
-                        <label className="app-due-date-field">
-                          Date
-                          <input
-                            ref={taskDateInputRef}
-                            type="date"
-                            value={taskDate}
-                            onChange={(event) => setTaskDateValue(event.target.value)}
-                            onInput={(event) => setTaskDateValue(event.currentTarget.value)}
-                            aria-label="Task date"
-                          />
-                        </label>
-                        <label className="app-due-date-field">
-                          Time
-                          <input
-                            ref={taskTimeInputRef}
-                            type="time"
-                            value={taskTimeValue}
-                            onChange={(event) => setTaskTimeValue(event.target.value)}
-                            onInput={(event) => setTaskTimeValue(event.currentTarget.value)}
-                            aria-label="Task time"
-                          />
-                        </label>
                         <div
-                          className="app-due-date-mode"
-                          role="group"
-                          aria-label="Time meaning"
+                          className={`app-due-date-schedule${dateTimeAnchor != null ? " is-open" : ""}`}
+                          aria-hidden={dateTimeAnchor == null}
                         >
-                          <button
-                            type="button"
-                            className={`app-due-date-mode-button${taskTimeMode === "starts_at" ? " is-active" : ""}`}
-                            aria-pressed={taskTimeMode === "starts_at"}
-                            onClick={() => setTaskTimeModeValue("starts_at")}
-                          >
-                            Starts at
-                  </button>
-                          <button
-                            type="button"
-                            className={`app-due-date-mode-button${taskTimeMode === "due_at" ? " is-active" : ""}`}
-                            aria-pressed={taskTimeMode === "due_at"}
-                            onClick={() => setTaskTimeModeValue("due_at")}
-                          >
-                            Due date
-                          </button>
+                          <div className="app-due-date-schedule-inner">
+                            <label className="app-due-date-field">
+                              Time
+                              <input
+                                ref={taskTimeInputRef}
+                                type="time"
+                                value={taskTimeValue}
+                                tabIndex={dateTimeAnchor == null ? -1 : 0}
+                                onChange={(event) => setTaskTimeValue(event.target.value)}
+                                onInput={(event) =>
+                                  setTaskTimeValue(event.currentTarget.value)
+                                }
+                                aria-label="Task time"
+                              />
+                            </label>
+                            <label className="app-due-date-field">
+                              Date
+                              <input
+                                ref={taskDateInputRef}
+                                type="date"
+                                value={taskDate}
+                                tabIndex={dateTimeAnchor == null ? -1 : 0}
+                                onChange={(event) => setTaskDateValue(event.target.value)}
+                                onInput={(event) =>
+                                  setTaskDateValue(event.currentTarget.value)
+                                }
+                                aria-label="Task date"
+                              />
+                            </label>
+                          </div>
                         </div>
-                      </div>
-                      <div className="app-due-date-actions">
-                        <button
-                          type="button"
-                          className="app-due-date-clear"
-                          onClick={() => {
-                            clearTaskDueDate();
-                            if (editingTaskId) {
-                              setTasks((current) =>
-                                current.map((task) =>
-                                  task.id === editingTaskId
-                                    ? {
-                                        ...task,
-                                        date: null,
-                                        starts_at: null,
-                                        due_at: null,
-                                        auto_rescheduled: false,
+                        <div className="app-due-date-urgency">
+                          <div
+                            className="app-due-date-urgency-options"
+                            role="group"
+                            aria-label="Urgency"
+                          >
+                            {(() => {
+                              const todayKeyValue = dayKey(
+                                toStartOfDay(new Date(countdownNow)),
+                              );
+                              const tomorrowKeyValue = dayKey(
+                                addDays(toStartOfDay(new Date(countdownNow)), 1),
+                              );
+                              return (
+                                [
+                                  { id: "today", label: "Today" },
+                                  { id: "tomorrow", label: "Tomorrow" },
+                                  { id: "starts_on", label: "Starts on" },
+                                  { id: "due_by", label: "Due by" },
+                                  { id: "ASAP", label: "ASAP" },
+                                  { id: "Soon", label: "Soon" },
+                                  { id: "Later", label: "Later" },
+                                  { id: "Future", label: "Future" },
+                                ] as const
+                              ).map((option) => {
+                                const isActive =
+                                  option.id === "today"
+                                    ? dateTimeAnchor === "today"
+                                    : option.id === "tomorrow"
+                                      ? dateTimeAnchor === "tomorrow"
+                                      : option.id === "starts_on"
+                                        ? dateTimeAnchor === "starts_on"
+                                        : option.id === "due_by"
+                                          ? dateTimeAnchor === "due_by"
+                                          : urgencyActivated &&
+                                            urgency === option.id &&
+                                            dateTimeAnchor == null;
+                                return (
+                                  <button
+                                    key={option.id}
+                                    type="button"
+                                    className={`app-due-date-urgency-button${
+                                      isActive ? " is-active" : ""
+                                    }`}
+                                    aria-pressed={isActive}
+                                    onClick={() => {
+                                      if (option.id === "today") {
+                                        setDateTimeAnchor("today");
+                                        setUrgencyActivated(false);
+                                        setTaskDateValue(todayKeyValue);
+                                        return;
                                       }
-                                    : task,
-                                ),
-                              );
-                              setEditTaskBaseline((baseline) =>
-                                baseline
-                                  ? { ...baseline, date: null, starts_at: null, due_at: null }
-                                  : baseline,
-                              );
-                            }
-                          }}
-                          disabled={!dueDateActivated && !composerStartsAt && !composerDueAt}
-                        >
-                          Clear
-                        </button>
-                        <button
-                          type="button"
-                          className="app-due-date-confirm"
-                          aria-label="Done"
-                          onClick={() => {
-                            applyComposerScheduleToEditingTask();
-                            closeTaskToolHint();
-                          }}
-                        >
-                          <CheckIcon />
-                        </button>
+                                      if (option.id === "tomorrow") {
+                                        setDateTimeAnchor("tomorrow");
+                                        setUrgencyActivated(false);
+                                        setTaskDateValue(tomorrowKeyValue);
+                                        return;
+                                      }
+                                      if (option.id === "starts_on") {
+                                        setDateTimeAnchor("starts_on");
+                                        setUrgencyActivated(false);
+                                        setTaskTimeModeValue("starts_at");
+                                        return;
+                                      }
+                                      if (option.id === "due_by") {
+                                        setDateTimeAnchor("due_by");
+                                        setUrgencyActivated(false);
+                                        setTaskTimeModeValue("due_at");
+                                        return;
+                                      }
+                                      clearTaskDueDate();
+                                      clearEditingTaskSchedule();
+                                      setUrgency(option.id);
+                                      setUrgencyActivated(true);
+                                    }}
+                                  >
+                                    {option.label}
+                                  </button>
+                                );
+                              });
+                            })()}
+                          </div>
+                        </div>
                       </div>
                     </>
                   ) : taskToolHint === LINKING_TOOL_HINT && isLinkingToolComposeKind(composeKind) ? (
@@ -6228,7 +6246,19 @@ function App() {
                             }
                           }}
                         >
-                          {LINK_RELATION_LABEL[linkRelation]}
+                          <span>{LINK_RELATION_LABEL[linkRelation]}</span>
+                          <span className="app-composer-link-toggle-chevrons" aria-hidden="true">
+                            <svg viewBox="0 0 8 12" focusable="false">
+                              <path
+                                d="M1.5 4.2 4 1.7l2.5 2.5M1.5 7.8 4 10.3l2.5-2.5"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </span>
                         </button>
                         {linkRelation === "cycle" && (
                           <>
@@ -6246,9 +6276,21 @@ function App() {
                                 }
                               }}
                             >
-                              {linkPrecedence === "after" ? "After" : "Before"}
+                              <span>{linkPrecedence === "after" ? "After" : "Before"}</span>
+                              <span className="app-composer-link-toggle-chevrons" aria-hidden="true">
+                                <svg viewBox="0 0 8 12" focusable="false">
+                                  <path
+                                    d="M1.5 4.2 4 1.7l2.5 2.5M1.5 7.8 4 10.3l2.5-2.5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.4"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </span>
                             </button>
-                            <span className="app-composer-link-type-lead">The link</span>
+                            <span className="app-composer-link-type-lead">The link is completed</span>
                           </>
                         )}
                       </div>
@@ -6271,6 +6313,7 @@ function App() {
                         open={recurringMenuOpen}
                         anchorRef={cycleButtonRef}
                         menuRef={recurringMenuRef}
+                        matchWidthRef={composerFieldRef}
                         className="app-duration-menu app-recurring-menu"
                         aria-label="Repeat Every"
                       >
@@ -6360,8 +6403,7 @@ function App() {
                           setAttachMenuOpen(false);
                           setComposeKindMenuOpen(false);
                           setDurationMenuOpen(false);
-                          setUrgencyMenuOpen(false);
-                          setImpactMenuOpen(false);
+                                                    setImpactMenuOpen(false);
                           closeTaskToolHint();
                           setRecurringMenuOpen((open) => !open);
                         }}
@@ -6374,6 +6416,7 @@ function App() {
                         open={impactMenuOpen}
                         anchorRef={impactButtonRef}
                         menuRef={impactMenuRef}
+                        matchWidthRef={composerFieldRef}
                         className="app-impact-menu"
                         aria-label="Impact"
                       >
@@ -6426,61 +6469,12 @@ function App() {
                           setComposeKindMenuOpen(false);
                           setDurationMenuOpen(false);
                           setRecurringMenuOpen(false);
-                          setUrgencyMenuOpen(false);
                           closeTaskToolHint();
                           setImpactActivated(true);
                           setImpactMenuOpen((open) => !open);
                         }}
                       >
                         <ImpactIcon />
-                      </button>
-                    </div>
-                    <div className="app-composer-urgency">
-                      <ComposerOverlayMenu
-                        open={urgencyMenuOpen}
-                        anchorRef={urgencyButtonRef}
-                        menuRef={urgencyMenuRef}
-                        className="app-urgency-menu"
-                        aria-label="Urgency"
-                      >
-                        <p className="app-urgency-title">Urgency</p>
-                        <div className="app-urgency-divider" aria-hidden="true" />
-                        {URGENCY_OPTIONS.map((option) => (
-                          <button
-                            key={option}
-                            type="button"
-                            className={`app-attach-menu-item app-urgency-menu-item${urgency === option ? " is-selected" : ""}`}
-                            role="menuitemradio"
-                            aria-checked={urgency === option}
-                            onClick={() => {
-                              setUrgency(option);
-                              setUrgencyActivated(true);
-                              setUrgencyMenuOpen(false);
-                            }}
-                          >
-                            <span>{option}</span>
-                          </button>
-                        ))}
-                      </ComposerOverlayMenu>
-                      <button
-                        ref={urgencyButtonRef}
-                        type="button"
-                        className={`app-composer-tool app-composer-tool-accent${urgencyActivated ? " is-activated" : ""}${urgencyMenuOpen ? " is-open" : ""}`}
-                        aria-label="Urgency"
-                        aria-expanded={urgencyMenuOpen}
-                        tabIndex={collapsed ? -1 : 0}
-                        onClick={() => {
-                          setAttachMenuOpen(false);
-                          setComposeKindMenuOpen(false);
-                          setDurationMenuOpen(false);
-                          setRecurringMenuOpen(false);
-                          setImpactMenuOpen(false);
-                          closeTaskToolHint();
-                          setUrgencyActivated(true);
-                          setUrgencyMenuOpen((open) => !open);
-                        }}
-                      >
-                        <UrgencyIcon />
                       </button>
                     </div>
                   </>
@@ -6491,6 +6485,7 @@ function App() {
                       open={durationMenuOpen}
                       anchorRef={durationButtonRef}
                       menuRef={durationMenuRef}
+                      matchWidthRef={composerFieldRef}
                       className="app-duration-menu"
                       aria-label="Estimated Duration"
                     >
@@ -6568,8 +6563,7 @@ function App() {
                         setAttachMenuOpen(false);
                         setComposeKindMenuOpen(false);
                         setRecurringMenuOpen(false);
-                        setUrgencyMenuOpen(false);
-                        setImpactMenuOpen(false);
+                                                setImpactMenuOpen(false);
                         closeTaskToolHint();
                         setDurationActivated(true);
                         setDurationMenuOpen((open) => !open);
@@ -6683,8 +6677,7 @@ function App() {
                   onClick={() => {
                     setAttachMenuOpen(false);
                     setDurationMenuOpen(false);
-                    setUrgencyMenuOpen(false);
-                    setImpactMenuOpen(false);
+                                        setImpactMenuOpen(false);
                     closeTaskToolHint();
                     setComposeKindMenuOpen((open) => !open);
                   }}
@@ -6713,8 +6706,7 @@ function App() {
                       : () => {
                           setAttachMenuOpen(false);
                           setDurationMenuOpen(false);
-                          setUrgencyMenuOpen(false);
-                          setImpactMenuOpen(false);
+                                                    setImpactMenuOpen(false);
                           closeTaskToolHint();
                           setComposeKindMenuOpen((open) => !open);
                         }

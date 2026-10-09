@@ -3887,7 +3887,9 @@
 }
 
 .app-impact-menu {
-  min-width: 240px;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: none;
   gap: 10px;
   padding: 12px;
 }
@@ -3932,7 +3934,9 @@
 }
 
 .app-urgency-menu {
-  min-width: 160px;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: none;
   gap: 4px;
   padding: 10px;
 }
@@ -3964,7 +3968,9 @@
 }
 
 .app-duration-menu {
-  min-width: 220px;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: none;
   gap: 10px;
   padding: 12px;
 }
@@ -4061,11 +4067,13 @@
   color: #2f9e5f;
 }
 
-.app-composer-tool-schedule.is-auto-rescheduled {
+.app-composer-tool-schedule.is-auto-rescheduled,
+.app-composer-tool-accent.app-composer-tool-schedule.is-auto-rescheduled {
   color: #e8a317;
 }
 
-.app-composer-tool-schedule.is-auto-rescheduled.is-open {
+.app-composer-tool-schedule.is-auto-rescheduled.is-open,
+.app-composer-tool-accent.app-composer-tool-schedule.is-auto-rescheduled.is-open {
   background: rgba(232, 163, 23, 0.12);
   color: #e8a317;
 }
@@ -4223,9 +4231,8 @@
 
 .app-composer-tool-hint.is-due-date {
   box-sizing: border-box;
-  width: min(220px, calc(100vw - 16px));
   min-width: 0;
-  max-width: calc(100vw - 16px);
+  max-width: none;
   padding: 12px 14px;
   overflow-x: hidden;
   overflow-y: auto;
@@ -4484,6 +4491,9 @@
 }
 
 .app-composer-link-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
   margin: 0;
   padding: 0;
@@ -4497,6 +4507,19 @@
   text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.app-composer-link-toggle-chevrons {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.75;
+}
+
+.app-composer-link-toggle-chevrons svg {
+  width: 8px;
+  height: 12px;
+  display: block;
 }
 
 .app-composer-link-toggle:focus-visible {
@@ -4529,6 +4552,33 @@
   gap: 10px;
   min-width: 0;
   max-width: 100%;
+}
+
+.app-due-date-schedule {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    grid-template-rows 240ms ease,
+    opacity 200ms ease,
+    transform 240ms ease;
+  pointer-events: none;
+}
+
+.app-due-date-schedule.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.app-due-date-schedule-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .app-due-date-field {
@@ -4594,9 +4644,67 @@
 .app-due-date-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   margin-top: 4px;
+}
+
+.app-due-date-urgency {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.app-due-date-urgency-label {
+  display: block;
+  width: 100%;
+  color: var(--text-h);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.app-due-date-urgency-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+}
+
+.app-due-date-urgency-button {
+  flex: 1 1 calc(25% - 3px);
+  box-sizing: border-box;
+  min-width: calc(25% - 3px);
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.app-due-date-urgency-button.is-active {
+  background: var(--bg);
+  color: var(--text-h);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-h) 12%, var(--border));
+}
+
+.app-due-date-urgency-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .app-due-date-mode {
@@ -4654,35 +4762,6 @@
 }
 
 .app-due-date-clear:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.app-due-date-confirm {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--text-h) 8%, transparent);
-  color: var(--text-h);
-  cursor: pointer;
-}
-
-.app-due-date-confirm svg {
-  width: 16px;
-  height: 16px;
-}
-
-.app-due-date-confirm:hover,
-.app-due-date-confirm:focus-visible {
-  background: color-mix(in srgb, #2f9e5f 18%, var(--bg));
-  color: #2f9e5f;
-}
-
-.app-due-date-confirm:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
