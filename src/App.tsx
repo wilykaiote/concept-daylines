@@ -1040,7 +1040,7 @@ const NOTES_TAB = { id: "notes", label: "Notes", Icon: NotesIcon } as const;
 const COLLECTIONS_TAB = { id: "collections", label: "Collections", Icon: CollectionOrbitIcon } as const;
 const PLANS_TAB = { id: "plans", label: "Plans", Icon: PlansIcon } as const;
 
-const TRAY_TABS = [HOME_TAB, DISCOVER_TAB] as const;
+const TRAY_TABS = [DISCOVER_TAB, HOME_TAB] as const;
 
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
@@ -1325,9 +1325,6 @@ const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   settings: "task",
 };
 
-const TRAY_GAP = 4;
-const TRAY_PAD = 8;
-const TRAY_BORDER = 2;
 
 type OverlayMenuAlign = "start" | "center" | "end";
 
@@ -1685,7 +1682,6 @@ function App() {
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
   const aiEnabled = false;
   const [activeView, setActiveView] = useState<ActiveView>("dayline");
-  const [trayCompact, setTrayCompact] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [tasks, setTasks] = useState<ComposerDraft[]>(() => {
@@ -1762,7 +1758,6 @@ function App() {
   activeViewRef.current = activeView;
   const chromeHiddenRef = useRef(false);
   const chromeLockRef = useRef(false);
-  const chromeCooldownUntilRef = useRef(0);
   const selectedDayRef = useRef(selectedDay);
   selectedDayRef.current = selectedDay;
   const countdownNowRef = useRef(countdownNow);
@@ -1783,7 +1778,6 @@ function App() {
   const pendingViewChromeHiddenRef = useRef(false);
   const weekdayStripRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
-  const measureRef = useRef<HTMLDivElement>(null);
   const searchFieldRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchButtonRef = useRef<HTMLButtonElement>(null);
@@ -1895,12 +1889,27 @@ function App() {
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const weekdayDays = buildDayRange(todayStart, weekdayDayCount);
+  const appliedTodayBegins = resolveWindowStartTime(
+    todayStart,
+    defaultWindowStartTime,
+    windowStartOverrides,
+  );
+  const appliedTodayEnds = resolveTargetTime(todayStart, defaultTargetTime, targetTimeOverrides);
+  const appliedTodayWindowSig = todayWindowSignature(appliedTodayBegins, appliedTodayEnds);
+  const todayKeyStr = dayKey(todayStart);
+  const baselineIds = new Set(
+    todayWindowBaseline?.dayKey === todayKeyStr &&
+      todayWindowBaseline.windowSig === appliedTodayWindowSig
+      ? todayWindowBaseline.taskIds
+      : [],
+  );
   const calendarTasksLayout = layoutCalendarTasks(
     tasksForCalendar,
     new Date(countdownNow),
     getTargetTimeForDay,
     taskGapMinutes,
     getWindowStartTimeForDay,
+    baselineIds,
   );
   const calendarTaskLayout = calendarTasksLayout.days;
   const overdueTasks = calendarTasksLayout.overdueTasks;
@@ -1959,22 +1968,8 @@ function App() {
   const todayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
     todayLayout?.blocks ?? [],
   );
-  const appliedTodayBegins = resolveWindowStartTime(
-    todayStart,
-    defaultWindowStartTime,
-    windowStartOverrides,
-  );
-  const appliedTodayEnds = resolveTargetTime(todayStart, defaultTargetTime, targetTimeOverrides);
-  const appliedTodayWindowSig = todayWindowSignature(appliedTodayBegins, appliedTodayEnds);
   const todaySoftResidentIds = collectSoftTaskIdsOnDay(calendarTaskLayout, todayStart);
   const todaySoftResidentKey = [...todaySoftResidentIds].sort().join(",");
-  const todayKeyStr = dayKey(todayStart);
-  const baselineIds = new Set(
-    todayWindowBaseline?.dayKey === todayKeyStr &&
-      todayWindowBaseline.windowSig === appliedTodayWindowSig
-      ? todayWindowBaseline.taskIds
-      : [],
-  );
   // Only tasks that lived in today's applied window and were later pushed off today.
   const scheduleOverflowTasks =
     selectedIsToday && !outsideTaskWindow
@@ -3376,19 +3371,9 @@ function App() {
   };
 
   const setChromeHidden = (hidden: boolean) => {
-    if (chromeHiddenRef.current === hidden) return;
     chromeHiddenRef.current = hidden;
-    chromeCooldownUntilRef.current = performance.now() + 280;
-
-    // Keep the twineline countdown chrome visible; only hide the collapsed tray.
     twinelineChromeRef.current?.classList.remove("is-chrome-hidden");
-
-    const composer = composerRef.current;
-    const hideComposer = hidden && collapsed && !searchOpen;
-    if (composer) {
-      composer.classList.toggle("is-chrome-hidden", hideComposer);
-    }
-
+    composerRef.current?.classList.remove("is-chrome-hidden");
     syncTaskViewControlsBottom();
   };
 
@@ -3416,7 +3401,6 @@ function App() {
 
     const onScroll = () => {
       const top = main.scrollTop;
-      const delta = top - lastScrollTopRef.current;
       lastScrollTopRef.current = top;
 
       if (activeView === "dayline") {
@@ -3457,31 +3441,11 @@ function App() {
         }
       }
 
-      if (chromeLockRef.current) {
-        return;
-      }
-
-      if (!collapsed || searchOpen || moreMenuOpen) {
-        setChromeHidden(false);
-        return;
-      }
-
-      // Ignore scroll noise while the hide/show transition runs so layout
-      // feedback cannot flip the chrome rapidly.
-      if (performance.now() < chromeCooldownUntilRef.current) return;
-
-      if (top < 12) {
-        setChromeHidden(false);
-        return;
-      }
-
-      if (delta > 6) setChromeHidden(true);
-      else if (delta < -6) setChromeHidden(false);
     };
 
     main.addEventListener("scroll", onScroll, { passive: true });
     return () => main.removeEventListener("scroll", onScroll);
-  }, [collapsed, searchOpen, moreMenuOpen, tasksCompact, activeView]);
+  }, [tasksCompact, activeView]);
 
   useEffect(() => {
     if (activeView !== "dayline") {
@@ -3601,9 +3565,6 @@ function App() {
     if (!collapsed || searchOpen || moreMenuOpen) {
       setChromeHidden(false);
     } else {
-      const composer = composerRef.current;
-      const hideComposer = chromeHiddenRef.current && activeView === "dayline";
-      composer?.classList.toggle("is-chrome-hidden", hideComposer);
       syncTaskViewControlsBottom();
     }
   }, [collapsed, searchOpen, moreMenuOpen, activeView]);
@@ -3785,63 +3746,6 @@ function App() {
       observer.disconnect();
     };
   }, [collapsed, composeKind, editingTaskId]);
-
-  useLayoutEffect(() => {
-    if (!collapsed || searchOpen) return;
-
-    const tray = trayRef.current;
-    const measure = measureRef.current;
-    const composer = composerRef.current;
-    if (!tray || !measure || !composer) return;
-
-    const measureWidth = (id: string, compact: boolean) => {
-      const el = measure.querySelector<HTMLElement>(`[data-measure-id="${id}"][data-compact="${compact}"]`);
-      return el?.offsetWidth ?? 0;
-    };
-
-    const update = () => {
-      const dock = composer.querySelector<HTMLElement>(".app-composer-dock");
-      const trayDockGap = 10;
-      const composerStyle = getComputedStyle(composer);
-      const padX =
-        (parseFloat(composerStyle.paddingLeft) || 0) +
-        (parseFloat(composerStyle.paddingRight) || 0);
-      const dockWidth = dock?.getBoundingClientRect().width || 44;
-      // Use the composer budget, not the tray's content-shrunk width — otherwise
-      // overflowed tabs never come back when the viewport widens.
-      const available = composer.clientWidth - padX - dockWidth - trayDockGap;
-      if (available <= 0) return;
-
-      const fit = (compact: boolean) => {
-        const dayline = measureWidth("dayline", false);
-        const more = measureWidth("more", compact);
-        let total = TRAY_PAD + dayline + more;
-        let itemCount = 2;
-
-        for (const tab of TRAY_TABS) {
-          total += measureWidth(tab.id, compact);
-            itemCount += 1;
-        }
-
-        return total + (itemCount - 1) * TRAY_GAP + TRAY_BORDER <= available;
-      };
-
-      const nextCompact = !fit(false);
-      setTrayCompact((current) => (current === nextCompact ? current : nextCompact));
-    };
-
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(composer);
-    window.addEventListener("resize", update);
-    window.visualViewport?.addEventListener("resize", update);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", update);
-      window.visualViewport?.removeEventListener("resize", update);
-    };
-  }, [collapsed, searchOpen]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -4690,6 +4594,29 @@ function App() {
                 </div>
               </div>
             )}
+            <div
+              className="twineline-schedule"
+              aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
+            >
+              <div className="twineline-schedule-track-wrap">
+                <DayScheduleTrack
+                  segments={scheduleSegments}
+                  timelineMinutes={scheduleTimelineMinutes}
+                  elapsedPct={selectedDayElapsedPct}
+                  windowStartMin={selectedDayWindowStartMinutes}
+                  windowEndMin={selectedDayPackEnd}
+                  focusedTaskId={focusedTaskId}
+                  isTaskHighlighted={isTaskHighlighted}
+                  isTaskPopping={isTaskPopping}
+                  onTaskSelect={(task) => {
+                    if (!task.id || isTaskPopping(task.id)) return;
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                    scrollTaskIntoView(task.id);
+                  }}
+                />
+              </div>
+            </div>
             {!calendarOpen && (
               <div
                 ref={weekdayStripRef}
@@ -4724,35 +4651,12 @@ function App() {
                 })}
               </div>
             )}
-            <div
-              className="twineline-schedule"
-              aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
-            >
-              <div className="twineline-schedule-track-wrap">
-                <DayScheduleTrack
-                  segments={scheduleSegments}
-                  timelineMinutes={scheduleTimelineMinutes}
-                  elapsedPct={selectedDayElapsedPct}
-                  windowStartMin={selectedDayWindowStartMinutes}
-                  windowEndMin={selectedDayPackEnd}
-                  focusedTaskId={focusedTaskId}
-                  isTaskHighlighted={isTaskHighlighted}
-                  isTaskPopping={isTaskPopping}
-                  onTaskSelect={(task) => {
-                    if (!task.id || isTaskPopping(task.id)) return;
-                    setFocusedOverflowTaskIds(null);
-                    setFocusedTaskId(task.id);
-                    scrollTaskIntoView(task.id);
-                  }}
-                />
               </div>
-            </div>
-              </div>
-              {showTimelineScrollTop && !calendarOpen && (
+              {showTimelineScrollTop && (
                 <div className="twineline-scroll-top-row">
                   <button
                     type="button"
-                    className="task-view-scroll-top"
+                    className="task-view-scroll-top ui-glass"
                     onClick={() => {
                       const today = toStartOfDay(new Date(countdownNow));
                       setSelectedDay(today);
@@ -4760,19 +4664,23 @@ function App() {
                       pendingTimelineScrollDayRef.current = null;
 
                       const main = mainRef.current;
-                      const overdueBlock = overdueScrollBlockRef.current;
-                      const includeOverdue =
-                        overflowTaskCount > 0 && overdueBlock instanceof HTMLElement;
-
                       if (main) {
                         timelineScrollSyncLockRef.current = true;
-                        if (includeOverdue) {
+                        const todayKeyStr = dayKey(today);
+                        const section = main.querySelector(
+                          `[data-calendar-day="${CSS.escape(todayKeyStr)}"]`,
+                        );
+                        const target =
+                          section?.querySelector<HTMLElement>(
+                            ".task-day-label-row, .calendar-timeline-day-label",
+                          ) ?? (section instanceof HTMLElement ? section : null);
+                        if (target) {
                           const chromeHeight = twinelineChromeRef.current?.offsetHeight ?? 0;
                           const mainRect = main.getBoundingClientRect();
-                          const overdueRect = overdueBlock.getBoundingClientRect();
+                          const targetRect = target.getBoundingClientRect();
                           const top =
                             main.scrollTop +
-                            (overdueRect.top - mainRect.top) -
+                            (targetRect.top - mainRect.top) -
                             chromeHeight;
                           main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
                         } else {
@@ -4986,6 +4894,12 @@ function App() {
                 day,
                 outsideExpandedByDay[day.dayKey] ?? {},
               );
+              const isTodayGroup = day.dayKey === todayKey;
+              const showOverdueToggle =
+                isTodayGroup &&
+                activeView === "dayline" &&
+                !calendarOpen &&
+                overflowTaskCount > 0;
               const toggleOutsideRegion = (region: OutsideRegionId) => {
                 setOutsideExpandedByDay((current) => {
                   const prev = current[day.dayKey] ?? {};
@@ -5005,9 +4919,121 @@ function App() {
                 className="calendar-timeline-day"
                 data-calendar-day={day.dayKey}
               >
-                <div className="calendar-timeline-day-label">
-                  {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                <div className="task-day-label-row">
+                  <div className="calendar-timeline-day-label">
+                    {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                  </div>
+                  {showOverdueToggle && (
+                    <button
+                      type="button"
+                      className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
+                      aria-expanded={overdueSectionOpen}
+                      aria-controls="task-overdue-list"
+                      aria-label="Overflow tasks"
+                      onClick={() => setOverdueSectionOpen((open) => !open)}
+                    >
+                      <span className="task-overdue-toggle-action">
+                        <span className="task-overdue-toggle-reschedule">Overflow</span>
+                        <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                          {overdueSectionOpen ? "∨" : ">"}
+                        </span>
+                      </span>
+                    </button>
+                  )}
                 </div>
+                {showOverdueToggle && overdueSectionOpen && (
+                  <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
+                    <section
+                      ref={overdueSectionRef}
+                      id="task-overdue-list"
+                      className="task-overdue-section"
+                      aria-label="Overflow tasks"
+                    >
+                      {overdueTasks.length > 0 && (
+                        <div className="task-overflow-bucket">
+                          <div className="task-overflow-bucket-header">
+                            <button
+                              type="button"
+                              className="task-overflow-select-btn"
+                              onClick={() =>
+                                setOverflowRescheduleSelecting((open) => !open)
+                              }
+                            >
+                              {overflowRescheduleSelecting ? "Cancel" : "Select"}
+                            </button>
+                            <span className="task-overflow-bucket-label">
+                              * Auto Rescheduling At End of Day
+                            </span>
+                          </div>
+                          <ul className="task-day-tasks task-overdue-tasks">
+                            {overdueTasks.map((task) => (
+                              <CompactTaskRow
+                                key={task.id ?? task.title}
+                                task={task}
+                                overdue
+                                editing={editingTaskId === task.id}
+                                highlighted={isTaskHighlighted(task.id)}
+                                popping={isTaskPopping(task.id)}
+                                now={new Date(countdownNow)}
+                                parentTitle={parentTitleFor(task.parent_id)}
+                                onComplete={() => requestCompleteTask(task.id)}
+                                onEdit={() => {
+                                  if (task.id) {
+                                    setFocusedOverflowTaskIds(null);
+                                    setFocusedTaskId(task.id);
+                                  }
+                                  editTask(task);
+                                }}
+                              />
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {deferredTasks.length > 0 && (
+                        <div className="task-overflow-bucket">
+                          <div className="task-overflow-bucket-header">
+                            <button
+                              type="button"
+                              className="task-overflow-select-btn"
+                              onClick={() => setOverflowDeferSelecting((open) => !open)}
+                            >
+                              {overflowDeferSelecting ? "Cancel" : "Select"}
+                            </button>
+                            <span className="task-overflow-bucket-label">
+                              * Auto Deferring At End of Day
+                            </span>
+                          </div>
+                          <ul className="task-day-tasks task-overdue-tasks">
+                            {deferredTasks.map((task) => (
+                              <CompactTaskRow
+                                key={task.id ?? task.title}
+                                task={task}
+                                overdue={false}
+                                editing={editingTaskId === task.id}
+                                highlighted={isTaskHighlighted(task.id)}
+                                popping={isTaskPopping(task.id)}
+                                now={new Date(countdownNow)}
+                                parentTitle={parentTitleFor(task.parent_id)}
+                                onComplete={() => requestCompleteTask(task.id)}
+                                onEdit={() => {
+                                  if (task.id) {
+                                    setFocusedOverflowTaskIds(null);
+                                    setFocusedTaskId(task.id);
+                                  }
+                                  editTask(task);
+                                }}
+                              />
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <p className="task-overdue-note">
+                        * Deferring items roll forward and Rescheduling items are
+                        auto-rescheduled at the end of the day
+                      </p>
+                    </section>
+                  </div>
+                )}
                 <div
                   className="calendar-timeline-body"
                   style={{ height: Math.max(PX_PER_MINUTE, view.visibleDisplayPx) }}
@@ -5103,7 +5129,7 @@ function App() {
         <div className="task-view-controls" ref={taskViewControlsRef}>
           <button
             type="button"
-            className="task-view-toggle"
+            className="task-view-toggle ui-glass"
             onClick={() => {
               pendingViewPreserveChromeRef.current = true;
               pendingViewChromeHiddenRef.current = chromeHiddenRef.current;
@@ -5151,92 +5177,29 @@ function App() {
         }}
       >
         <div className="app-tray" ref={trayRef}>
-          <div
-            ref={measureRef}
-            className="app-tray-measure"
-            aria-hidden="true"
-          >
-            {[false, true].map((compact) => (
-              <div key={String(compact)} className="app-tray-measure-row">
-                {NAV_ITEMS.map(({ id, label, Icon }) => {
-                  const tabCompact = compact && id !== "dayline";
-                  return (
+          <div className="app-tray-tabs ui-glass" aria-hidden={!collapsed || searchOpen}>
+            {[DISCOVER_TAB, null, HOME_TAB].map((tab) => {
+              if (!tab) {
+                return (
                   <button
-                    key={id}
+                    key="dayline"
                     type="button"
-                    tabIndex={-1}
-                    data-measure-id={id}
-                    data-compact={String(compact)}
-                      className={`app-tray-tab${tabCompact ? " is-compact" : ""}`}
+                    className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
+                    onClick={() => selectView("dayline")}
+                    tabIndex={collapsed && !searchOpen ? 0 : -1}
+                    aria-label={DAYLINE_TAB.label}
                   >
-                    <Icon />
-                      {!tabCompact && <span>{label}</span>}
+                    <DaylineIcon />
                   </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  data-measure-id="more"
-                  data-compact={String(compact)}
-                  className={`app-tray-more-button${compact ? " is-compact" : ""}`}
-                >
-                  <span className="app-tray-more-divider" aria-hidden="true" />
-                  <MoreIcon />
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="app-tray-tabs ui-outer-fade" aria-hidden={!collapsed || searchOpen}>
-            {TRAY_TABS.filter((tab) => tab.id === "home").map(({ id, label, Icon, ...tab }) => {
-              const inertNav = "inertNav" in tab && tab.inertNav === true;
-              return (
-            <button
-                  key={id}
-              type="button"
-                  className={`app-tray-tab${trayCompact ? " is-compact" : ""}${
-                    !inertNav && activeView === id ? " is-active" : ""
-                  }`}
-                  onClick={() => {
-                    if (inertNav) {
-                      setMoreMenuOpen(false);
-                      return;
-                    }
-                    setMoreMenuOpen(false);
-                    selectView(id);
-                  }}
-              tabIndex={collapsed && !searchOpen ? 0 : -1}
-                  aria-label={label}
-            >
-                  <Icon />
-                  {!trayCompact && <span>{label}</span>}
-            </button>
-              );
-            })}
-              <button
-                type="button"
-              className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
-              onClick={() => selectView("dayline")}
-                tabIndex={collapsed && !searchOpen ? 0 : -1}
-              aria-label={DAYLINE_TAB.label}
-              >
-              <DaylineIcon />
-              <span>{DAYLINE_TAB.label}</span>
-              </button>
-            {TRAY_TABS.filter((tab) => tab.id === "discover").map(({ id, label, Icon, ...tab }) => {
-              const inertNav = "inertNav" in tab && tab.inertNav === true;
+                );
+              }
+              const { id, label, Icon } = tab;
               return (
                 <button
                   key={id}
                   type="button"
-                  className={`app-tray-tab${trayCompact ? " is-compact" : ""}${
-                    !inertNav && activeView === id ? " is-active" : ""
-                  }`}
+                  className={`app-tray-tab${activeView === id ? " is-active" : ""}`}
                   onClick={() => {
-                    if (inertNav) {
-                      setMoreMenuOpen(false);
-                      return;
-                    }
                     setMoreMenuOpen(false);
                     selectView(id);
                   }}
@@ -5244,7 +5207,6 @@ function App() {
                   aria-label={label}
                 >
                   <Icon />
-                  {!trayCompact && <span>{label}</span>}
                 </button>
               );
             })}
@@ -5304,7 +5266,7 @@ function App() {
               <button
                 ref={moreButtonRef}
                 type="button"
-                className={`app-tray-more-button${trayCompact ? " is-compact" : ""}${
+                className={`app-tray-more-button${
                   moreButtonActive ? " is-active" : moreMenuPending ? " is-menu-open" : ""
                 }`}
                 onClick={() => {
@@ -6246,22 +6208,6 @@ function App() {
                     <NotesIcon />
                   </button>
                 )}
-                {isLinkingToolComposeKind(composeKind) && (
-                  <button
-                    ref={parentTaskButtonRef}
-                    type="button"
-                    className={`app-composer-tool app-composer-tool-linking${
-                      pendingParentId != null || pendingChildId != null ? " is-activated" : ""
-                    }${taskToolHint === LINKING_TOOL_HINT ? " is-open" : ""}`}
-                    aria-label="Linking"
-                    aria-expanded={taskToolHint === LINKING_TOOL_HINT}
-                    aria-pressed={pendingParentId != null || pendingChildId != null}
-                    tabIndex={collapsed ? -1 : 0}
-                    onClick={(event) => openTaskToolHint(event.currentTarget, LINKING_TOOL_HINT)}
-                  >
-                    <LinkIcon />
-                  </button>
-                )}
                 {composeKind === "task" && (
                   <>
                     <div className="app-composer-recurring">
@@ -6367,17 +6313,6 @@ function App() {
                         <CycleIcon />
                       </button>
                     </div>
-                    <button
-                      ref={dueDateButtonRef}
-                      type="button"
-                      className={dueDateButtonClassName}
-                      aria-label="Date & Time"
-                      aria-expanded={taskToolHint === "Date & Time"}
-                      tabIndex={collapsed ? -1 : 0}
-                      onClick={(event) => openTaskToolHint(event.currentTarget, "Date & Time")}
-                    >
-                      <CalendarIcon />
-                    </button>
                     <div className="app-composer-impact">
                       <ComposerOverlayMenu
                         open={impactMenuOpen}
@@ -6587,6 +6522,35 @@ function App() {
                       <ClockIcon />
                     </button>
                   </div>
+                )}
+                {composeKind === "task" && (
+                  <button
+                    ref={dueDateButtonRef}
+                    type="button"
+                    className={dueDateButtonClassName}
+                    aria-label="Date & Time"
+                    aria-expanded={taskToolHint === "Date & Time"}
+                    tabIndex={collapsed ? -1 : 0}
+                    onClick={(event) => openTaskToolHint(event.currentTarget, "Date & Time")}
+                  >
+                    <CalendarIcon />
+                  </button>
+                )}
+                {isLinkingToolComposeKind(composeKind) && (
+                  <button
+                    ref={parentTaskButtonRef}
+                    type="button"
+                    className={`app-composer-tool app-composer-tool-linking${
+                      pendingParentId != null || pendingChildId != null ? " is-activated" : ""
+                    }${taskToolHint === LINKING_TOOL_HINT ? " is-open" : ""}`}
+                    aria-label="Linking"
+                    aria-expanded={taskToolHint === LINKING_TOOL_HINT}
+                    aria-pressed={pendingParentId != null || pendingChildId != null}
+                    tabIndex={collapsed ? -1 : 0}
+                    onClick={(event) => openTaskToolHint(event.currentTarget, LINKING_TOOL_HINT)}
+                  >
+                    <LinkIcon />
+                  </button>
                 )}
                 </div>
               </div>

@@ -20,7 +20,8 @@
   --sans: system-ui, "Segoe UI", Roboto, sans-serif;
   --space: 16px;
   --tap: 44px;
-  --tray-pill: 56px;
+  --tray-pill: 48px;
+  --fab-size: 56px;
   --radius: 14px;
   --app-max: 480px;
   --safe-top: env(safe-area-inset-top, 0px);

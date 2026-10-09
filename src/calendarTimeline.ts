@@ -385,6 +385,7 @@ function packSoftTasks(
   overdueTasks: ComposerDraft[],
   deferredTasks: ComposerDraft[],
   gapMinutes: number,
+  todaySoftBaselineIds: ReadonlySet<string>,
 ) {
   const undatedQueue = [...undated].sort(compareSoftPriority);
   const dateOnlyQueues = new Map<string, ComposerDraft[]>();
@@ -396,10 +397,13 @@ function packSoftTasks(
   let day = todayStart;
   let guard = 0;
   const gap = Math.max(0, gapMinutes);
-  let undatedPackedToday = false;
+  let undatedTodayResolved = false;
+
+  const isBaselineSoft = (task: ComposerDraft) =>
+    task.id != null && todaySoftBaselineIds.has(task.id);
 
   const hasRemaining = () =>
-    (!undatedPackedToday && undatedQueue.length > 0) ||
+    undatedQueue.length > 0 ||
     [...dateOnlyQueues.values()].some((list) => list.length > 0);
 
   const drainDateOnlyToOverdue = (key: string) => {
@@ -410,11 +414,20 @@ function packSoftTasks(
     dateOnlyQueues.set(key, stranded);
   };
 
-  const drainUndatedToDeferred = () => {
+  /** Baseline leftovers → Deferring; other undated stay queued to spill forward. */
+  const splitTodayUndatedLeftovers = () => {
+    if (undatedTodayResolved) return;
+    const spill: ComposerDraft[] = [];
     while (undatedQueue.length > 0) {
-      deferredTasks.push(undatedQueue.shift()!);
+      const task = undatedQueue.shift()!;
+      if (isBaselineSoft(task)) {
+        deferredTasks.push(task);
+      } else {
+        spill.push(task);
+      }
     }
-    undatedPackedToday = true;
+    undatedQueue.push(...spill);
+    undatedTodayResolved = true;
   };
 
   while (hasRemaining() && guard < 1000) {
@@ -426,7 +439,7 @@ function packSoftTasks(
     if (packStart >= packEnd) {
       // Pack window closed for this day — date-only tasks cannot be placed.
       drainDateOnlyToOverdue(key);
-      if (isToday) drainUndatedToDeferred();
+      if (isToday) splitTodayUndatedLeftovers();
       day = addDays(day, 1);
       continue;
     }
@@ -440,7 +453,7 @@ function packSoftTasks(
     let free = freeIntervals(packStart, packEnd, occupied);
     if (free.length === 0) {
       drainDateOnlyToOverdue(key);
-      if (isToday) drainUndatedToDeferred();
+      if (isToday) splitTodayUndatedLeftovers();
       day = addDays(day, 1);
       continue;
     }
@@ -463,7 +476,7 @@ function packSoftTasks(
     }
     dateOnlyQueues.set(key, sameDayQueue);
 
-    // Priority 2: undated softs fill today's leftover holes only; else Deferring.
+    // Priority 2: undated softs — today first, then spill non-baseline to future days.
     if (isToday) {
       while (undatedQueue.length > 0) {
         const task = undatedQueue[0];
@@ -474,7 +487,17 @@ function packSoftTasks(
         pushBlock(byDay, day, task, range.start, range.end, 0, false);
         free = consumeFreeWithGap(free, range, gap);
       }
-      drainUndatedToDeferred();
+      splitTodayUndatedLeftovers();
+    } else if (undatedTodayResolved) {
+      while (undatedQueue.length > 0) {
+        const task = undatedQueue[0];
+        const minutes = taskDurationMinutes(task);
+        const range = firstFitRange(free, minutes);
+        if (!range) break;
+        undatedQueue.shift();
+        pushBlock(byDay, day, task, range.start, range.end, 0, false);
+        free = consumeFreeWithGap(free, range, gap);
+      }
     }
 
     day = addDays(day, 1);
@@ -489,7 +512,12 @@ function packSoftTasks(
       dateOnlyQueues.set(key, list);
     }
   }
-  drainUndatedToDeferred();
+  // Remaining undated: only baseline softs belong in Deferring.
+  if (!undatedTodayResolved) splitTodayUndatedLeftovers();
+  while (undatedQueue.length > 0) {
+    const task = undatedQueue.shift()!;
+    if (isBaselineSoft(task)) deferredTasks.push(task);
+  }
 }
 
 function sortOverdueTasks(tasks: ComposerDraft[]): ComposerDraft[] {
@@ -682,6 +710,8 @@ export function layoutCalendarTasks(
   getTargetTimeForDay: (day: Date) => string,
   taskGapMinutes: number = DEFAULT_TASK_GAP_MINUTES,
   getWindowStartTimeForDay: (day: Date) => string = () => "06:00",
+  /** Softs that started in today's window; leftovers that no longer fit → Deferring. */
+  todaySoftBaselineIds: ReadonlySet<string> = new Set(),
 ): CalendarTasksLayout {
   const getWindowStart = (day: Date) => packWindowStartMinutes(getWindowStartTimeForDay(day));
   const getPackEnd = (day: Date) =>
@@ -758,6 +788,7 @@ export function layoutCalendarTasks(
     overdueTasks,
     deferredTasks,
     gapMinutes,
+    todaySoftBaselineIds,
   );
 
   const keys = [...byDay.keys()].sort();
@@ -850,8 +881,8 @@ export function layoutCalendarTasks(
       }
       continue;
     }
-    // Unplaced undated soft → Deferring.
-    if (kind === "undated") {
+    // Unplaced undated soft that started in today's window → Deferring.
+    if (kind === "undated" && todaySoftBaselineIds.has(task.id)) {
       deferredTasks.push(task);
       deferredIds.add(task.id);
     }
