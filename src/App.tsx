@@ -1758,6 +1758,7 @@ function App() {
   activeViewRef.current = activeView;
   const chromeHiddenRef = useRef(false);
   const chromeLockRef = useRef(false);
+  const chromeCooldownUntilRef = useRef(0);
   const selectedDayRef = useRef(selectedDay);
   selectedDayRef.current = selectedDay;
   const countdownNowRef = useRef(countdownNow);
@@ -1835,7 +1836,6 @@ function App() {
   const timelineMenuRef = useRef<HTMLDivElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
-  const taskViewControlsRef = useRef<HTMLDivElement>(null);
   const hasText = content.trim().length > 0;
   const selectedComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === composeKind) ?? COMPOSE_KINDS[0];
@@ -3342,39 +3342,19 @@ function App() {
     return () => window.clearInterval(id);
   }, [activeView]);
 
-  const syncTaskViewControlsBottom = () => {
-    const composer = composerRef.current;
-    const controls = taskViewControlsRef.current;
-    if (!controls) return;
-
-    if (!composer) {
-      controls.style.bottom = "calc(12px + var(--safe-bottom))";
-      return;
-    }
-
-    // Use layout sizes (not getBoundingClientRect) so the slide-in transform
-    // does not place the toggle on top of the FAB while chrome reappears.
-    const field = composer.querySelector<HTMLElement>(".app-composer-field");
-    const useField =
-      field != null &&
-      !composer.classList.contains("is-collapsed") &&
-      !composer.classList.contains("is-search-open");
-
-    if (useField && field) {
-      const padBottom = parseFloat(getComputedStyle(composer).paddingBottom) || 0;
-      controls.style.bottom = `${padBottom + field.offsetHeight + 10}px`;
-      return;
-    }
-
-    // FAB stays visible while chrome-hidden, so keep the view toggle above it.
-    controls.style.bottom = `${composer.offsetHeight + 10}px`;
-  };
-
   const setChromeHidden = (hidden: boolean) => {
+    if (chromeHiddenRef.current === hidden) return;
     chromeHiddenRef.current = hidden;
+    chromeCooldownUntilRef.current = performance.now() + 280;
+
+    // Keep the twineline countdown chrome visible; only hide the collapsed tray.
     twinelineChromeRef.current?.classList.remove("is-chrome-hidden");
-    composerRef.current?.classList.remove("is-chrome-hidden");
-    syncTaskViewControlsBottom();
+
+    const composer = composerRef.current;
+    const hideComposer = hidden && collapsed && !searchOpen;
+    if (composer) {
+      composer.classList.toggle("is-chrome-hidden", hideComposer);
+    }
   };
 
   useEffect(() => {
@@ -3401,6 +3381,7 @@ function App() {
 
     const onScroll = () => {
       const top = main.scrollTop;
+      const delta = top - lastScrollTopRef.current;
       lastScrollTopRef.current = top;
 
       if (activeView === "dayline") {
@@ -3441,11 +3422,31 @@ function App() {
         }
       }
 
+      if (chromeLockRef.current) {
+        return;
+      }
+
+      if (!collapsed || searchOpen || moreMenuOpen) {
+        setChromeHidden(false);
+        return;
+      }
+
+      // Ignore scroll noise while the hide/show transition runs so layout
+      // feedback cannot flip the chrome rapidly.
+      if (performance.now() < chromeCooldownUntilRef.current) return;
+
+      if (top < 12) {
+        setChromeHidden(false);
+        return;
+      }
+
+      if (delta > 6) setChromeHidden(true);
+      else if (delta < -6) setChromeHidden(false);
     };
 
     main.addEventListener("scroll", onScroll, { passive: true });
     return () => main.removeEventListener("scroll", onScroll);
-  }, [tasksCompact, activeView]);
+  }, [collapsed, searchOpen, moreMenuOpen, tasksCompact, activeView]);
 
   useEffect(() => {
     if (activeView !== "dayline") {
@@ -3565,7 +3566,9 @@ function App() {
     if (!collapsed || searchOpen || moreMenuOpen) {
       setChromeHidden(false);
     } else {
-      syncTaskViewControlsBottom();
+      const composer = composerRef.current;
+      const hideComposer = chromeHiddenRef.current && activeView === "dayline";
+      composer?.classList.toggle("is-chrome-hidden", hideComposer);
     }
   }, [collapsed, searchOpen, moreMenuOpen, activeView]);
 
@@ -3608,32 +3611,6 @@ function App() {
       strip.scrollTo({ left: Math.max(0, nextLeft), behavior: "smooth" });
     }
   }, [selectedDay, calendarOpen, weekdayDayCount]);
-
-  useLayoutEffect(() => {
-    if (activeView !== "dayline") return;
-    const composer = composerRef.current;
-    const controls = taskViewControlsRef.current;
-    if (!composer || !controls) return;
-
-    syncTaskViewControlsBottom();
-
-    const onTransitionEnd = (event: TransitionEvent) => {
-      if (event.target !== composer || event.propertyName !== "transform") return;
-      syncTaskViewControlsBottom();
-    };
-
-    const observer = new ResizeObserver(() => {
-      syncTaskViewControlsBottom();
-    });
-    observer.observe(composer);
-    const field = composer.querySelector(".app-composer-field");
-    if (field) observer.observe(field);
-    composer.addEventListener("transitionend", onTransitionEnd);
-    return () => {
-      observer.disconnect();
-      composer.removeEventListener("transitionend", onTransitionEnd);
-    };
-  }, [activeView, collapsed, searchOpen, composerSavePromptOpen]);
 
   useLayoutEffect(() => {
     const el = composeInputRef.current;
@@ -4656,7 +4633,7 @@ function App() {
                 <div className="twineline-scroll-top-row">
                   <button
                     type="button"
-                    className="task-view-scroll-top ui-glass"
+                    className="task-view-scroll-top"
                     onClick={() => {
                       const today = toStartOfDay(new Date(countdownNow));
                       setSelectedDay(today);
@@ -5125,37 +5102,6 @@ function App() {
         ))}
       </main>
 
-      {activeView === "dayline" && (
-        <div className="task-view-controls" ref={taskViewControlsRef}>
-          <button
-            type="button"
-            className="task-view-toggle ui-glass"
-            onClick={() => {
-              pendingViewPreserveChromeRef.current = true;
-              pendingViewChromeHiddenRef.current = chromeHiddenRef.current;
-              chromeLockRef.current = true;
-              const nearest = findNearestToScheduleTrack();
-              if (nearest?.type === "task") {
-                pendingViewScrollTaskIdRef.current = nearest.taskId;
-                pendingTimelineScrollDayRef.current = null;
-              } else if (nearest?.type === "day") {
-                pendingViewScrollTaskIdRef.current = null;
-                pendingTimelineScrollDayRef.current = nearest.day;
-                setSelectedDay(nearest.day);
-              } else {
-                pendingViewScrollTaskIdRef.current = null;
-                pendingTimelineScrollDayRef.current = toStartOfDay(selectedDay);
-              }
-              setTasksCompact((compact) => !compact);
-            }}
-            aria-label={tasksCompact ? "Expand task list" : "Compact task list"}
-            aria-pressed={tasksCompact}
-          >
-            {tasksCompact ? <TaskViewExpandIcon /> : <TaskViewCollapseIcon />}
-          </button>
-        </div>
-      )}
-
       <form
         ref={composerRef}
         className={`app-composer${collapsed ? " is-collapsed" : ""}${attachMenuOpen ? " is-attach-open" : ""}${searchOpen ? " is-search-open" : ""}`}
@@ -5315,6 +5261,35 @@ function App() {
         </div>
 
         <div className="app-composer-dock">
+          {activeView === "dayline" && collapsed && !searchOpen && (
+            <button
+              type="button"
+              className="task-view-toggle ui-glass"
+              onClick={() => {
+                pendingViewPreserveChromeRef.current = true;
+                pendingViewChromeHiddenRef.current = chromeHiddenRef.current;
+                chromeLockRef.current = true;
+                const nearest = findNearestToScheduleTrack();
+                if (nearest?.type === "task") {
+                  pendingViewScrollTaskIdRef.current = nearest.taskId;
+                  pendingTimelineScrollDayRef.current = null;
+                } else if (nearest?.type === "day") {
+                  pendingViewScrollTaskIdRef.current = null;
+                  pendingTimelineScrollDayRef.current = nearest.day;
+                  setSelectedDay(nearest.day);
+                } else {
+                  pendingViewScrollTaskIdRef.current = null;
+                  pendingTimelineScrollDayRef.current = toStartOfDay(selectedDay);
+                }
+                setTasksCompact((compact) => !compact);
+              }}
+              aria-label={tasksCompact ? "Expand task list" : "Compact task list"}
+              aria-pressed={tasksCompact}
+              tabIndex={0}
+            >
+              {tasksCompact ? <TaskViewExpandIcon /> : <TaskViewCollapseIcon />}
+            </button>
+          )}
           <button
             ref={fabRef}
             type="button"

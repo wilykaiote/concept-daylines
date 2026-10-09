@@ -1964,13 +1964,20 @@
 }
 
 .task-list.is-compact .task-row-urgency,
+.task-list.is-compact .task-row-top .task-row-urgency,
 .task-overdue-tasks .task-row-urgency,
+.task-overdue-tasks .task-row-top .task-row-urgency,
 .collections-children .task-row-urgency,
+.collections-children .task-row-top .task-row-urgency,
 .named-children .task-row-urgency,
-.home-focus-task .task-row-urgency {
+.named-children .task-row-top .task-row-urgency,
+.home-focus-task .task-row-urgency,
+.home-focus-task .task-row-top .task-row-urgency {
   font-size: 0.62rem;
   letter-spacing: 0.05em;
   opacity: 0.58;
+  text-transform: uppercase;
+  font-weight: 650;
 }
 
 .task-row-impact {
@@ -2282,6 +2289,24 @@
   will-change: transform;
 }
 
+/* Hide the tray on scroll, but keep the Add FAB pinned in place. */
+.app-composer.is-collapsed.is-chrome-hidden {
+  pointer-events: none;
+}
+
+.app-composer.is-collapsed.is-chrome-hidden .app-tray {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(12px);
+  transition-delay: 0s;
+}
+
+.app-composer.is-collapsed.is-chrome-hidden .app-composer-fab.app-composer-fab--toggle,
+.app-composer.is-collapsed.is-chrome-hidden .task-view-toggle {
+  pointer-events: auto;
+}
+
 .app-composer.is-collapsed {
   justify-content: stretch;
   align-items: flex-end;
@@ -2321,7 +2346,7 @@
   right: auto;
   flex: 1 1 auto;
   max-width: calc(100% - var(--fab-size) - 10px);
-  justify-content: stretch;
+  justify-content: flex-end;
 }
 
 .app-composer.is-collapsed.is-search-open .app-tray {
@@ -2342,7 +2367,7 @@
 }
 
 .ui-glass {
-  border: 1px solid color-mix(in srgb, var(--text-h) 16%, var(--border));
+  border: 1px solid color-mix(in srgb, #000 28%, var(--border));
   background: color-mix(in srgb, var(--bg-raised) 52%, transparent);
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #fff 28%, transparent),
@@ -2354,7 +2379,7 @@
 @media (prefers-color-scheme: dark) {
   .ui-glass {
     background: color-mix(in srgb, var(--bg-raised) 42%, transparent);
-    border-color: color-mix(in srgb, var(--text-h) 14%, var(--border));
+    border-color: color-mix(in srgb, #000 42%, var(--border));
     box-shadow:
       inset 0 1px 0 color-mix(in srgb, #fff 14%, transparent),
       inset 0 -0.5px 0 color-mix(in srgb, #000 28%, transparent);
@@ -2366,14 +2391,14 @@
   display: flex;
   align-items: stretch;
   gap: 4px;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   width: 100%;
-  max-width: 100%;
+  max-width: 495px;
   min-width: 0;
   height: auto;
   min-height: var(--tray-pill);
   padding: 2px 0 2px 2px;
-  margin-left: 36px;
+  margin-left: auto;
   border-radius: 999px;
   box-sizing: border-box;
   overflow: visible;
@@ -2389,7 +2414,6 @@
 .app-composer.is-search-open .app-tray-tabs {
   max-width: 0;
   margin: 0;
-  margin-left: 0;
   padding: 0;
   opacity: 0;
   border-color: transparent;
@@ -3061,7 +3085,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  flex: 0 0 var(--fab-size);
+  gap: 10px;
+  flex: 0 0 auto;
   width: var(--fab-size);
   height: auto;
   min-height: var(--fab-size);
@@ -4675,29 +4700,17 @@
   transition-delay: 0s;
 }
 
-.task-view-controls {
-  --task-view-toggle-size: 54px;
-  position: absolute;
-  right: calc(var(--space) + (var(--fab-size) - var(--task-view-toggle-size)) / 2);
-  bottom: calc(12px + var(--safe-bottom) + var(--fab-size) + 10px);
-  z-index: 12;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  pointer-events: none;
-  transition: bottom 0.2s ease;
-}
-
 .task-view-toggle {
-  pointer-events: auto;
+  --task-view-toggle-width: 36px;
+  --task-view-toggle-height: var(--fab-size);
   display: grid;
   place-items: center;
-  width: var(--task-view-toggle-size);
-  height: var(--task-view-toggle-size);
+  flex: 0 0 auto;
+  width: var(--task-view-toggle-width);
+  height: var(--task-view-toggle-height);
   margin: 0;
   padding: 0;
-  border-radius: 50%;
+  border-radius: 999px;
   color: var(--text-h);
   cursor: pointer;
 }
@@ -4725,6 +4738,13 @@
   padding: 14px var(--space) 0;
   pointer-events: none;
   box-sizing: border-box;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition:
+    opacity 0.25s ease 0.1s,
+    transform 0.28s ease 0.1s,
+    visibility 0.25s ease 0.1s;
 }
 
 .twineline-scroll-top-row .task-view-scroll-top {
@@ -4738,7 +4758,9 @@
   min-height: 34px;
   margin: 0;
   padding: 9px 14px;
+  border: 1px solid var(--border);
   border-radius: 999px;
+  background: var(--bg-raised);
   color: var(--text-h);
   font-size: 0.72rem;
   font-weight: 650;
@@ -4758,6 +4780,14 @@
 .twineline-scroll-top-row .task-view-scroll-top:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.app:has(.app-composer.is-collapsed.is-chrome-hidden) .twineline-scroll-top-row {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(12px);
+  transition-delay: 0s;
 }
 
 .calendar-timeline {
