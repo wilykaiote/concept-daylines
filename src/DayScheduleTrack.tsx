@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { MINUTES_PER_DAY, parseTimeOfDay } from "./calendarTimeline";
+import { MINUTES_PER_DAY, parseTaskDate, parseTimeOfDay } from "./calendarTimeline";
 import type { ComposerDraft } from "./composer";
 import { daySkyCssStops } from "./daySky";
 import type { ScheduleSegment } from "./schedule";
@@ -11,7 +11,11 @@ function scheduleBlockKind(
   overdue?: boolean,
 ): "anchored" | "soft" | "overdue" {
   if (overdue) return "overdue";
-  if (parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null) {
+  if (
+    parseTaskDate(task.date) != null ||
+    parseTimeOfDay(task.starts_at) != null ||
+    parseTimeOfDay(task.due_at) != null
+  ) {
     return "anchored";
   }
   return "soft";

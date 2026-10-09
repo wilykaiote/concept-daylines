@@ -3123,7 +3123,7 @@
   justify-content: center;
   gap: 0;
   flex: 1 1 0;
-  min-height: 40px;
+  min-height: calc(var(--tray-pill) - 6px);
   min-width: 0;
   padding: 4px 0;
   border: 0;
@@ -4711,7 +4711,7 @@
   margin: 0;
   padding: 0;
   border-radius: 999px;
-  color: var(--text-h);
+  color: color-mix(in srgb, var(--text-h) 62%, var(--text));
   cursor: pointer;
 }
 

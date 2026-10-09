@@ -21,7 +21,7 @@
   --space: 16px;
   --tap: 44px;
   --fab-size: 56px;
-  --tray-pill: 50px;
+  --tray-pill: 56px;
   --radius: 14px;
   --app-max: 480px;
   --safe-top: env(safe-area-inset-top, 0px);
