@@ -1758,6 +1758,7 @@ function App() {
   const [overdueSectionOpen, setOverdueSectionOpen] = useState(true);
   const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [timePickerDay, setTimePickerDay] = useState(() => toStartOfDay(new Date()));
   const [timePickerBaseline, setTimePickerBaseline] = useState<{
     target: string;
     windowStart: string;
@@ -2077,6 +2078,11 @@ function App() {
     const clamped = target.getTime() < today.getTime() ? today : target;
     const key = dayKey(clamped);
     const section = main.querySelector(`[data-calendar-day="${CSS.escape(key)}"]`);
+    // Do not queue Timeline scroll or grow the range from other tabs.
+    if (activeViewRef.current !== "dayline") {
+      return;
+    }
+
     if (!(section instanceof HTMLElement)) {
       pendingTimelineScrollDayRef.current = clamped;
       const start = timelineRangeStart;
@@ -2087,13 +2093,6 @@ function App() {
         const extra = Math.ceil((clamped.getTime() - end.getTime()) / 86_400_000) + 1;
         setTimelineDayCount((count) => count + extra);
       }
-      return;
-    }
-
-    // Only move the shared main scroller while Dayline is active so other
-    // views keep their own scroll position.
-    if (activeViewRef.current !== "dayline") {
-      pendingTimelineScrollDayRef.current = clamped;
       return;
     }
 
@@ -2137,7 +2136,11 @@ function App() {
     setCalendarOpen(false);
     setTimeSavePromptOpen(false);
     setTimePickerSource(source);
-    setSelectedDay(dayStart);
+    setTimePickerDay(dayStart);
+    // Home must not move Timeline's selectedDay; Dayline may update it.
+    if (source === "dayline") {
+      setSelectedDay(dayStart);
+    }
     const resolvedTarget = resolveTargetTime(dayStart, defaultTargetTime, targetTimeOverrides);
     const resolvedWindowStart = resolveWindowStartTime(
       dayStart,
@@ -2164,6 +2167,14 @@ function App() {
     setTimePickerBaseline(null);
   };
 
+  const openOverflowForActiveView = () => {
+    if (activeViewRef.current === "home") {
+      setHomeOverdueSectionOpen(true);
+      return;
+    }
+    setOverdueSectionOpen(true);
+  };
+
   const timePickerIsDirty =
     timePickerBaseline != null &&
     (targetTime !== timePickerBaseline.target ||
@@ -2186,7 +2197,7 @@ function App() {
   };
 
   const applyTargetTimeThisDay = () => {
-    const key = targetTimeDayKey(selectedDay);
+    const key = targetTimeDayKey(timePickerDay);
     setTargetTimeOverrides((prev) => ({ ...prev, [key]: targetTime }));
     setWindowStartOverrides((prev) => ({ ...prev, [key]: windowStartTime }));
     finishCloseTimePicker();
@@ -3028,12 +3039,19 @@ function App() {
   const taskTimeValue = taskTimeMode === "starts_at" ? taskStartsAt : taskDueAt;
 
   const switchActiveView = (id: ActiveView) => {
-    if (id !== activeViewRef.current) {
+    const previous = activeViewRef.current;
+    if (id !== previous) {
       const main = mainRef.current;
       if (main) {
-        viewScrollTopRef.current[activeViewRef.current] = main.scrollTop;
+        viewScrollTopRef.current[previous] = main.scrollTop;
       }
       pendingViewScrollTopRef.current = viewScrollTopRef.current[id] ?? 0;
+      // Drop Timeline scroll queues on tab change so restore uses saved scrollTop.
+      pendingTimelineScrollDayRef.current = null;
+      pendingViewScrollTaskIdRef.current = null;
+      pendingViewPreserveChromeRef.current = false;
+      setFocusedTaskId(null);
+      setFocusedOverflowTaskIds(null);
     }
     setActiveView(id);
   };
@@ -3142,7 +3160,7 @@ function App() {
         !isContainerComposeKind(composeKind) &&
         isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
       ) {
-        setOverdueSectionOpen(true);
+        openOverflowForActiveView();
       }
     }
     if (document.activeElement instanceof HTMLElement) {
@@ -3531,6 +3549,12 @@ function App() {
         }
       }
 
+      // Tray chrome hide-on-scroll is Dayline-only so Home scroll does not
+      // fight Timeline chrome state.
+      if (activeView !== "dayline") {
+        return;
+      }
+
       if (chromeLockRef.current) {
         return;
       }
@@ -3575,14 +3599,16 @@ function App() {
   }, [activeView, tasksCompact, selectedDay, countdownNow]);
 
   useEffect(() => {
+    if (activeView !== "dayline") return;
     // Timeline only starts at today — never keep a past range start.
     const today = toStartOfDay(new Date(countdownNow));
     if (timelineRangeStart.getTime() !== today.getTime()) {
       setTimelineRangeStart(today);
     }
-  }, [countdownNow, timelineRangeStart]);
+  }, [activeView, countdownNow, timelineRangeStart]);
 
   useEffect(() => {
+    if (activeView !== "dayline") return;
     if (!calendarLayoutSpanKey || calendarTaskLayout.length === 0) return;
     const last = calendarTaskLayout[calendarTaskLayout.length - 1].date;
     const rangeEnd = addDays(timelineRangeStart, timelineDayCount - 1);
@@ -3590,7 +3616,13 @@ function App() {
       const extra = Math.ceil((last.getTime() - rangeEnd.getTime()) / 86_400_000) + 1;
       setTimelineDayCount((count) => count + extra);
     }
-  }, [calendarLayoutSpanKey, timelineRangeStart, timelineDayCount, calendarTaskLayout]);
+  }, [
+    activeView,
+    calendarLayoutSpanKey,
+    timelineRangeStart,
+    timelineDayCount,
+    calendarTaskLayout,
+  ]);
 
   useLayoutEffect(() => {
     // Keep pending targets queued off-Dayline; never move main for Home/etc.
@@ -4984,17 +5016,15 @@ function App() {
                       <div
                         className="calendar-timeline-pack-marker is-start"
                         style={{ top: view.packStartTopPx }}
-                      >
-                        <span className="calendar-timeline-pack-marker-label">{day.packStartLabel}</span>
-                      </div>
+                        aria-hidden="true"
+                      />
                     )}
                     {view.packEndTopPx != null && (
                       <div
                         className="calendar-timeline-pack-marker is-end"
                         style={{ top: view.packEndTopPx }}
-                      >
-                        <span className="calendar-timeline-pack-marker-label">{day.packEndLabel}</span>
-                      </div>
+                        aria-hidden="true"
+                      />
                     )}
                     {view.stubs.map((stub) => (
                       <button
@@ -5165,7 +5195,7 @@ function App() {
             !isContainerComposeKind(composeKind) &&
             isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
           ) {
-            setOverdueSectionOpen(true);
+            openOverflowForActiveView();
           }
           resetComposerFields();
           if (wasEditing) {
