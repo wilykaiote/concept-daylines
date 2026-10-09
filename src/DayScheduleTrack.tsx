@@ -60,9 +60,8 @@ export function DayScheduleTrack({
       hour,
       leftPct,
       major: hour % 6 === 0,
-      past: leftPct <= elapsedPct,
     };
-  });
+  }).filter(({ leftPct }) => leftPct > elapsedPct);
 
   return (
     <div
@@ -94,13 +93,12 @@ export function DayScheduleTrack({
               />
             </div>
           )}
-          {hourTicks.map(({ hour, leftPct, major, past }) => (
+          {hourTicks.map(({ hour, leftPct, major }) => (
             <span
               key={hour}
               className={[
                 "twineline-schedule-ruler-tick",
                 major ? "is-major" : "",
-                past ? "is-past" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}

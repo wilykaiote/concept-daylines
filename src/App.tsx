@@ -1040,7 +1040,7 @@ const NOTES_TAB = { id: "notes", label: "Notes", Icon: NotesIcon } as const;
 const COLLECTIONS_TAB = { id: "collections", label: "Collections", Icon: CollectionOrbitIcon } as const;
 const PLANS_TAB = { id: "plans", label: "Plans", Icon: PlansIcon } as const;
 
-const TRAY_TABS = [DISCOVER_TAB, HOME_TAB] as const;
+const TRAY_TABS = [HOME_TAB, DISCOVER_TAB] as const;
 
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
@@ -1681,7 +1681,7 @@ function App() {
   const [taskGapInput, setTaskGapInput] = useState(() => String(loadTaskGapMinutes()));
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
   const aiEnabled = false;
-  const [activeView, setActiveView] = useState<ActiveView>("dayline");
+  const [activeView, setActiveView] = useState<ActiveView>("home");
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [tasks, setTasks] = useState<ComposerDraft[]>(() => {
@@ -2695,6 +2695,10 @@ function App() {
       setTaskStartsAt(schedule.starts_at ?? "");
       setTaskDueAt(schedule.due_at ?? "");
     }
+    // Confirming via the calendar icon turns orange auto-seed into a normal date.
+    if (title === "Date & Time") {
+      setComposerAutoRescheduled(false);
+    }
     taskToolHintAnchorRef.current = anchor;
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
@@ -3172,6 +3176,26 @@ function App() {
     setImpact((value) => clampImpact(value + direction));
   };
 
+  const seedNewComposerDateFromSelectedDay = (options?: { wasEditing?: boolean }) => {
+    const today = toStartOfDay(new Date(countdownNow));
+    const day = toStartOfDay(selectedDay);
+    if (day.getTime() > today.getTime()) {
+      const key = dayKey(day);
+      setTaskDate(key);
+      setComposerAutoRescheduled(true);
+      syncScheduleDraftRef({ date: key });
+      return;
+    }
+    // Opening on today/past: drop a previous future-day auto-seed.
+    if (composerAutoRescheduled && !options?.wasEditing) {
+      setTaskDate("");
+      setTaskStartsAt("");
+      setTaskDueAt("");
+      syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
+    }
+    setComposerAutoRescheduled(false);
+  };
+
   const openComposer = () => {
     const wasEditing = editingTaskId != null;
     if (wasEditing && isEditDirty) {
@@ -3191,6 +3215,7 @@ function App() {
       document.activeElement.blur();
     }
     setCollapsed(false);
+    seedNewComposerDateFromSelectedDay({ wasEditing });
   };
 
   useEffect(() => {
@@ -3394,17 +3419,20 @@ function App() {
         }
 
         if (!timelineScrollSyncLockRef.current) {
-          const chromeHeight = twinelineChromeRef.current?.offsetHeight ?? 0;
-          const syncY = main.getBoundingClientRect().top + chromeHeight + 12;
+          const chromeBottom =
+            twinelineChromeRef.current?.getBoundingClientRect().bottom ??
+            main.getBoundingClientRect().top;
           const sections = main.querySelectorAll<HTMLElement>("[data-calendar-day]");
-          let matched: HTMLElement | null = null;
+          let matched: HTMLElement | null = sections[0] ?? null;
           for (const section of sections) {
-            const rect = section.getBoundingClientRect();
-            if (rect.top <= syncY && rect.bottom > syncY) {
+            const label =
+              section.querySelector<HTMLElement>(
+                ".task-day-label-row, .calendar-timeline-day-label, .task-day-label",
+              ) ?? section;
+            // Advance once the sticky header bottom has passed this day's title bottom.
+            if (label.getBoundingClientRect().bottom <= chromeBottom) {
               matched = section;
-              break;
             }
-            if (rect.top <= syncY) matched = section;
           }
           const key = matched?.dataset.calendarDay;
           if (key) {
@@ -3610,7 +3638,9 @@ function App() {
       const nextLeft = strip.scrollLeft + (buttonRect.left - stripRect.left);
       strip.scrollTo({ left: Math.max(0, nextLeft), behavior: "smooth" });
     }
-  }, [selectedDay, calendarOpen, weekdayDayCount]);
+    // Do not depend on weekdayDayCount — growing the strip while browsing ahead
+    // would otherwise snap scroll back to the selected (often today) day.
+  }, [selectedDay, calendarOpen]);
 
   useLayoutEffect(() => {
     const el = composeInputRef.current;
@@ -4499,7 +4529,9 @@ function App() {
                   aria-expanded={false}
                   onClick={openCalendar}
                 >
-                  <span>{formatMonthYearLabel(selectedDay)}</span>
+                  <span>
+                    {formatTwinelineDateLabel(selectedDay, new Date(countdownNow))}
+                  </span>
                 </button>
                 <span ref={daylineCountdownButtonRef} className="twineline-countdown-button-anchor">
                   <TwinelineCountdownButton
@@ -4571,29 +4603,6 @@ function App() {
                 </div>
               </div>
             )}
-            <div
-              className="twineline-schedule"
-              aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
-            >
-              <div className="twineline-schedule-track-wrap">
-                <DayScheduleTrack
-                  segments={scheduleSegments}
-                  timelineMinutes={scheduleTimelineMinutes}
-                  elapsedPct={selectedDayElapsedPct}
-                  windowStartMin={selectedDayWindowStartMinutes}
-                  windowEndMin={selectedDayPackEnd}
-                  focusedTaskId={focusedTaskId}
-                  isTaskHighlighted={isTaskHighlighted}
-                  isTaskPopping={isTaskPopping}
-                  onTaskSelect={(task) => {
-                    if (!task.id || isTaskPopping(task.id)) return;
-                    setFocusedOverflowTaskIds(null);
-                    setFocusedTaskId(task.id);
-                    scrollTaskIntoView(task.id);
-                  }}
-                />
-              </div>
-            </div>
             {!calendarOpen && (
               <div
                 ref={weekdayStripRef}
@@ -4622,12 +4631,34 @@ function App() {
                       onClick={() => selectDayFromUi(dayDate)}
                     >
                       <span className="twineline-weekday-letter">{weekday.label}</span>
-                      <span className="twineline-weekday-date">{dayDate.getDate()}</span>
                     </button>
                   );
                 })}
               </div>
             )}
+            <div
+              className="twineline-schedule"
+              aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
+            >
+              <div className="twineline-schedule-track-wrap">
+                <DayScheduleTrack
+                  segments={scheduleSegments}
+                  timelineMinutes={scheduleTimelineMinutes}
+                  elapsedPct={selectedDayElapsedPct}
+                  windowStartMin={selectedDayWindowStartMinutes}
+                  windowEndMin={selectedDayPackEnd}
+                  focusedTaskId={focusedTaskId}
+                  isTaskHighlighted={isTaskHighlighted}
+                  isTaskPopping={isTaskPopping}
+                  onTaskSelect={(task) => {
+                    if (!task.id || isTaskPopping(task.id)) return;
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                    scrollTaskIntoView(task.id);
+                  }}
+                />
+              </div>
+            </div>
               </div>
               {showTimelineScrollTop && (
                 <div className="twineline-scroll-top-row">
@@ -5124,7 +5155,7 @@ function App() {
       >
         <div className="app-tray" ref={trayRef}>
           <div className="app-tray-tabs ui-glass" aria-hidden={!collapsed || searchOpen}>
-            {[DISCOVER_TAB, null, HOME_TAB].map((tab) => {
+            {[HOME_TAB, null, DISCOVER_TAB].map((tab) => {
               if (!tab) {
                 return (
                   <button

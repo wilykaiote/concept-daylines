@@ -18,10 +18,10 @@ export function daySkyStops(): DaySkyStop[] {
   return [
     { color: "#000000", offset: 0 },
     { color: "#000000", offset: dayOffset(SUNRISE_MIN - 90) },
-    { color: "#c4783a", offset: dayOffset(SUNRISE_MIN) },
-    { color: "#e2b54a", offset: dayOffset(SUNRISE_MIN + 90) },
-    { color: "#e2b54a", offset: dayOffset(SUNSET_MIN - 90) },
-    { color: "#c4783a", offset: dayOffset(SUNSET_MIN) },
+    { color: "#d15a18", offset: dayOffset(SUNRISE_MIN) },
+    { color: "#e8882a", offset: dayOffset(SUNRISE_MIN + 90) },
+    { color: "#e8882a", offset: dayOffset(SUNSET_MIN - 90) },
+    { color: "#d15a18", offset: dayOffset(SUNSET_MIN) },
     { color: "#000000", offset: dayOffset(SUNSET_MIN + 90) },
     { color: "#000000", offset: 1 },
   ];

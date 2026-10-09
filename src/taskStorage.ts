@@ -473,9 +473,9 @@ export function formatTwinelineDateLabel(date: Date, now = new Date()): string {
   const today = startOfDay(now);
   const dayMs = 24 * 60 * 60 * 1000;
   const diffDays = Math.round((selected.getTime() - today.getTime()) / dayMs);
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Tomorrow";
   const stamp = `${MONTH_LABELS[selected.getMonth()]} ${selected.getDate()}`;
+  if (diffDays === 0) return `Today - ${stamp}`;
+  if (diffDays === 1) return `Tomorrow - ${stamp}`;
   if (diffDays === -1) return `${stamp} - Yesterday`;
   return stamp;
 }
