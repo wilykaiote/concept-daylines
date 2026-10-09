@@ -9,6 +9,8 @@ const DAY_SNOOZE_STORAGE_KEY = "twineline.daySnooze";
 const TASK_GAP_STORAGE_KEY = "twineline.taskGapMinutes";
 const LAST_AUTO_RESCHEDULE_DAY_KEY = "twineline.lastAutoRescheduleDay";
 const TODAY_WINDOW_BASELINE_KEY = "twineline.todayWindowBaseline";
+const RECENT_LINK_IDS_KEY = "twineline.recentLinkIds";
+const MAX_RECENT_LINK_IDS = 40;
 const DEFAULT_TARGET_TIME = "17:00";
 const DEFAULT_WINDOW_START_TIME = "06:00";
 const DEFAULT_TASK_GAP_MINUTES = 15;
@@ -307,6 +309,32 @@ export function saveTodayWindowBaseline(baseline: TodayWindowBaseline): void {
   }
 }
 
+/** Most-recently linked target ids (newest first). */
+export function loadRecentLinkIds(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_LINK_IDS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id): id is string => typeof id === "string" && id.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+export function rememberRecentLinkId(id: string, current: string[] = loadRecentLinkIds()): string[] {
+  const next = [id, ...current.filter((existing) => existing !== id)].slice(
+    0,
+    MAX_RECENT_LINK_IDS,
+  );
+  try {
+    localStorage.setItem(RECENT_LINK_IDS_KEY, JSON.stringify(next));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+  return next;
+}
+
 export function todayWindowSignature(begins: string, ends: string): string {
   return `${begins}|${ends}`;
 }
@@ -468,14 +496,23 @@ export function buildMonthCalendarDays(month: Date): (Date | null)[] {
   return cells;
 }
 
-export function formatTwinelineDateLabel(date: Date, now = new Date()): string {
+export function formatTwinelineDateLabel(
+  date: Date,
+  now = new Date(),
+  options?: { weekday?: boolean },
+): string {
   const selected = startOfDay(date);
   const today = startOfDay(now);
   const dayMs = 24 * 60 * 60 * 1000;
   const diffDays = Math.round((selected.getTime() - today.getTime()) / dayMs);
   const stamp = `${MONTH_LABELS[selected.getMonth()]} ${selected.getDate()}`;
-  if (diffDays === 0) return `Today - ${stamp}`;
-  if (diffDays === 1) return `Tomorrow - ${stamp}`;
-  if (diffDays === -1) return `${stamp} - Yesterday`;
-  return stamp;
+  let label: string;
+  if (diffDays === 0) label = `Today - ${stamp}`;
+  else if (diffDays === 1) label = `Tomorrow - ${stamp}`;
+  else if (diffDays === -1) label = `${stamp} - Yesterday`;
+  else label = stamp;
+  if (options?.weekday) {
+    label = `${label} - ${WEEKDAY_BUTTONS[selected.getDay()]!.name}`;
+  }
+  return label;
 }

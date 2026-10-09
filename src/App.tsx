@@ -28,6 +28,7 @@ import {
   formatTwinelineDateLabel,
   loadDaySnooze,
   loadLastAutoRescheduleDay,
+  loadRecentLinkIds,
   loadTargetTime,
   loadTargetTimeOverrides,
   loadTaskGapMinutes,
@@ -39,6 +40,7 @@ import {
   MAX_TASK_GAP_MINUTES,
   MIN_TASK_GAP_MINUTES,
   msUntilTargetTime,
+  rememberRecentLinkId,
   resolveTargetTime,
   resolveWindowStartTime,
   sameCalendarDay,
@@ -512,24 +514,6 @@ function PlansIcon() {
   );
 }
 
-function ParentTaskIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="5.5" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M12 7.7v4.3M8 16.5v-2.8c0-.9.7-1.6 1.6-1.6h4.8c.9 0 1.6.7 1.6 1.6v2.8"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="8" cy="18.5" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <circle cx="16" cy="18.5" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
 function CollectionOrbitIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -568,39 +552,6 @@ function LinkIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  );
-}
-
-function ChildBranchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M6 4.5v6.2c0 1.3 1 2.3 2.3 2.3H12"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M18 4.5v6.2c0 1.3-1 2.3-2.3 2.3H12"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 13v4.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <circle cx="6" cy="4.5" r="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <circle cx="18" cy="4.5" r="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <circle cx="12" cy="19.2" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
     </svg>
   );
 }
@@ -761,28 +712,6 @@ function HorizontalMoreIcon() {
       <circle cx="6" cy="12" r="1.7" fill="currentColor" />
       <circle cx="12" cy="12" r="1.7" fill="currentColor" />
       <circle cx="18" cy="12" r="1.7" fill="currentColor" />
-    </svg>
-  );
-}
-
-function PrecedenceIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M7 7h10M7 12h7M7 17h10"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M17 10.5 19.5 12 17 13.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
@@ -966,9 +895,9 @@ const LINK_ITEM_TYPE_ITEMS = [
 ] as const;
 
 const LINK_CONTAINER_TYPE_ITEMS = [
-  { id: "plan", label: "Plans", Icon: PlansIcon },
   { id: "collection", label: "Collections", Icon: CollectionOrbitIcon },
   { id: "list", label: "Lists", Icon: MenuBarsIcon },
+  { id: "plan", label: "Plans", Icon: PlansIcon },
 ] as const;
 
 const COMPOSE_CONTAINER_TYPE_ITEMS = [
@@ -1008,8 +937,14 @@ const COMPOSE_KIND_MENU_ITEMS = COMPOSE_KINDS.filter(
 const ASSISTANT_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "assistant")!;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
-type LinkRelation = "parent" | "child";
+type LinkRelation = "parent" | "child" | "cycle";
 type LinkPrecedence = "before" | "after";
+const LINK_RELATIONS: LinkRelation[] = ["parent", "child", "cycle"];
+const LINK_RELATION_LABEL: Record<LinkRelation, string> = {
+  parent: "Parent",
+  child: "Child",
+  cycle: "Cycle",
+};
 
 function composeKindFromTaskType(type: string | null | undefined): ComposeKind {
   if (isCollectionTaskType(type)) return "collection";
@@ -1054,14 +989,15 @@ const MORE_OPTIONS = [
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ] as const;
 
+/** Order is top→bottom; Search is appended after these (bottom of the loop). */
 const TEND_MENU_ITEMS = [
   { id: "settings", label: "Settings", Icon: SettingsIcon },
   { id: "profile", label: "Profile", Icon: ProfileIcon },
+  { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
+  NOTES_TAB,
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
   COLLECTIONS_TAB,
   PLANS_TAB,
-  NOTES_TAB,
-  { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
 ] as const;
 
 const URGENCY_OPTIONS = ["Future", "Later", "Soon", "ASAP"] as const;
@@ -1172,6 +1108,10 @@ function CompactTaskRow({
   parentTitle,
   onComplete,
   onEdit,
+  showOverflowAdvance = false,
+  overflowSelecting = false,
+  overflowSelected = false,
+  onOverflowAdvanceClick,
 }: {
   task: ComposerDraft;
   overdue: boolean;
@@ -1182,6 +1122,10 @@ function CompactTaskRow({
   parentTitle?: string | null;
   onComplete: () => void;
   onEdit: () => void;
+  showOverflowAdvance?: boolean;
+  overflowSelecting?: boolean;
+  overflowSelected?: boolean;
+  onOverflowAdvanceClick?: () => void;
 }) {
   const urgencyLabel = isUrgencyOption(task.urgency) ? task.urgency : null;
   const hasDateOrTime =
@@ -1202,6 +1146,7 @@ function CompactTaskRow({
   const hasParent = resolvedParentTitle != null;
   const topMetaLabel = scheduleLabel ?? (showUrgency ? urgencyLabel : null);
   const hasTopMeta = topMetaLabel != null;
+  const isRecurring = parseRecurring(task.recurring) != null;
   const typeLabel =
     task.type === "event"
       ? "EVENT"
@@ -1234,18 +1179,23 @@ function CompactTaskRow({
     </div>
   );
 
-  return (
-    <li
-      data-task-id={task.id ?? undefined}
-      className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
-    >
+  const rowClassName = `task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`;
+  const rowBody = (
+    <>
       {hasTopMeta && (
         <div className="task-row-top">
-          {scheduleLabel != null ? (
-            <span className="task-row-schedule">{scheduleLabel}</span>
-          ) : (
-            <span className="task-row-urgency">{urgencyLabel}</span>
-          )}
+          <span className="task-row-top-meta">
+            {scheduleLabel != null ? (
+              <span className="task-row-schedule">{scheduleLabel}</span>
+            ) : (
+              <span className="task-row-urgency">{urgencyLabel}</span>
+            )}
+            {isRecurring && (
+              <span className="task-row-recurring" aria-label="Repeats" title="Repeats">
+                <CycleIcon />
+              </span>
+            )}
+          </span>
           {titleAside}
         </div>
       )}
@@ -1299,6 +1249,51 @@ function CompactTaskRow({
           </div>
         )}
       </div>
+    </>
+  );
+
+  if (showOverflowAdvance) {
+    return (
+      <li
+        data-task-id={task.id ?? undefined}
+        className="task-overflow-item"
+      >
+        <div className={rowClassName}>{rowBody}</div>
+        <button
+          type="button"
+          className={`task-overflow-advance is-${scheduleKind}${overdue ? " is-overdue" : ""}${overflowSelecting ? " is-selecting" : ""}${overflowSelected ? " is-selected" : ""}`}
+          aria-label={
+            overflowSelecting
+              ? `${overflowSelected ? "Deselect" : "Select"} ${task.title}`
+              : `Advance ${task.title}`
+          }
+          aria-pressed={overflowSelecting ? overflowSelected : undefined}
+          onClick={onOverflowAdvanceClick}
+        >
+          {overflowSelecting ? (
+            <span className="task-overflow-advance-dial" aria-hidden="true">
+              <span className="task-overflow-advance-dial-dot" />
+            </span>
+          ) : (
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M9 6l6 6-6 6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </button>
+      </li>
+    );
+  }
+
+  return (
+    <li data-task-id={task.id ?? undefined} className={rowClassName}>
+      {rowBody}
     </li>
   );
 }
@@ -1452,6 +1447,7 @@ function LoopingScrollList({
   children,
   scrollOffsetRef,
   defaultAnchor,
+  defaultAnchorAlign = "start",
   anchorRef,
 }: {
   open: boolean;
@@ -1459,6 +1455,8 @@ function LoopingScrollList({
   children: (copy: number) => ReactNode;
   scrollOffsetRef?: RefObject<number | null>;
   defaultAnchor?: string;
+  /** Align the default anchor to the top or bottom of the visible menu. */
+  defaultAnchorAlign?: "start" | "end";
   anchorRef?: RefObject<HTMLElement | null>;
 }) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -1522,7 +1520,12 @@ function LoopingScrollList({
     const middle = sets[1];
     const anchor = middle?.querySelector<HTMLElement>(`[data-loop-anchor="${defaultAnchor}"]`);
     if (!anchor) return;
-    const delta = anchor.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const delta =
+      defaultAnchorAlign === "end"
+        ? anchorRect.bottom - scrollerRect.bottom
+        : anchorRect.top - scrollerRect.top;
     scroller.scrollTop += delta;
     persistOffset();
   };
@@ -1653,6 +1656,7 @@ function App() {
   const [linkSearchQuery, setLinkSearchQuery] = useState("");
   const [linkContainerType, setLinkContainerType] = useState<LinkPickerType>("all");
   const [linkContainerTypeMenuOpen, setLinkContainerTypeMenuOpen] = useState(false);
+  const [recentLinkIds, setRecentLinkIds] = useState<string[]>(() => loadRecentLinkIds());
   const [linkQuickAddOpen, setLinkQuickAddOpen] = useState(false);
   const [linkQuickAddTitle, setLinkQuickAddTitle] = useState("");
   const [linkQuickAddKind, setLinkQuickAddKind] = useState<ContainerQuickAddKind>("collection");
@@ -1669,7 +1673,6 @@ function App() {
   const [linkQaDueAt, setLinkQaDueAt] = useState("");
   const [linkQaTimeMode, setLinkQaTimeMode] = useState<"starts_at" | "due_at">("starts_at");
   const [linkPrecedence, setLinkPrecedence] = useState<LinkPrecedence | null>(null);
-  const [linkPrecedenceMenuOpen, setLinkPrecedenceMenuOpen] = useState(false);
   const [pendingParentId, setPendingParentId] = useState<string | null>(null);
   const [pendingChildId, setPendingChildId] = useState<string | null>(null);
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
@@ -1728,6 +1731,12 @@ function App() {
   const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(false);
   const [overflowRescheduleSelecting, setOverflowRescheduleSelecting] = useState(false);
   const [overflowDeferSelecting, setOverflowDeferSelecting] = useState(false);
+  const [overflowRescheduleSelectedIds, setOverflowRescheduleSelectedIds] = useState<
+    string[]
+  >([]);
+  const [overflowDeferSelectedIds, setOverflowDeferSelectedIds] = useState<string[]>(
+    [],
+  );
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [timePickerBaseline, setTimePickerBaseline] = useState<{
     target: string;
@@ -1769,7 +1778,6 @@ function App() {
   >({});
   const [timelineRangeStart, setTimelineRangeStart] = useState(() => toStartOfDay(new Date()));
   const [timelineDayCount, setTimelineDayCount] = useState(31);
-  const [weekdayDayCount, setWeekdayDayCount] = useState(28);
   const [showTimelineScrollTop, setShowTimelineScrollTop] = useState(false);
   const timelineScrollSyncLockRef = useRef(false);
   const timelineScrollTopBtnVisibleRef = useRef(false);
@@ -1777,7 +1785,6 @@ function App() {
   const pendingViewScrollTaskIdRef = useRef<string | null>(null);
   const pendingViewPreserveChromeRef = useRef(false);
   const pendingViewChromeHiddenRef = useRef(false);
-  const weekdayStripRef = useRef<HTMLDivElement>(null);
   const trayRef = useRef<HTMLDivElement>(null);
   const searchFieldRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1822,8 +1829,6 @@ function App() {
   const linkQaImpactMenuRef = useRef<HTMLDivElement>(null);
   const linkQaScheduleButtonRef = useRef<HTMLButtonElement>(null);
   const linkQaScheduleMenuRef = useRef<HTMLDivElement>(null);
-  const linkPrecedenceButtonRef = useRef<HTMLButtonElement>(null);
-  const linkPrecedenceMenuRef = useRef<HTMLDivElement>(null);
   const linkQuickAddInputRef = useRef<HTMLInputElement>(null);
   const urgencyButtonRef = useRef<HTMLButtonElement>(null);
   const impactButtonRef = useRef<HTMLButtonElement>(null);
@@ -1849,10 +1854,8 @@ function App() {
     COMPOSE_CONTAINER_TYPE_ITEMS.find((item) => item.id === linkQuickAddKind) ??
     COMPOSE_CONTAINER_TYPE_ITEMS[0];
   const SelectedLinkQuickAddIcon = selectedLinkQuickAddType.Icon;
-  const selectedLinkId = linkRelation === "parent" ? pendingParentId : pendingChildId;
-  const selectedLinkIsPlan =
-    selectedLinkId != null &&
-    tasks.some((task) => task.id === selectedLinkId && isPlanTaskType(task.type));
+  const selectedLinkId =
+    linkRelation === "child" ? pendingChildId : pendingParentId;
   const fabComposeKind =
     COMPOSE_KINDS.find((kind) => kind.id === COMPOSE_KIND_BY_VIEW[activeView]) ?? COMPOSE_KINDS[0];
   const FabComposeIcon = fabComposeKind.Icon;
@@ -1888,7 +1891,6 @@ function App() {
   );
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
-  const weekdayDays = buildDayRange(todayStart, weekdayDayCount);
   const appliedTodayBegins = resolveWindowStartTime(
     todayStart,
     defaultWindowStartTime,
@@ -2574,16 +2576,24 @@ function App() {
       setTasks((current) => [draft, ...current]);
     }
     setLinkContainerType(linkQuickAddKind);
-    if (linkRelation === "parent") {
-      setPendingParentId(draft.id);
-      setPendingChildId(null);
-      applyParentLinkToEditingTask(draft.id);
-    } else {
+    if (linkRelation === "child") {
       const previousChildId = pendingChildId;
       setPendingChildId(draft.id);
       applyChildLinkToEditingTask(draft.id, previousChildId);
+      setLinkPrecedence(null);
+    } else {
+      const precedence =
+        linkRelation === "cycle" ? (linkPrecedence ?? "before") : null;
+      setPendingParentId(draft.id);
+      setPendingChildId(null);
+      if (linkRelation === "cycle") {
+        setLinkPrecedence(precedence);
+      } else {
+        setLinkPrecedence(null);
+      }
+      applyParentLinkToEditingTask(draft.id, precedence);
     }
-    setLinkPrecedence(null);
+    setRecentLinkIds((current) => rememberRecentLinkId(draft.id!, current));
     setLinkQuickAddOpen(false);
     resetLinkQuickAddFields();
   };
@@ -2625,7 +2635,6 @@ function App() {
     setLinkQuickAddOpen(false);
     resetLinkQuickAddFields();
     setLinkPrecedence(null);
-    setLinkPrecedenceMenuOpen(false);
     setEditingTaskId(null);
     setEditTaskBaseline(null);
     setComposerSavePromptOpen(false);
@@ -2716,10 +2725,9 @@ function App() {
         setLinkContainerType(defaultLinkPickerType(composeKind));
         setLinkQuickAddOpen(false);
         resetLinkQuickAddFields();
-        if (!(editingTaskId != null && pendingParentId != null)) {
+        if (!(editingTaskId != null && pendingParentId != null && linkRelation === "cycle")) {
           setLinkPrecedence(null);
         }
-        setLinkPrecedenceMenuOpen(false);
       }
       return next;
     });
@@ -2861,16 +2869,15 @@ function App() {
       mode: nextMode,
     });
     setTaskToolHint(null);
-    setPendingParentId(task.parent_id);
+    setPendingParentId(task.after_id ?? task.parent_id);
     setPendingChildId(null);
-    setLinkRelation("parent");
+    const cyclePrecedence: LinkPrecedence | null =
+      task.after === "before" || task.after === "after" ? task.after : null;
+    setLinkRelation(cyclePrecedence != null ? "cycle" : "parent");
     setLinkSearchQuery("");
     setLinkQuickAddOpen(false);
     resetLinkQuickAddFields();
-    setLinkPrecedence(
-      task.after === "before" || task.after === "after" ? task.after : null,
-    );
-    setLinkPrecedenceMenuOpen(false);
+    setLinkPrecedence(cyclePrecedence);
     setLinkContainerType(defaultLinkPickerType(composeKindFromTaskType(task.type)));
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
@@ -3398,6 +3405,31 @@ function App() {
     lastScrollTopRef.current = top;
   }, [activeView]);
 
+  // Composer sits above app-main; forward wheel so page scroll works over the tray/FAB.
+  useEffect(() => {
+    const composer = composerRef.current;
+    const main = mainRef.current;
+    if (!composer || !main) return;
+
+    const onWheel = (event: WheelEvent) => {
+      if (!composer.classList.contains("is-collapsed")) return;
+      let dy = event.deltaY;
+      let dx = event.deltaX;
+      if (event.deltaMode === 1) {
+        dy *= 16;
+        dx *= 16;
+      } else if (event.deltaMode === 2) {
+        dy *= main.clientHeight;
+        dx *= main.clientWidth;
+      }
+      if (dy === 0 && dx === 0) return;
+      main.scrollBy({ top: dy, left: dx });
+    };
+
+    composer.addEventListener("wheel", onWheel, { passive: true });
+    return () => composer.removeEventListener("wheel", onWheel);
+  }, []);
+
   useEffect(() => {
     const main = mainRef.current;
     if (!main) return;
@@ -3615,32 +3647,7 @@ function App() {
     const observer = new ResizeObserver(syncSlotHeight);
     observer.observe(slide);
     return () => observer.disconnect();
-  }, [activeView, calendarOpen, timePickerOpen, weekdayDayCount, overflowTaskCount]);
-
-  useEffect(() => {
-    const end = addDays(todayStart, weekdayDayCount - 1);
-    if (selectedDay.getTime() > end.getTime()) {
-      const extra = Math.ceil((selectedDay.getTime() - end.getTime()) / 86_400_000) + 7;
-      setWeekdayDayCount((count) => count + extra);
-    }
-  }, [selectedDay, todayStart, weekdayDayCount]);
-
-  useLayoutEffect(() => {
-    if (calendarOpen) return;
-    const strip = weekdayStripRef.current;
-    if (!strip) return;
-    const key = dayKey(selectedDay);
-    const button = strip.querySelector(`[data-weekday-day="${CSS.escape(key)}"]`);
-    if (!(button instanceof HTMLElement)) return;
-    const stripRect = strip.getBoundingClientRect();
-    const buttonRect = button.getBoundingClientRect();
-    if (buttonRect.left < stripRect.left || buttonRect.right > stripRect.right) {
-      const nextLeft = strip.scrollLeft + (buttonRect.left - stripRect.left);
-      strip.scrollTo({ left: Math.max(0, nextLeft), behavior: "smooth" });
-    }
-    // Do not depend on weekdayDayCount — growing the strip while browsing ahead
-    // would otherwise snap scroll back to the selected (often today) day.
-  }, [selectedDay, calendarOpen]);
+  }, [activeView, calendarOpen, timePickerOpen, overflowTaskCount]);
 
   useLayoutEffect(() => {
     const el = composeInputRef.current;
@@ -3801,7 +3808,6 @@ function App() {
       if (linkQaScheduleMenuRef.current?.contains(target)) return;
       if (linkQaImpactMenuRef.current?.contains(target)) return;
       if (linkQaUrgencyMenuRef.current?.contains(target)) return;
-      if (linkPrecedenceMenuRef.current?.contains(target)) return;
 
       // Native date/time pickers render outside the popover; keep Date & Time open
       // while those inputs are focused so the selection can commit.
@@ -3981,21 +3987,6 @@ function App() {
   }, [linkQaUrgencyMenuOpen]);
 
   useEffect(() => {
-    if (!linkPrecedenceMenuOpen) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (linkPrecedenceMenuRef.current?.contains(target)) return;
-      if (linkPrecedenceButtonRef.current?.contains(target)) return;
-      setLinkPrecedenceMenuOpen(false);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [linkPrecedenceMenuOpen]);
-
-  useEffect(() => {
     if (!durationMenuOpen) return;
 
     const onPointerDown = (event: PointerEvent) => {
@@ -4073,8 +4064,6 @@ function App() {
       if (linkQaImpactButtonRef.current?.contains(target)) return;
       if (linkQaUrgencyMenuRef.current?.contains(target)) return;
       if (linkQaUrgencyButtonRef.current?.contains(target)) return;
-      if (linkPrecedenceMenuRef.current?.contains(target)) return;
-      if (linkPrecedenceButtonRef.current?.contains(target)) return;
       if (taskToolHint === "Date & Time") {
         const active = document.activeElement;
         if (
@@ -4530,7 +4519,9 @@ function App() {
                   onClick={openCalendar}
                 >
                   <span>
-                    {formatTwinelineDateLabel(selectedDay, new Date(countdownNow))}
+                    {formatTwinelineDateLabel(selectedDay, new Date(countdownNow), {
+                      weekday: true,
+                    })}
                   </span>
                 </button>
                 <span ref={daylineCountdownButtonRef} className="twineline-countdown-button-anchor">
@@ -4603,39 +4594,6 @@ function App() {
                 </div>
               </div>
             )}
-            {!calendarOpen && (
-              <div
-                ref={weekdayStripRef}
-                className="twineline-weekdays"
-                role="tablist"
-                aria-label="Upcoming days"
-                onScroll={(event) => {
-                  const el = event.currentTarget;
-                  if (el.scrollLeft + el.clientWidth > el.scrollWidth - 96) {
-                    setWeekdayDayCount((count) => count + 14);
-                  }
-                }}
-              >
-                {weekdayDays.map((dayDate) => {
-                  const weekday = WEEKDAY_BUTTONS[dayDate.getDay()];
-                  const key = dayKey(dayDate);
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      role="tab"
-                      data-weekday-day={key}
-                      className={`twineline-weekday${sameCalendarDay(dayDate, selectedDay) ? " is-selected" : ""}`}
-                      aria-selected={sameCalendarDay(dayDate, selectedDay)}
-                      aria-label={`${weekday.name} ${dayDate.getDate()}`}
-                      onClick={() => selectDayFromUi(dayDate)}
-                    >
-                      <span className="twineline-weekday-letter">{weekday.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
             <div
               className="twineline-schedule"
               aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
@@ -4700,8 +4658,6 @@ function App() {
                         }, 450);
                       }
 
-                      const strip = weekdayStripRef.current;
-                      if (strip) strip.scrollTo({ left: 0, behavior: "smooth" });
                     }}
                     aria-label="Back to top"
                   >
@@ -4752,28 +4708,37 @@ function App() {
                   className="task-day-group"
                   data-calendar-day={day.dayKey}
                 >
-                  <div className="task-day-label-row">
-                    <div className="task-day-label">
-                      {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                  {(!isTodayGroup || showOverdueToggle) && (
+                    <div className="task-day-label-row">
+                      {isTodayGroup ? (
+                        showOverdueToggle && (
+                          <button
+                            type="button"
+                            className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
+                            aria-expanded={overdueSectionOpen}
+                            aria-controls="task-overdue-list"
+                            aria-label="Overflow tasks"
+                            onClick={() => setOverdueSectionOpen((open) => !open)}
+                          >
+                            <span className="task-overdue-toggle-action">
+                              <span className="task-overdue-toggle-reschedule">Overflow</span>
+                              <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                                {overdueSectionOpen ? "∨" : ">"}
+                              </span>
+                            </span>
+                          </button>
+                        )
+                      ) : (
+                        <button
+                          type="button"
+                          className="task-day-label"
+                          onClick={() => selectDayFromUi(day.date)}
+                        >
+                          {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                        </button>
+                      )}
                     </div>
-                    {showOverdueToggle && (
-                      <button
-                        type="button"
-                        className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
-                        aria-expanded={overdueSectionOpen}
-                        aria-controls="task-overdue-list"
-                        aria-label="Overflow tasks"
-                        onClick={() => setOverdueSectionOpen((open) => !open)}
-                      >
-                        <span className="task-overdue-toggle-action">
-                          <span className="task-overdue-toggle-reschedule">Overflow</span>
-                          <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                            {overdueSectionOpen ? "∨" : ">"}
-                          </span>
-                        </span>
-                      </button>
-                    )}
-                  </div>
+                  )}
                   {showOverdueToggle && overdueSectionOpen && (
                     <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
                       <section
@@ -4785,18 +4750,23 @@ function App() {
                         {overdueTasks.length > 0 && (
                           <div className="task-overflow-bucket">
                             <div className="task-overflow-bucket-header">
+                              <span className="task-overflow-bucket-label">
+                                Auto Rescheduling At End of Day
+                              </span>
                               <button
                                 type="button"
                                 className="task-overflow-select-btn"
-                                onClick={() =>
-                                  setOverflowRescheduleSelecting((open) => !open)
-                                }
+                                onClick={() => {
+                                  if (overflowRescheduleSelecting) {
+                                    setOverflowRescheduleSelecting(false);
+                                    setOverflowRescheduleSelectedIds([]);
+                                  } else {
+                                    setOverflowRescheduleSelecting(true);
+                                  }
+                                }}
                               >
                                 {overflowRescheduleSelecting ? "Cancel" : "Select"}
                               </button>
-                              <span className="task-overflow-bucket-label">
-                                * Auto Rescheduling At End of Day
-                              </span>
                             </div>
                             <ul className="task-day-tasks task-overdue-tasks">
                               {overdueTasks.map((task) => (
@@ -4804,6 +4774,24 @@ function App() {
                                   key={task.id ?? task.title}
                                   task={task}
                                   overdue
+                                  showOverflowAdvance
+                                  overflowSelecting={overflowRescheduleSelecting}
+                                  overflowSelected={
+                                    task.id != null &&
+                                    overflowRescheduleSelectedIds.includes(task.id)
+                                  }
+                                  onOverflowAdvanceClick={
+                                    overflowRescheduleSelecting && task.id
+                                      ? () => {
+                                          const id = task.id!;
+                                          setOverflowRescheduleSelectedIds((current) =>
+                                            current.includes(id)
+                                              ? current.filter((value) => value !== id)
+                                              : [...current, id],
+                                          );
+                                        }
+                                      : undefined
+                                  }
                                   editing={editingTaskId === task.id}
                                   highlighted={isTaskHighlighted(task.id)}
                                   popping={isTaskPopping(task.id)}
@@ -4825,16 +4813,23 @@ function App() {
                         {deferredTasks.length > 0 && (
                           <div className="task-overflow-bucket">
                             <div className="task-overflow-bucket-header">
+                              <span className="task-overflow-bucket-label">
+                                Auto Deferring At End of Day
+                              </span>
                               <button
                                 type="button"
                                 className="task-overflow-select-btn"
-                                onClick={() => setOverflowDeferSelecting((open) => !open)}
+                                onClick={() => {
+                                  if (overflowDeferSelecting) {
+                                    setOverflowDeferSelecting(false);
+                                    setOverflowDeferSelectedIds([]);
+                                  } else {
+                                    setOverflowDeferSelecting(true);
+                                  }
+                                }}
                               >
                                 {overflowDeferSelecting ? "Cancel" : "Select"}
                               </button>
-                              <span className="task-overflow-bucket-label">
-                                * Auto Deferring At End of Day
-                              </span>
                             </div>
                             <ul className="task-day-tasks task-overdue-tasks">
                               {deferredTasks.map((task) => (
@@ -4842,6 +4837,24 @@ function App() {
                                   key={task.id ?? task.title}
                                   task={task}
                                   overdue={false}
+                                  showOverflowAdvance
+                                  overflowSelecting={overflowDeferSelecting}
+                                  overflowSelected={
+                                    task.id != null &&
+                                    overflowDeferSelectedIds.includes(task.id)
+                                  }
+                                  onOverflowAdvanceClick={
+                                    overflowDeferSelecting && task.id
+                                      ? () => {
+                                          const id = task.id!;
+                                          setOverflowDeferSelectedIds((current) =>
+                                            current.includes(id)
+                                              ? current.filter((value) => value !== id)
+                                              : [...current, id],
+                                          );
+                                        }
+                                      : undefined
+                                  }
                                   editing={editingTaskId === task.id}
                                   highlighted={isTaskHighlighted(task.id)}
                                   popping={isTaskPopping(task.id)}
@@ -4860,10 +4873,7 @@ function App() {
                             </ul>
                           </div>
                         )}
-                        <p className="task-overdue-note">
-                          * Deferring items roll forward and Rescheduling items are
-                          auto-rescheduled at the end of the day
-                        </p>
+                        <div className="task-overdue-divider" aria-hidden="true" />
                       </section>
                     </div>
                   )}
@@ -4927,28 +4937,37 @@ function App() {
                 className="calendar-timeline-day"
                 data-calendar-day={day.dayKey}
               >
-                <div className="task-day-label-row">
-                  <div className="calendar-timeline-day-label">
-                    {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                {(!isTodayGroup || showOverdueToggle) && (
+                  <div className="task-day-label-row">
+                    {isTodayGroup ? (
+                      showOverdueToggle && (
+                        <button
+                          type="button"
+                          className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
+                          aria-expanded={overdueSectionOpen}
+                          aria-controls="task-overdue-list"
+                          aria-label="Overflow tasks"
+                          onClick={() => setOverdueSectionOpen((open) => !open)}
+                        >
+                          <span className="task-overdue-toggle-action">
+                            <span className="task-overdue-toggle-reschedule">Overflow</span>
+                            <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                              {overdueSectionOpen ? "∨" : ">"}
+                            </span>
+                          </span>
+                        </button>
+                      )
+                    ) : (
+                      <button
+                        type="button"
+                        className="calendar-timeline-day-label"
+                        onClick={() => selectDayFromUi(day.date)}
+                      >
+                        {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                      </button>
+                    )}
                   </div>
-                  {showOverdueToggle && (
-                    <button
-                      type="button"
-                      className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
-                      aria-expanded={overdueSectionOpen}
-                      aria-controls="task-overdue-list"
-                      aria-label="Overflow tasks"
-                      onClick={() => setOverdueSectionOpen((open) => !open)}
-                    >
-                      <span className="task-overdue-toggle-action">
-                        <span className="task-overdue-toggle-reschedule">Overflow</span>
-                        <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                          {overdueSectionOpen ? "∨" : ">"}
-                        </span>
-                      </span>
-                    </button>
-                  )}
-                </div>
+                )}
                 {showOverdueToggle && overdueSectionOpen && (
                   <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
                     <section
@@ -4960,18 +4979,23 @@ function App() {
                       {overdueTasks.length > 0 && (
                         <div className="task-overflow-bucket">
                           <div className="task-overflow-bucket-header">
+                            <span className="task-overflow-bucket-label">
+                              Auto Rescheduling At End of Day
+                            </span>
                             <button
                               type="button"
                               className="task-overflow-select-btn"
-                              onClick={() =>
-                                setOverflowRescheduleSelecting((open) => !open)
-                              }
+                              onClick={() => {
+                                if (overflowRescheduleSelecting) {
+                                  setOverflowRescheduleSelecting(false);
+                                  setOverflowRescheduleSelectedIds([]);
+                                } else {
+                                  setOverflowRescheduleSelecting(true);
+                                }
+                              }}
                             >
                               {overflowRescheduleSelecting ? "Cancel" : "Select"}
                             </button>
-                            <span className="task-overflow-bucket-label">
-                              * Auto Rescheduling At End of Day
-                            </span>
                           </div>
                           <ul className="task-day-tasks task-overdue-tasks">
                             {overdueTasks.map((task) => (
@@ -4979,6 +5003,24 @@ function App() {
                                 key={task.id ?? task.title}
                                 task={task}
                                 overdue
+                                showOverflowAdvance
+                                overflowSelecting={overflowRescheduleSelecting}
+                                overflowSelected={
+                                  task.id != null &&
+                                  overflowRescheduleSelectedIds.includes(task.id)
+                                }
+                                onOverflowAdvanceClick={
+                                  overflowRescheduleSelecting && task.id
+                                    ? () => {
+                                        const id = task.id!;
+                                        setOverflowRescheduleSelectedIds((current) =>
+                                          current.includes(id)
+                                            ? current.filter((value) => value !== id)
+                                            : [...current, id],
+                                        );
+                                      }
+                                    : undefined
+                                }
                                 editing={editingTaskId === task.id}
                                 highlighted={isTaskHighlighted(task.id)}
                                 popping={isTaskPopping(task.id)}
@@ -5000,16 +5042,23 @@ function App() {
                       {deferredTasks.length > 0 && (
                         <div className="task-overflow-bucket">
                           <div className="task-overflow-bucket-header">
+                            <span className="task-overflow-bucket-label">
+                              Auto Deferring At End of Day
+                            </span>
                             <button
                               type="button"
                               className="task-overflow-select-btn"
-                              onClick={() => setOverflowDeferSelecting((open) => !open)}
+                              onClick={() => {
+                                if (overflowDeferSelecting) {
+                                  setOverflowDeferSelecting(false);
+                                  setOverflowDeferSelectedIds([]);
+                                } else {
+                                  setOverflowDeferSelecting(true);
+                                }
+                              }}
                             >
                               {overflowDeferSelecting ? "Cancel" : "Select"}
                             </button>
-                            <span className="task-overflow-bucket-label">
-                              * Auto Deferring At End of Day
-                            </span>
                           </div>
                           <ul className="task-day-tasks task-overdue-tasks">
                             {deferredTasks.map((task) => (
@@ -5017,6 +5066,24 @@ function App() {
                                 key={task.id ?? task.title}
                                 task={task}
                                 overdue={false}
+                                showOverflowAdvance
+                                overflowSelecting={overflowDeferSelecting}
+                                overflowSelected={
+                                  task.id != null &&
+                                  overflowDeferSelectedIds.includes(task.id)
+                                }
+                                onOverflowAdvanceClick={
+                                  overflowDeferSelecting && task.id
+                                    ? () => {
+                                        const id = task.id!;
+                                        setOverflowDeferSelectedIds((current) =>
+                                          current.includes(id)
+                                            ? current.filter((value) => value !== id)
+                                            : [...current, id],
+                                        );
+                                      }
+                                    : undefined
+                                }
                                 editing={editingTaskId === task.id}
                                 highlighted={isTaskHighlighted(task.id)}
                                 popping={isTaskPopping(task.id)}
@@ -5035,10 +5102,7 @@ function App() {
                           </ul>
                         </div>
                       )}
-                      <p className="task-overdue-note">
-                        * Deferring items roll forward and Rescheduling items are
-                        auto-rescheduled at the end of the day
-                      </p>
+                      <div className="task-overdue-divider" aria-hidden="true" />
                     </section>
                   </div>
                 )}
@@ -5201,6 +5265,7 @@ function App() {
                   className="app-tray-more-loop"
                   scrollOffsetRef={moreMenuScrollOffsetRef}
                   defaultAnchor="search"
+                  defaultAnchorAlign="end"
                   anchorRef={moreButtonRef}
                 >
                   {(copy) => (
@@ -5973,12 +6038,25 @@ function App() {
                             pushTasks(linkContainerType);
                           }
                           const query = linkSearchQuery.trim().toLowerCase();
-                          const filteredItems =
+                          let filteredItems =
                             query.length === 0
                               ? linkItems
                               : linkItems.filter((item) =>
                                   item.label.toLowerCase().includes(query),
                                 );
+                          // Most recently linked first within the active type filter
+                          // (All = across every kind; Tasks/Plans/etc. = that kind only).
+                          const rank = new Map(
+                            recentLinkIds.map((id, index) => [id, index]),
+                          );
+                          filteredItems = [...filteredItems].sort((a, b) => {
+                            const aRank = rank.get(a.id);
+                            const bRank = rank.get(b.id);
+                            if (aRank == null && bRank == null) return 0;
+                            if (aRank == null) return 1;
+                            if (bRank == null) return -1;
+                            return aRank - bRank;
+                          });
                           if (filteredItems.length === 0) {
                             const emptyKind = selectedLinkContainerType.label.toLowerCase();
                             const emptyLabel =
@@ -5996,36 +6074,44 @@ function App() {
                               key={`${item.kindLabel}:${item.id}`}
                               type="button"
                               className={`app-attach-menu-item${
-                                (linkRelation === "parent" && pendingParentId === item.id) ||
-                                (linkRelation === "child" && pendingChildId === item.id)
+                                (linkRelation === "child" && pendingChildId === item.id) ||
+                                (linkRelation !== "child" && pendingParentId === item.id)
                                   ? " is-selected"
                                   : ""
                               }`}
                               role="option"
                               aria-selected={
-                                (linkRelation === "parent" && pendingParentId === item.id) ||
-                                (linkRelation === "child" && pendingChildId === item.id)
+                                (linkRelation === "child" && pendingChildId === item.id) ||
+                                (linkRelation !== "child" && pendingParentId === item.id)
                               }
                               onClick={() => {
-                                const itemIsPlan = tasks.some(
-                                  (task) => task.id === item.id && isPlanTaskType(task.type),
-                                );
-                                if (linkRelation === "parent") {
-                                  const next = pendingParentId === item.id ? null : item.id;
-                                  const nextPrecedence =
-                                    next == null || !itemIsPlan ? null : linkPrecedence;
-                                  setPendingParentId(next);
-                                  setPendingChildId(null);
-                                  if (nextPrecedence == null) setLinkPrecedence(null);
-                                  applyParentLinkToEditingTask(next, nextPrecedence);
-                                } else {
+                                if (linkRelation === "child") {
                                   const next = pendingChildId === item.id ? null : item.id;
                                   const previousChildId = pendingChildId;
                                   setPendingChildId(next);
-                                  if (next == null || !itemIsPlan) setLinkPrecedence(null);
+                                  setLinkPrecedence(null);
                                   applyChildLinkToEditingTask(next, previousChildId);
+                                  if (next != null) {
+                                    setRecentLinkIds((current) =>
+                                      rememberRecentLinkId(next, current),
+                                    );
+                                  }
+                                } else {
+                                  const next = pendingParentId === item.id ? null : item.id;
+                                  const nextPrecedence =
+                                    linkRelation === "cycle" && next != null
+                                      ? (linkPrecedence ?? "before")
+                                      : null;
+                                  setPendingParentId(next);
+                                  setPendingChildId(null);
+                                  setLinkPrecedence(nextPrecedence);
+                                  applyParentLinkToEditingTask(next, nextPrecedence);
+                                  if (next != null) {
+                                    setRecentLinkIds((current) =>
+                                      rememberRecentLinkId(next, current),
+                                    );
+                                  }
                                 }
-                                setLinkPrecedenceMenuOpen(false);
                               }}
                             >
                               <span className="app-composer-link-item-label">{item.label || "Untitled"}</span>
@@ -6117,89 +6203,53 @@ function App() {
                       </div>
                       <div className="app-duration-divider" aria-hidden="true" />
                       <div className="app-composer-link-footer">
-                        <span className="app-composer-link-type-lead">As a:</span>
-                        <div
+                        <span className="app-composer-link-type-lead">As a</span>
+                        <button
+                          type="button"
                           className="app-composer-link-toggle"
-                          role="group"
-                          aria-label="Set this task as parent or child of the selected item"
+                          aria-label={`Link as ${LINK_RELATION_LABEL[linkRelation]}; press to switch`}
+                          onClick={() => {
+                            const next =
+                              LINK_RELATIONS[
+                                (LINK_RELATIONS.indexOf(linkRelation) + 1) % LINK_RELATIONS.length
+                              ]!;
+                            setLinkRelation(next);
+                            if (next === "cycle") {
+                              const precedence = linkPrecedence ?? "before";
+                              setLinkPrecedence(precedence);
+                              if (pendingParentId != null) {
+                                applyParentLinkToEditingTask(pendingParentId, precedence);
+                              }
+                            } else {
+                              setLinkPrecedence(null);
+                              if (next === "parent" && pendingParentId != null) {
+                                applyParentLinkToEditingTask(pendingParentId, null);
+                              }
+                            }
+                          }}
                         >
-                          <button
-                            type="button"
-                            className={`app-composer-link-toggle-option${linkRelation === "parent" ? " is-active" : ""}`}
-                            aria-pressed={linkRelation === "parent"}
-                            onClick={() => {
-                              setLinkRelation("parent");
-                              setLinkPrecedence(null);
-                              setLinkPrecedenceMenuOpen(false);
-                            }}
-                          >
-                            <ParentTaskIcon />
-                            <span>Parent</span>
-                          </button>
-                          <button
-                            type="button"
-                            className={`app-composer-link-toggle-option${linkRelation === "child" ? " is-active" : ""}`}
-                            aria-pressed={linkRelation === "child"}
-                            onClick={() => {
-                              setLinkRelation("child");
-                              setLinkPrecedence(null);
-                              setLinkPrecedenceMenuOpen(false);
-                            }}
-                          >
-                            <ChildBranchIcon />
-                            <span>Child</span>
-                          </button>
-                        </div>
-                        {selectedLinkIsPlan && (
-                          <div className="app-composer-link-precedence">
-                            <ComposerOverlayMenu
-                              open={linkPrecedenceMenuOpen}
-                              anchorRef={linkPrecedenceButtonRef}
-                              menuRef={linkPrecedenceMenuRef}
-                              align="end"
-                              className="app-duration-menu app-composer-link-precedence-menu"
-                              aria-label="Start order"
-                            >
-                              <p className="app-duration-title">Start order</p>
-                              <div className="app-duration-divider" aria-hidden="true" />
-                              {(
-                                [
-                                  { id: "before" as const, label: "Before plan" },
-                                  { id: "after" as const, label: "After plan" },
-                                ] as const
-                              ).map(({ id, label }) => (
-                                <button
-                                  key={id}
-                                  type="button"
-                                  className={`app-attach-menu-item${linkPrecedence === id ? " is-selected" : ""}`}
-                                  role="menuitem"
-                                  onClick={() => {
-                                    const next = linkPrecedence === id ? null : id;
-                                    setLinkPrecedence(next);
-                                    if (pendingParentId != null) {
-                                      applyParentLinkToEditingTask(pendingParentId, next);
-                                    }
-                                    setLinkPrecedenceMenuOpen(false);
-                                  }}
-                                >
-                                  <span>{label}</span>
-                                </button>
-                              ))}
-                            </ComposerOverlayMenu>
+                          {LINK_RELATION_LABEL[linkRelation]}
+                        </button>
+                        {linkRelation === "cycle" && (
+                          <>
+                            <span className="app-composer-link-type-lead">That starts</span>
                             <button
-                              ref={linkPrecedenceButtonRef}
                               type="button"
-                              className={`app-composer-tool app-composer-tool-precedence${
-                                linkPrecedence != null ? " is-activated" : ""
-                              }${linkPrecedenceMenuOpen ? " is-open" : ""}`}
-                              aria-label="Start before or after plan"
-                              aria-expanded={linkPrecedenceMenuOpen}
-                              aria-pressed={linkPrecedence != null}
-                              onClick={() => setLinkPrecedenceMenuOpen((open) => !open)}
+                              className="app-composer-link-toggle"
+                              aria-label={`That starts ${linkPrecedence === "after" ? "after" : "before"} the link; press to switch`}
+                              onClick={() => {
+                                const next: LinkPrecedence =
+                                  linkPrecedence === "after" ? "before" : "after";
+                                setLinkPrecedence(next);
+                                if (pendingParentId != null) {
+                                  applyParentLinkToEditingTask(pendingParentId, next);
+                                }
+                              }}
                             >
-                              <PrecedenceIcon />
+                              {linkPrecedence === "after" ? "After" : "Before"}
                             </button>
-                          </div>
+                            <span className="app-composer-link-type-lead">The link</span>
+                          </>
                         )}
                       </div>
                       </>
