@@ -175,7 +175,9 @@ export function DayScheduleTrack({
                 style={{ flex: `0 0 ${widthPercent}%` }}
                 title={`${segment.task.title} · ${segment.minutes}m`}
                 aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
-                aria-pressed={focusedTaskId === taskId}
+                aria-pressed={
+                  isTaskHighlighted?.(taskId) ?? focusedTaskId === taskId
+                }
                 disabled={popping}
                 onClick={() => {
                   if (!taskId || popping) return;

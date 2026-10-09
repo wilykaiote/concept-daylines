@@ -55,8 +55,6 @@ export function HomeView({
   renderOverdueTask,
 }: HomeViewProps) {
   const [homeStepIndex, setHomeStepIndex] = useState(0);
-  const [rescheduleSelecting, setRescheduleSelecting] = useState(false);
-  const [deferSelecting, setDeferSelecting] = useState(false);
   const canStepBack = homeStepIndex > 0;
   const canStepForward = homeStepIndex < HOME_STEP_COUNT - 1;
   const planTiles = plans.length > 0 ? plans : [...PLACEHOLDER_PLANS];
@@ -69,6 +67,17 @@ export function HomeView({
         <header className="home-header">
           <div className="home-top-row">
             <div className="home-wheel">
+              <DayWheelChart
+                label={wheelLabel}
+                slices={wheelSlices}
+                elapsedEndMin={wheelElapsedEndMin}
+                windowStartMin={windowStartMin}
+                windowEndMin={windowEndMin}
+                showLegend={false}
+                showLabel={false}
+                compact
+                hubCenter={wheelCountdown}
+              />
               <div
                 className="home-step-nav"
                 role="group"
@@ -96,17 +105,6 @@ export function HomeView({
                   ›
                 </button>
               </div>
-              <DayWheelChart
-                label={wheelLabel}
-                slices={wheelSlices}
-                elapsedEndMin={wheelElapsedEndMin}
-                windowStartMin={windowStartMin}
-                windowEndMin={windowEndMin}
-                showLegend={false}
-                showLabel={false}
-                compact
-                hubCenter={wheelCountdown}
-              />
             </div>
             <div className="home-top-main">
               <div className="home-wheel-key-col">
@@ -148,15 +146,8 @@ export function HomeView({
                 {overdueTasks.length > 0 && (
                   <div className="task-overflow-bucket">
                     <div className="task-overflow-bucket-header">
-                      <button
-                        type="button"
-                        className="task-overflow-select-btn"
-                        onClick={() => setRescheduleSelecting((open) => !open)}
-                      >
-                        {rescheduleSelecting ? "Cancel" : "Select"}
-                      </button>
                       <span className="task-overflow-bucket-label">
-                        * Auto Rescheduling At End of Day
+                        The following will be rescheduled at end of day
                       </span>
                     </div>
                     <ul className="task-day-tasks task-overdue-tasks">
@@ -166,18 +157,6 @@ export function HomeView({
                 )}
                 {deferredTasks.length > 0 && (
                   <div className="task-overflow-bucket">
-                    <div className="task-overflow-bucket-header">
-                      <button
-                        type="button"
-                        className="task-overflow-select-btn"
-                        onClick={() => setDeferSelecting((open) => !open)}
-                      >
-                        {deferSelecting ? "Cancel" : "Select"}
-                      </button>
-                      <span className="task-overflow-bucket-label">
-                        * Auto Deferring At End of Day
-                      </span>
-                    </div>
                     <ul className="task-day-tasks task-overdue-tasks">
                       {deferredTasks.map((task) => renderDeferredTask(task))}
                     </ul>

@@ -1109,9 +1109,6 @@ function CompactTaskRow({
   onComplete,
   onEdit,
   showOverflowAdvance = false,
-  overflowSelecting = false,
-  overflowSelected = false,
-  onOverflowAdvanceClick,
 }: {
   task: ComposerDraft;
   overdue: boolean;
@@ -1123,10 +1120,8 @@ function CompactTaskRow({
   onComplete: () => void;
   onEdit: () => void;
   showOverflowAdvance?: boolean;
-  overflowSelecting?: boolean;
-  overflowSelected?: boolean;
-  onOverflowAdvanceClick?: () => void;
 }) {
+  const [advanceOpen, setAdvanceOpen] = useState(showOverflowAdvance);
   const urgencyLabel = isUrgencyOption(task.urgency) ? task.urgency : null;
   const hasDateOrTime =
     parseTaskDate(task.date) != null ||
@@ -1158,135 +1153,147 @@ function CompactTaskRow({
             ? "LOG"
             : "TASK";
   const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
-  const titleAside = (
-    <div className="task-row-title-aside">
-      {hasImpact && (
-        <span
-          className="task-row-impact"
-          role="img"
-          aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
-          title={`Impact ${impactValue}`}
-        >
-          <span className="task-row-impact-track" aria-hidden="true">
-            <span
-              className="task-row-impact-fill"
-              style={{ width: `${impactPercent}%` }}
-            />
-          </span>
-        </span>
-      )}
-      <span className="task-row-type-label">{typeLabel}</span>
-    </div>
-  );
+  const showAdvance = advanceOpen;
+
+  const toggleAdvance = () => {
+    setAdvanceOpen((open) => !open);
+  };
 
   const rowClassName = `task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`;
   const rowBody = (
     <>
-      {hasTopMeta && (
-        <div className="task-row-top">
-          <span className="task-row-top-meta">
-            {scheduleLabel != null ? (
-              <span className="task-row-schedule">{scheduleLabel}</span>
-            ) : (
-              <span className="task-row-urgency">{urgencyLabel}</span>
-            )}
-            {isRecurring && (
-              <span className="task-row-recurring" aria-label="Repeats" title="Repeats">
-                <CycleIcon />
-              </span>
-            )}
-          </span>
-          {titleAside}
-        </div>
-      )}
-      <div className="task-row-content">
-        <div className="task-row-content-main">
-          <div className="task-row-main">
-            <button
-              type="button"
-              className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
-              aria-label="Mark complete"
-              disabled={popping}
-              onClick={onComplete}
-            >
-              <span className="task-complete-check" aria-hidden="true">
-                <svg viewBox="0 0 16 16" fill="none">
-                  <path
-                    d="M3.2 8.2 6.4 11.4 12.8 4.6"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    pathLength="1"
+      <div
+        className="task-row-primary"
+        onClick={(event) => {
+          if (event.target instanceof Element && event.target.closest("button")) return;
+          onEdit();
+        }}
+      >
+        {(hasTopMeta || hasImpact) && (
+          <div className="task-row-top">
+            <span className="task-row-top-meta">
+              {scheduleLabel != null ? (
+                <span className="task-row-schedule">{scheduleLabel}</span>
+              ) : showUrgency ? (
+                <span className="task-row-urgency">{urgencyLabel}</span>
+              ) : null}
+              {isRecurring && (
+                <span className="task-row-recurring" aria-label="Repeats" title="Repeats">
+                  <CycleIcon />
+                </span>
+              )}
+            </span>
+            {hasImpact && (
+              <span
+                className="task-row-impact"
+                role="img"
+                aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
+                title={`Impact ${impactValue}`}
+              >
+                <span className="task-row-impact-track" aria-hidden="true">
+                  <span
+                    className="task-row-impact-fill"
+                    style={{ width: `${impactPercent}%` }}
                   />
-                </svg>
+                </span>
               </span>
-            </button>
-            <button
-              type="button"
-              className="task-row-body"
-              onClick={onEdit}
-              aria-label={`Edit task ${task.title}`}
-            >
-              <div className="task-row-title-row">
+            )}
+          </div>
+        )}
+        <div className="task-row-content">
+          <div className="task-row-content-main">
+            <div className="task-row-main">
+              <button
+                type="button"
+                className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
+                aria-label="Mark complete"
+                disabled={popping}
+                onClick={onComplete}
+              >
+                <span className="task-complete-check" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M3.2 8.2 6.4 11.4 12.8 4.6"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      pathLength="1"
+                    />
+                  </svg>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="task-row-body"
+                aria-label={`Edit task ${task.title}`}
+                onClick={onEdit}
+              >
                 <p className="task-row-title">{task.title}</p>
-                {!hasTopMeta && titleAside}
-              </div>
-            </button>
-          </div>
-          {hasParent && (
-            <div className="task-row-bottom">
-              <div className="task-row-parent">
-                <span className="task-row-parent-name">{resolvedParentTitle}</span>
-                <LinkIcon />
-              </div>
+              </button>
             </div>
-          )}
-        </div>
-        {durationLabel != null && (
-          <div className="task-row-duration-slot">
-            <span className="task-row-duration">{durationLabel}</span>
           </div>
+        </div>
+        {hasParent && (
+          <div className="task-row-bottom">
+            <div className="task-row-parent">
+              <span className="task-row-parent-name">{resolvedParentTitle}</span>
+              <LinkIcon />
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="task-row-rail">
+        <button
+          type="button"
+          className="task-row-type-label"
+          aria-label={`${showAdvance ? "Hide" : "Show"} advance for ${task.title}`}
+          aria-pressed={showAdvance}
+          onClick={toggleAdvance}
+        >
+          {typeLabel}
+        </button>
+        {durationLabel != null ? (
+          <button
+            type="button"
+            className="task-row-duration-slot"
+            aria-label={`${showAdvance ? "Hide" : "Show"} advance for ${task.title}`}
+            aria-pressed={showAdvance}
+            onClick={toggleAdvance}
+          >
+            <span className="task-row-duration">{durationLabel}</span>
+          </button>
+        ) : (
+          <span className="task-row-rail-spacer" aria-hidden="true" />
         )}
       </div>
     </>
   );
 
-  if (showOverflowAdvance) {
+  const advanceButton = showAdvance ? (
+    <button
+      type="button"
+      className={`task-overflow-advance is-${scheduleKind}${overdue ? " is-overdue" : ""}`}
+      aria-label={`Advance ${task.title}`}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M9 6l6 6-6 6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  ) : null;
+
+  if (showAdvance) {
     return (
-      <li
-        data-task-id={task.id ?? undefined}
-        className="task-overflow-item"
-      >
+      <li data-task-id={task.id ?? undefined} className="task-overflow-item">
         <div className={rowClassName}>{rowBody}</div>
-        <button
-          type="button"
-          className={`task-overflow-advance is-${scheduleKind}${overdue ? " is-overdue" : ""}${overflowSelecting ? " is-selecting" : ""}${overflowSelected ? " is-selected" : ""}`}
-          aria-label={
-            overflowSelecting
-              ? `${overflowSelected ? "Deselect" : "Select"} ${task.title}`
-              : `Advance ${task.title}`
-          }
-          aria-pressed={overflowSelecting ? overflowSelected : undefined}
-          onClick={onOverflowAdvanceClick}
-        >
-          {overflowSelecting ? (
-            <span className="task-overflow-advance-dial" aria-hidden="true">
-              <span className="task-overflow-advance-dial-dot" />
-            </span>
-          ) : (
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M9 6l6 6-6 6"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          )}
-        </button>
+        {advanceButton}
       </li>
     );
   }
@@ -1734,6 +1741,8 @@ function App() {
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [focusedOverflowTaskIds, setFocusedOverflowTaskIds] = useState<string[] | null>(null);
+  const [timelineMultiSelect, setTimelineMultiSelect] = useState(false);
+  const [selectedTimelineTaskIds, setSelectedTimelineTaskIds] = useState<string[]>([]);
   const [defaultTargetTime, setDefaultTargetTime] = useState(() => loadTargetTime());
   const [targetTimeOverrides, setTargetTimeOverrides] = useState(() => loadTargetTimeOverrides());
   const [targetTime, setTargetTime] = useState(() =>
@@ -1748,14 +1757,6 @@ function App() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [overdueSectionOpen, setOverdueSectionOpen] = useState(true);
   const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(false);
-  const [overflowRescheduleSelecting, setOverflowRescheduleSelecting] = useState(false);
-  const [overflowDeferSelecting, setOverflowDeferSelecting] = useState(false);
-  const [overflowRescheduleSelectedIds, setOverflowRescheduleSelectedIds] = useState<
-    string[]
-  >([]);
-  const [overflowDeferSelectedIds, setOverflowDeferSelectedIds] = useState<string[]>(
-    [],
-  );
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [timePickerBaseline, setTimePickerBaseline] = useState<{
     target: string;
@@ -1775,6 +1776,7 @@ function App() {
   const mainRef = useRef<HTMLElement>(null);
   const overdueSectionRef = useRef<HTMLElement>(null);
   const overdueScrollBlockRef = useRef<HTMLDivElement>(null);
+  const overflowToggleRef = useRef<HTMLButtonElement>(null);
   const twinelineChromeRef = useRef<HTMLDivElement>(null);
   const twinelineSlotRef = useRef<HTMLDivElement>(null);
   const twinelineHeaderRef = useRef<HTMLElement>(null);
@@ -2003,8 +2005,23 @@ function App() {
   const { timelineMinutes: scheduleTimelineMinutes, segments: scheduleSegments } = scheduleLayout;
   const isTaskHighlighted = (id: string | null | undefined) => {
     if (!id) return false;
+    if (selectedTimelineTaskIds.includes(id)) return true;
     if (focusedTaskId === id) return true;
     return focusedOverflowTaskIds?.includes(id) ?? false;
+  };
+
+  const selectTimelineTask = (id: string, options?: { scroll?: boolean }) => {
+    if (timelineMultiSelect) {
+      setFocusedOverflowTaskIds(null);
+      setFocusedTaskId(null);
+      setSelectedTimelineTaskIds((current) =>
+        current.includes(id) ? current.filter((value) => value !== id) : [...current, id],
+      );
+      return;
+    }
+    setFocusedOverflowTaskIds(null);
+    setFocusedTaskId(id);
+    if (options?.scroll !== false) scrollTaskIntoView(id);
   };
   const nowDate = new Date(countdownNow);
   const timelineDays = buildDayRange(timelineRangeStart, timelineDayCount)
@@ -2784,6 +2801,8 @@ function App() {
       composerStartsAt !== editTaskBaseline.starts_at ||
       composerDueAt !== editTaskBaseline.due_at ||
       composerRecurring !== editTaskBaseline.recurring);
+  const isCreateDirty = editingTaskId == null && content.trim() !== "";
+  const isComposerDirty = isEditDirty || isCreateDirty;
 
   const completeTask = (id: string | null) => {
     if (!id) return;
@@ -3046,9 +3065,11 @@ function App() {
     setComposeKindMenuOpen(false);
     setDurationMenuOpen(false);
     setRecurringMenuOpen(false);
-        setImpactMenuOpen(false);
+    setImpactMenuOpen(false);
     closeTaskToolHint();
     setComposerSavePromptOpen(false);
+    setFocusedTaskId(null);
+    setFocusedOverflowTaskIds(null);
     if (editingTaskId) {
       resetComposerFields();
     } else {
@@ -3057,12 +3078,12 @@ function App() {
   };
 
   const requestCloseComposer = () => {
-    if (isEditDirty) {
+    if (isComposerDirty) {
       setAttachMenuOpen(false);
       setComposeKindMenuOpen(false);
       setDurationMenuOpen(false);
       setRecurringMenuOpen(false);
-            setImpactMenuOpen(false);
+      setImpactMenuOpen(false);
       closeTaskToolHint();
       setComposerSavePromptOpen(true);
       return;
@@ -3071,7 +3092,20 @@ function App() {
   };
 
   const discardComposerChanges = () => {
-    closeComposer();
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    resetComposerFields();
+    setCollapsed(true);
+    setAttachMenuOpen(false);
+    setComposeKindMenuOpen(false);
+    setDurationMenuOpen(false);
+    setRecurringMenuOpen(false);
+    setImpactMenuOpen(false);
+    closeTaskToolHint();
+    setComposerSavePromptOpen(false);
+    setFocusedTaskId(null);
+    setFocusedOverflowTaskIds(null);
   };
 
   const buildDraftFromComposer = () => {
@@ -3111,7 +3145,20 @@ function App() {
         setOverdueSectionOpen(true);
       }
     }
-    closeComposer();
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    resetComposerFields();
+    setCollapsed(true);
+    setAttachMenuOpen(false);
+    setComposeKindMenuOpen(false);
+    setDurationMenuOpen(false);
+    setRecurringMenuOpen(false);
+    setImpactMenuOpen(false);
+    closeTaskToolHint();
+    setComposerSavePromptOpen(false);
+    setFocusedTaskId(null);
+    setFocusedOverflowTaskIds(null);
   };
 
   const syncDurationInput = (minutes: number | null, unit: "minutes" | "hours" = durationUnit) => {
@@ -3797,7 +3844,8 @@ function App() {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (composerRef.current?.contains(target)) return;
+      // Only the composer field (and its portaled menus) count as "inside".
+      if (composerFieldRef.current?.contains(target)) return;
       if (attachMenuRef.current?.contains(target)) return;
       if (composeKindMenuRef.current?.contains(target)) return;
       if (durationMenuRef.current?.contains(target)) return;
@@ -3824,25 +3872,21 @@ function App() {
         }
       }
 
-      // Edit form: close on outside click, but let the click reach tasks/buttons.
-      // Create form: swallow the outside click so it only dismisses the composer.
-      const allowClickThrough = editingTaskId != null;
+      // Swallow the outside click so it only dismisses the composer and does not
+      // also activate tasks/controls underneath (which would reopen the editor).
+      suppressGesture(event);
 
-      if (!allowClickThrough) {
-        suppressGesture(event);
-
-        let timeoutId = 0;
-        const onClick = (clickEvent: MouseEvent) => {
-          suppressGesture(clickEvent);
-          cleanup();
-        };
-        const cleanup = () => {
-          document.removeEventListener("click", onClick, true);
-          window.clearTimeout(timeoutId);
-        };
-        document.addEventListener("click", onClick, true);
-        timeoutId = window.setTimeout(cleanup, 500);
-      }
+      let timeoutId = 0;
+      const onClick = (clickEvent: MouseEvent) => {
+        suppressGesture(clickEvent);
+        cleanup();
+      };
+      const cleanup = () => {
+        document.removeEventListener("click", onClick, true);
+        window.clearTimeout(timeoutId);
+      };
+      document.addEventListener("click", onClick, true);
+      timeoutId = window.setTimeout(cleanup, 500);
 
       if (
         attachMenuOpen ||
@@ -3856,7 +3900,7 @@ function App() {
         setComposeKindMenuOpen(false);
         setDurationMenuOpen(false);
         setRecurringMenuOpen(false);
-                setImpactMenuOpen(false);
+        setImpactMenuOpen(false);
         closeTaskToolHint();
         return;
       }
@@ -3874,8 +3918,7 @@ function App() {
     recurringMenuOpen,
     impactMenuOpen,
     taskToolHint,
-    editingTaskId,
-    isEditDirty,
+    isComposerDirty,
   ]);
 
   useEffect(() => {
@@ -4482,6 +4525,28 @@ function App() {
                     >
                       <span>Metrics</span>
                     </button>
+                    <button
+                      type="button"
+                      className={`app-attach-menu-item${timelineMultiSelect ? " is-selected" : ""}`}
+                      role="menuitemcheckbox"
+                      aria-checked={timelineMultiSelect}
+                      onClick={() => {
+                        if (timelineMultiSelect) {
+                          setTimelineMultiSelect(false);
+                          setSelectedTimelineTaskIds([]);
+                        } else {
+                          setTimelineMultiSelect(true);
+                          setSelectedTimelineTaskIds(
+                            focusedTaskId != null ? [focusedTaskId] : [],
+                          );
+                          setFocusedTaskId(null);
+                          setFocusedOverflowTaskIds(null);
+                        }
+                        setTimelineMenuOpen(false);
+                      }}
+                    >
+                      <span>Select multiple</span>
+                    </button>
                   </ComposerOverlayMenu>
                   <button
                     ref={timelineMenuButtonRef}
@@ -4594,9 +4659,7 @@ function App() {
                   isTaskPopping={isTaskPopping}
                   onTaskSelect={(task) => {
                     if (!task.id || isTaskPopping(task.id)) return;
-                    setFocusedOverflowTaskIds(null);
-                    setFocusedTaskId(task.id);
-                    scrollTaskIntoView(task.id);
+                    selectTimelineTask(task.id);
                   }}
                 />
               </div>
@@ -4692,174 +4755,32 @@ function App() {
                   className="task-day-group"
                   data-calendar-day={day.dayKey}
                 >
-                  {(!isTodayGroup || showOverdueToggle) && (
+                  {!isTodayGroup && (
                     <div className="task-day-label-row">
-                      {isTodayGroup ? (
-                        showOverdueToggle && (
-                          <button
-                            type="button"
-                            className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
-                            aria-expanded={overdueSectionOpen}
-                            aria-controls="task-overdue-list"
-                            aria-label="Overflow tasks"
-                            onClick={() => setOverdueSectionOpen((open) => !open)}
-                          >
-                            <span className="task-overdue-toggle-action">
-                              <span className="task-overdue-toggle-reschedule">Overflow</span>
-                              <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                                {overdueSectionOpen ? "∨" : ">"}
-                              </span>
-                            </span>
-                          </button>
-                        )
-                      ) : (
-                        <button
-                          type="button"
-                          className="task-day-label"
-                          onClick={() => selectDayFromUi(day.date)}
-                        >
-                          {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="task-day-label"
+                        onClick={() => selectDayFromUi(day.date)}
+                      >
+                        {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                      </button>
                     </div>
                   )}
-                  {showOverdueToggle && overdueSectionOpen && (
-                    <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
-                      <section
-                        ref={overdueSectionRef}
-                        id="task-overdue-list"
-                        className="task-overdue-section"
-                        aria-label="Overflow tasks"
-                      >
-                        {overdueTasks.length > 0 && (
-                          <div className="task-overflow-bucket">
-                            <div className="task-overflow-bucket-header">
-                              <span className="task-overflow-bucket-label">
-                                Auto Rescheduling At End of Day
-                              </span>
-                              <button
-                                type="button"
-                                className="task-overflow-select-btn"
-                                onClick={() => {
-                                  if (overflowRescheduleSelecting) {
-                                    setOverflowRescheduleSelecting(false);
-                                    setOverflowRescheduleSelectedIds([]);
-                                  } else {
-                                    setOverflowRescheduleSelecting(true);
-                                  }
-                                }}
-                              >
-                                {overflowRescheduleSelecting ? "Cancel" : "Select"}
-                              </button>
-                            </div>
-                            <ul className="task-day-tasks task-overdue-tasks">
-                              {overdueTasks.map((task) => (
-                                <CompactTaskRow
-                                  key={task.id ?? task.title}
-                                  task={task}
-                                  overdue
-                                  showOverflowAdvance
-                                  overflowSelecting={overflowRescheduleSelecting}
-                                  overflowSelected={
-                                    task.id != null &&
-                                    overflowRescheduleSelectedIds.includes(task.id)
-                                  }
-                                  onOverflowAdvanceClick={
-                                    overflowRescheduleSelecting && task.id
-                                      ? () => {
-                                          const id = task.id!;
-                                          setOverflowRescheduleSelectedIds((current) =>
-                                            current.includes(id)
-                                              ? current.filter((value) => value !== id)
-                                              : [...current, id],
-                                          );
-                                        }
-                                      : undefined
-                                  }
-                                  editing={editingTaskId === task.id}
-                                  highlighted={isTaskHighlighted(task.id)}
-                                  popping={isTaskPopping(task.id)}
-                                  now={new Date(countdownNow)}
-                                  parentTitle={parentTitleFor(task.parent_id)}
-                                  onComplete={() => requestCompleteTask(task.id)}
-                                  onEdit={() => {
-                                    if (task.id) {
-                                      setFocusedOverflowTaskIds(null);
-                                      setFocusedTaskId(task.id);
-                                    }
-                                    editTask(task);
-                                  }}
-                                />
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {deferredTasks.length > 0 && (
-                          <div className="task-overflow-bucket">
-                            <div className="task-overflow-bucket-header">
-                              <span className="task-overflow-bucket-label">
-                                Auto Deferring At End of Day
-                              </span>
-                              <button
-                                type="button"
-                                className="task-overflow-select-btn"
-                                onClick={() => {
-                                  if (overflowDeferSelecting) {
-                                    setOverflowDeferSelecting(false);
-                                    setOverflowDeferSelectedIds([]);
-                                  } else {
-                                    setOverflowDeferSelecting(true);
-                                  }
-                                }}
-                              >
-                                {overflowDeferSelecting ? "Cancel" : "Select"}
-                              </button>
-                            </div>
-                            <ul className="task-day-tasks task-overdue-tasks">
-                              {deferredTasks.map((task) => (
-                                <CompactTaskRow
-                                  key={task.id ?? task.title}
-                                  task={task}
-                                  overdue={false}
-                                  showOverflowAdvance
-                                  overflowSelecting={overflowDeferSelecting}
-                                  overflowSelected={
-                                    task.id != null &&
-                                    overflowDeferSelectedIds.includes(task.id)
-                                  }
-                                  onOverflowAdvanceClick={
-                                    overflowDeferSelecting && task.id
-                                      ? () => {
-                                          const id = task.id!;
-                                          setOverflowDeferSelectedIds((current) =>
-                                            current.includes(id)
-                                              ? current.filter((value) => value !== id)
-                                              : [...current, id],
-                                          );
-                                        }
-                                      : undefined
-                                  }
-                                  editing={editingTaskId === task.id}
-                                  highlighted={isTaskHighlighted(task.id)}
-                                  popping={isTaskPopping(task.id)}
-                                  now={new Date(countdownNow)}
-                                  parentTitle={parentTitleFor(task.parent_id)}
-                                  onComplete={() => requestCompleteTask(task.id)}
-                                  onEdit={() => {
-                                    if (task.id) {
-                                      setFocusedOverflowTaskIds(null);
-                                      setFocusedTaskId(task.id);
-                                    }
-                                    editTask(task);
-                                  }}
-                                />
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        <div className="task-overdue-divider" aria-hidden="true" />
-                      </section>
-                    </div>
+                  {showOverdueToggle && (
+                    <button
+                      type="button"
+                      className={`task-overflow-notice${overflowDeferOnly ? " is-defer-only" : ""}`}
+                      onClick={() => {
+                        overflowToggleRef.current?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                      }}
+                    >
+                      Not enough time remaining. {overflowTaskCount}{" "}
+                      {overflowTaskCount === 1 ? "task has" : "tasks have"} been moved to{" "}
+                      <span className="task-overflow-notice-overflow">Overflow</span>.
+                    </button>
                   )}
                   {dayTasks.length > 0 && (
                     <ul className="task-day-tasks">
@@ -4884,6 +4805,98 @@ function App() {
                         />
                       ))}
                     </ul>
+                  )}
+                  {showOverdueToggle && overdueTasks.length > 0 && (
+                    <div className="task-overflow-bucket-header">
+                      <span className="task-overflow-bucket-label">
+                        The following will be rescheduled at end of day
+                      </span>
+                    </div>
+                  )}
+                  {showOverdueToggle && (
+                    <div className="task-day-label-row task-day-overflow-row">
+                      <button
+                        ref={overflowToggleRef}
+                        type="button"
+                        className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
+                        aria-expanded={overdueSectionOpen}
+                        aria-controls="task-overdue-list"
+                        aria-label="Overflow tasks"
+                        onClick={() => setOverdueSectionOpen((open) => !open)}
+                      >
+                        <span className="task-overdue-toggle-action">
+                          <span className="task-overdue-toggle-reschedule">Overflow</span>
+                          <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                            {overdueSectionOpen ? "∨" : ">"}
+                          </span>
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                  {showOverdueToggle && overdueSectionOpen && (
+                    <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
+                      <section
+                        ref={overdueSectionRef}
+                        id="task-overdue-list"
+                        className="task-overdue-section"
+                        aria-label="Overflow tasks"
+                      >
+                        {overdueTasks.length > 0 && (
+                          <div className="task-overflow-bucket">
+                            <ul className="task-day-tasks task-overdue-tasks">
+                              {overdueTasks.map((task) => (
+                                <CompactTaskRow
+                                  key={task.id ?? task.title}
+                                  task={task}
+                                  overdue
+                                  showOverflowAdvance
+                                  editing={editingTaskId === task.id}
+                                  highlighted={isTaskHighlighted(task.id)}
+                                  popping={isTaskPopping(task.id)}
+                                  now={new Date(countdownNow)}
+                                  parentTitle={parentTitleFor(task.parent_id)}
+                                  onComplete={() => requestCompleteTask(task.id)}
+                                  onEdit={() => {
+                                    if (task.id) {
+                                      setFocusedOverflowTaskIds(null);
+                                      setFocusedTaskId(task.id);
+                                    }
+                                    editTask(task);
+                                  }}
+                                />
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {deferredTasks.length > 0 && (
+                          <div className="task-overflow-bucket">
+                            <ul className="task-day-tasks task-overdue-tasks">
+                              {deferredTasks.map((task) => (
+                                <CompactTaskRow
+                                  key={task.id ?? task.title}
+                                  task={task}
+                                  overdue={false}
+                                  showOverflowAdvance
+                                  editing={editingTaskId === task.id}
+                                  highlighted={isTaskHighlighted(task.id)}
+                                  popping={isTaskPopping(task.id)}
+                                  now={new Date(countdownNow)}
+                                  parentTitle={parentTitleFor(task.parent_id)}
+                                  onComplete={() => requestCompleteTask(task.id)}
+                                  onEdit={() => {
+                                    if (task.id) {
+                                      setFocusedOverflowTaskIds(null);
+                                      setFocusedTaskId(task.id);
+                                    }
+                                    editTask(task);
+                                  }}
+                                />
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </section>
+                    </div>
                   )}
                 </section>
               );
@@ -4921,174 +4934,32 @@ function App() {
                 className="calendar-timeline-day"
                 data-calendar-day={day.dayKey}
               >
-                {(!isTodayGroup || showOverdueToggle) && (
+                {!isTodayGroup && (
                   <div className="task-day-label-row">
-                    {isTodayGroup ? (
-                      showOverdueToggle && (
-                        <button
-                          type="button"
-                          className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
-                          aria-expanded={overdueSectionOpen}
-                          aria-controls="task-overdue-list"
-                          aria-label="Overflow tasks"
-                          onClick={() => setOverdueSectionOpen((open) => !open)}
-                        >
-                          <span className="task-overdue-toggle-action">
-                            <span className="task-overdue-toggle-reschedule">Overflow</span>
-                            <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                              {overdueSectionOpen ? "∨" : ">"}
-                            </span>
-                          </span>
-                        </button>
-                      )
-                    ) : (
-                      <button
-                        type="button"
-                        className="calendar-timeline-day-label"
-                        onClick={() => selectDayFromUi(day.date)}
-                      >
-                        {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      className="calendar-timeline-day-label"
+                      onClick={() => selectDayFromUi(day.date)}
+                    >
+                      {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                    </button>
                   </div>
                 )}
-                {showOverdueToggle && overdueSectionOpen && (
-                  <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
-                    <section
-                      ref={overdueSectionRef}
-                      id="task-overdue-list"
-                      className="task-overdue-section"
-                      aria-label="Overflow tasks"
-                    >
-                      {overdueTasks.length > 0 && (
-                        <div className="task-overflow-bucket">
-                          <div className="task-overflow-bucket-header">
-                            <span className="task-overflow-bucket-label">
-                              Auto Rescheduling At End of Day
-                            </span>
-                            <button
-                              type="button"
-                              className="task-overflow-select-btn"
-                              onClick={() => {
-                                if (overflowRescheduleSelecting) {
-                                  setOverflowRescheduleSelecting(false);
-                                  setOverflowRescheduleSelectedIds([]);
-                                } else {
-                                  setOverflowRescheduleSelecting(true);
-                                }
-                              }}
-                            >
-                              {overflowRescheduleSelecting ? "Cancel" : "Select"}
-                            </button>
-                          </div>
-                          <ul className="task-day-tasks task-overdue-tasks">
-                            {overdueTasks.map((task) => (
-                              <CompactTaskRow
-                                key={task.id ?? task.title}
-                                task={task}
-                                overdue
-                                showOverflowAdvance
-                                overflowSelecting={overflowRescheduleSelecting}
-                                overflowSelected={
-                                  task.id != null &&
-                                  overflowRescheduleSelectedIds.includes(task.id)
-                                }
-                                onOverflowAdvanceClick={
-                                  overflowRescheduleSelecting && task.id
-                                    ? () => {
-                                        const id = task.id!;
-                                        setOverflowRescheduleSelectedIds((current) =>
-                                          current.includes(id)
-                                            ? current.filter((value) => value !== id)
-                                            : [...current, id],
-                                        );
-                                      }
-                                    : undefined
-                                }
-                                editing={editingTaskId === task.id}
-                                highlighted={isTaskHighlighted(task.id)}
-                                popping={isTaskPopping(task.id)}
-                                now={new Date(countdownNow)}
-                                parentTitle={parentTitleFor(task.parent_id)}
-                                onComplete={() => requestCompleteTask(task.id)}
-                                onEdit={() => {
-                                  if (task.id) {
-                                    setFocusedOverflowTaskIds(null);
-                                    setFocusedTaskId(task.id);
-                                  }
-                                  editTask(task);
-                                }}
-                              />
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {deferredTasks.length > 0 && (
-                        <div className="task-overflow-bucket">
-                          <div className="task-overflow-bucket-header">
-                            <span className="task-overflow-bucket-label">
-                              Auto Deferring At End of Day
-                            </span>
-                            <button
-                              type="button"
-                              className="task-overflow-select-btn"
-                              onClick={() => {
-                                if (overflowDeferSelecting) {
-                                  setOverflowDeferSelecting(false);
-                                  setOverflowDeferSelectedIds([]);
-                                } else {
-                                  setOverflowDeferSelecting(true);
-                                }
-                              }}
-                            >
-                              {overflowDeferSelecting ? "Cancel" : "Select"}
-                            </button>
-                          </div>
-                          <ul className="task-day-tasks task-overdue-tasks">
-                            {deferredTasks.map((task) => (
-                              <CompactTaskRow
-                                key={task.id ?? task.title}
-                                task={task}
-                                overdue={false}
-                                showOverflowAdvance
-                                overflowSelecting={overflowDeferSelecting}
-                                overflowSelected={
-                                  task.id != null &&
-                                  overflowDeferSelectedIds.includes(task.id)
-                                }
-                                onOverflowAdvanceClick={
-                                  overflowDeferSelecting && task.id
-                                    ? () => {
-                                        const id = task.id!;
-                                        setOverflowDeferSelectedIds((current) =>
-                                          current.includes(id)
-                                            ? current.filter((value) => value !== id)
-                                            : [...current, id],
-                                        );
-                                      }
-                                    : undefined
-                                }
-                                editing={editingTaskId === task.id}
-                                highlighted={isTaskHighlighted(task.id)}
-                                popping={isTaskPopping(task.id)}
-                                now={new Date(countdownNow)}
-                                parentTitle={parentTitleFor(task.parent_id)}
-                                onComplete={() => requestCompleteTask(task.id)}
-                                onEdit={() => {
-                                  if (task.id) {
-                                    setFocusedOverflowTaskIds(null);
-                                    setFocusedTaskId(task.id);
-                                  }
-                                  editTask(task);
-                                }}
-                              />
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      <div className="task-overdue-divider" aria-hidden="true" />
-                    </section>
-                  </div>
+                {showOverdueToggle && (
+                  <button
+                    type="button"
+                    className={`task-overflow-notice${overflowDeferOnly ? " is-defer-only" : ""}`}
+                    onClick={() => {
+                      overflowToggleRef.current?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      });
+                    }}
+                  >
+                    Not enough time remaining. {overflowTaskCount}{" "}
+                    {overflowTaskCount === 1 ? "task has" : "tasks have"} been moved to{" "}
+                    <span className="task-overflow-notice-overflow">Overflow</span>.
+                  </button>
                 )}
                 <div
                   className="calendar-timeline-body"
@@ -5159,13 +5030,20 @@ function App() {
                           type="button"
                           className="calendar-timeline-block-body"
                           onClick={() => {
-                            if (block.taskId) {
-                              setFocusedOverflowTaskIds(null);
-                              setFocusedTaskId(block.taskId);
+                            if (!block.taskId) return;
+                            if (timelineMultiSelect) {
+                              selectTimelineTask(block.taskId, { scroll: false });
+                              return;
                             }
+                            setFocusedOverflowTaskIds(null);
+                            setFocusedTaskId(block.taskId);
                             editTask(block.task);
                           }}
-                          aria-label={`Edit task ${block.title}`}
+                          aria-label={
+                            timelineMultiSelect
+                              ? `Select task ${block.title}`
+                              : `Edit task ${block.title}`
+                          }
                         >
                           <span className="calendar-timeline-block-title">{block.title}</span>
                         </button>
@@ -5174,6 +5052,98 @@ function App() {
                     })}
                   </div>
                 </div>
+                {showOverdueToggle && overdueTasks.length > 0 && (
+                  <div className="task-overflow-bucket-header">
+                    <span className="task-overflow-bucket-label">
+                      The following will be rescheduled at end of day
+                    </span>
+                  </div>
+                )}
+                {showOverdueToggle && (
+                  <div className="task-day-label-row task-day-overflow-row">
+                    <button
+                      ref={overflowToggleRef}
+                      type="button"
+                      className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
+                      aria-expanded={overdueSectionOpen}
+                      aria-controls="task-overdue-list"
+                      aria-label="Overflow tasks"
+                      onClick={() => setOverdueSectionOpen((open) => !open)}
+                    >
+                      <span className="task-overdue-toggle-action">
+                        <span className="task-overdue-toggle-reschedule">Overflow</span>
+                        <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                          {overdueSectionOpen ? "∨" : ">"}
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                )}
+                {showOverdueToggle && overdueSectionOpen && (
+                  <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
+                    <section
+                      ref={overdueSectionRef}
+                      id="task-overdue-list"
+                      className="task-overdue-section"
+                      aria-label="Overflow tasks"
+                    >
+                      {overdueTasks.length > 0 && (
+                        <div className="task-overflow-bucket">
+                          <ul className="task-day-tasks task-overdue-tasks">
+                            {overdueTasks.map((task) => (
+                              <CompactTaskRow
+                                key={task.id ?? task.title}
+                                task={task}
+                                overdue
+                                showOverflowAdvance
+                                editing={editingTaskId === task.id}
+                                highlighted={isTaskHighlighted(task.id)}
+                                popping={isTaskPopping(task.id)}
+                                now={new Date(countdownNow)}
+                                parentTitle={parentTitleFor(task.parent_id)}
+                                onComplete={() => requestCompleteTask(task.id)}
+                                onEdit={() => {
+                                  if (task.id) {
+                                    setFocusedOverflowTaskIds(null);
+                                    setFocusedTaskId(task.id);
+                                  }
+                                  editTask(task);
+                                }}
+                              />
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {deferredTasks.length > 0 && (
+                        <div className="task-overflow-bucket">
+                          <ul className="task-day-tasks task-overdue-tasks">
+                            {deferredTasks.map((task) => (
+                              <CompactTaskRow
+                                key={task.id ?? task.title}
+                                task={task}
+                                overdue={false}
+                                showOverflowAdvance
+                                editing={editingTaskId === task.id}
+                                highlighted={isTaskHighlighted(task.id)}
+                                popping={isTaskPopping(task.id)}
+                                now={new Date(countdownNow)}
+                                parentTitle={parentTitleFor(task.parent_id)}
+                                onComplete={() => requestCompleteTask(task.id)}
+                                onEdit={() => {
+                                  if (task.id) {
+                                    setFocusedOverflowTaskIds(null);
+                                    setFocusedTaskId(task.id);
+                                  }
+                                  editTask(task);
+                                }}
+                              />
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </section>
+                  </div>
+                )}
               </section>
               );
             })}
@@ -5198,7 +5168,11 @@ function App() {
             setOverdueSectionOpen(true);
           }
           resetComposerFields();
-          if (wasEditing) setCollapsed(true);
+          if (wasEditing) {
+            setCollapsed(true);
+            setFocusedTaskId(null);
+            setFocusedOverflowTaskIds(null);
+          }
         }}
       >
         <div className="app-tray" ref={trayRef}>
