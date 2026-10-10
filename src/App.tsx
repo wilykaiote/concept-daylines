@@ -1183,11 +1183,9 @@ function CompactTaskRow({
   now,
   parentTitle,
   isCurrentFocus = false,
-  focusLocked = true,
   onComplete,
   onEdit,
   onSetFocus,
-  onToggleFocusLock,
 }: {
   task: ComposerDraft;
   overdue: boolean;
@@ -1197,11 +1195,9 @@ function CompactTaskRow({
   now: Date;
   parentTitle?: string | null;
   isCurrentFocus?: boolean;
-  focusLocked?: boolean;
   onComplete: () => void;
   onEdit: () => void;
   onSetFocus?: () => void;
-  onToggleFocusLock?: () => void;
 }) {
   const urgencyLabel = isUrgencyOption(task.urgency) ? task.urgency : null;
   const hasDateOrTime =
@@ -1357,25 +1353,7 @@ function CompactTaskRow({
           )}
         </div>
       </div>
-      {isCurrentFocus && onToggleFocusLock != null ? (
-        <button
-          type="button"
-          className={`task-row-focus-lock${focusLocked ? " is-locked" : " is-unlocked"}`}
-          aria-label={
-            focusLocked
-              ? `Unlock ${task.title} — allow moving to overflow`
-              : `Lock ${task.title} — keep out of overflow`
-          }
-          aria-pressed={focusLocked}
-          title={focusLocked ? "Locked — stays out of overflow" : "Unlocked — can move to overflow"}
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleFocusLock();
-          }}
-        >
-          {focusLocked ? <LockIcon /> : <UnlockIcon />}
-        </button>
-      ) : onSetFocus != null ? (
+      {!isCurrentFocus && onSetFocus != null ? (
         <button
           type="button"
           className="task-row-focus"
@@ -3586,16 +3564,39 @@ function App() {
     });
   };
 
+  const renderCurrentFocusLockButton = (taskTitle?: string | null) => {
+    const title = normalizeOptionalField(taskTitle) ?? "focus task";
+    return (
+      <button
+        type="button"
+        className={`task-row-focus-lock${focusLocked ? " is-locked" : " is-unlocked"}`}
+        aria-label={
+          focusLocked
+            ? `Unlock ${title} — allow moving to overflow`
+            : `Lock ${title} — keep out of overflow`
+        }
+        aria-pressed={focusLocked}
+        title={focusLocked ? "Locked — stays out of overflow" : "Unlocked — can move to overflow"}
+        onClick={toggleCurrentFocusLock}
+      >
+        {focusLocked ? <LockIcon /> : <UnlockIcon />}
+      </button>
+    );
+  };
+
   const renderCurrentFocus = () => {
     if (!todayFocusTask?.id) return null;
     return (
       <div className="task-current-focus">
-        <p className="task-current-focus-label">
-          Current focus
-          <span className="task-current-focus-label-icon" aria-hidden="true">
-            <FocusIcon />
-          </span>
-        </p>
+        <div className="task-current-focus-label-row">
+          <p className="task-current-focus-label">
+            Current focus
+            <span className="task-current-focus-label-icon" aria-hidden="true">
+              <FocusIcon />
+            </span>
+          </p>
+          {renderCurrentFocusLockButton(todayFocusTask.title)}
+        </div>
         <ul className="task-day-tasks task-current-focus-tasks">
           <CompactTaskRow
             key={todayFocusTask.id}
@@ -3607,14 +3608,12 @@ function App() {
             now={new Date(countdownNow)}
             parentTitle={parentTitleFor(todayFocusTask.parent_id)}
             isCurrentFocus
-            focusLocked={focusLocked}
             onComplete={() => requestCompleteTask(todayFocusTask.id)}
             onEdit={() => {
               setFocusedOverflowTaskIds(null);
               setFocusedTaskId(todayFocusTask.id!);
               editTask(todayFocusTask);
             }}
-            onToggleFocusLock={toggleCurrentFocusLock}
           />
         </ul>
       </div>
@@ -3678,8 +3677,6 @@ function App() {
                         }}
                         isCurrentFocus={todayFocusTask?.id === task.id}
                         onSetFocus={() => setTaskAsCurrentFocus(task)}
-                        focusLocked={focusLocked}
-                        onToggleFocusLock={toggleCurrentFocusLock}
                       />
                     ))}
                   </ul>
@@ -3708,8 +3705,6 @@ function App() {
                         }}
                         isCurrentFocus={todayFocusTask?.id === task.id}
                         onSetFocus={() => setTaskAsCurrentFocus(task)}
-                        focusLocked={focusLocked}
-                        onToggleFocusLock={toggleCurrentFocusLock}
                       />
                     ))}
                   </ul>
@@ -4835,11 +4830,13 @@ function App() {
                   editTask(task);
                 }}
                 isCurrentFocus={todayFocusTask?.id === task.id}
-                onSetFocus={() => setTaskAsCurrentFocus(task)}
-                focusLocked={focusLocked}
-                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
+            focusLockControl={
+              todayFocusTask != null
+                ? renderCurrentFocusLockButton(todayFocusTask.title)
+                : null
+            }
             plans={tasks
               .filter((task) => isPlanTaskType(task.type) && task.id != null)
               .map((plan) => {
@@ -4889,8 +4886,6 @@ function App() {
                 }}
                 isCurrentFocus={todayFocusTask?.id === task.id}
                 onSetFocus={() => setTaskAsCurrentFocus(task)}
-                focusLocked={focusLocked}
-                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
             renderOverdueTask={(task) => (
@@ -4913,8 +4908,6 @@ function App() {
                 }}
                 isCurrentFocus={todayFocusTask?.id === task.id}
                 onSetFocus={() => setTaskAsCurrentFocus(task)}
-                focusLocked={focusLocked}
-                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
           />
@@ -4951,9 +4944,6 @@ function App() {
                   editTask(task);
                 }}
                 isCurrentFocus={todayFocusTask?.id === task.id}
-                onSetFocus={() => setTaskAsCurrentFocus(task)}
-                focusLocked={focusLocked}
-                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
           />
@@ -4981,9 +4971,6 @@ function App() {
                   editTask(task);
                 }}
                 isCurrentFocus={todayFocusTask?.id === task.id}
-                onSetFocus={() => setTaskAsCurrentFocus(task)}
-                focusLocked={focusLocked}
-                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
           />
@@ -5011,9 +4998,6 @@ function App() {
                   editTask(task);
                 }}
                 isCurrentFocus={todayFocusTask?.id === task.id}
-                onSetFocus={() => setTaskAsCurrentFocus(task)}
-                focusLocked={focusLocked}
-                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
           />
@@ -5309,7 +5293,7 @@ function App() {
                   {dayTasks.length > 0 && (
                     <div className="task-day-next">
                       {isTodayGroup && activeView === "dayline" && !calendarOpen && (
-                        <p className="task-current-focus-label">Next</p>
+                        <p className="task-current-focus-label">Up next</p>
                       )}
                       <ul className="task-day-tasks">
                         {dayTasks.map((block) => (
@@ -5331,9 +5315,6 @@ function App() {
                               editTask(block.task);
                             }}
                             isCurrentFocus={todayFocusTask?.id === block.taskId}
-                            onSetFocus={() => setTaskAsCurrentFocus(block.task)}
-                            focusLocked={focusLocked}
-                            onToggleFocusLock={toggleCurrentFocusLock}
                           />
                         ))}
                       </ul>
@@ -6015,6 +5996,7 @@ function App() {
                 >
                   {taskToolHint === "Date & Time" ? (
                     <>
+                      <p className="app-composer-tool-hint-title">URGENCY</p>
                       <div className="app-due-date-fields">
                         {(() => {
                           const todayKeyValue = dayKey(
@@ -6026,8 +6008,8 @@ function App() {
                           const scheduleOptions = [
                             { id: "today", label: "Today" },
                             { id: "tomorrow", label: "Tomorrow" },
-                            { id: "starts_on", label: "Starts on" },
                             { id: "due_by", label: "Due by" },
+                            { id: "starts_on", label: "Starts on" },
                           ] as const;
                           const urgencyOptions = [
                             { id: "ASAP", label: "ASAP" },
@@ -6035,21 +6017,48 @@ function App() {
                             { id: "Later", label: "Later" },
                             { id: "Future", label: "Future" },
                           ] as const;
-                          const scheduleRowSelected = dateTimeAnchor != null;
-                          const urgencyRowSelected =
-                            urgencyActivated && dateTimeAnchor == null;
                           return (
                             <div className="app-due-date-selector">
+                              <div
+                                className={`app-due-date-schedule${dateTimeAnchor != null ? " is-open" : ""}`}
+                                aria-hidden={dateTimeAnchor == null}
+                              >
+                                <div className="app-due-date-schedule-inner">
+                                  <label className="app-due-date-field">
+                                    Date
+                                    <input
+                                      ref={taskDateInputRef}
+                                      type="date"
+                                      value={taskDate}
+                                      tabIndex={dateTimeAnchor == null ? -1 : 0}
+                                      onChange={(event) =>
+                                        setTaskDateValue(event.target.value)
+                                      }
+                                      onInput={(event) =>
+                                        setTaskDateValue(event.currentTarget.value)
+                                      }
+                                      aria-label="Task date"
+                                    />
+                                  </label>
+                                  <label className="app-due-date-field">
+                                    Time
+                                    <input
+                                      ref={taskTimeInputRef}
+                                      type="time"
+                                      value={taskTimeValue}
+                                      tabIndex={dateTimeAnchor == null ? -1 : 0}
+                                      onChange={(event) =>
+                                        setTaskTimeValue(event.target.value)
+                                      }
+                                      onInput={(event) =>
+                                        setTaskTimeValue(event.currentTarget.value)
+                                      }
+                                      aria-label="Task time"
+                                    />
+                                  </label>
+                                </div>
+                              </div>
                               <div className="app-due-date-option-row">
-                                <span
-                                  className={`app-due-date-option-row-legend${
-                                    scheduleRowSelected ? " is-active" : ""
-                                  }`}
-                                >
-                                  <span className="app-due-date-option-row-icon" aria-hidden="true">
-                                    <CalendarIcon />
-                                  </span>
-                                </span>
                                 <div
                                   className="app-due-date-urgency-options"
                                   role="group"
@@ -6102,56 +6111,8 @@ function App() {
                                   })}
                                 </div>
                               </div>
-                              <div
-                                className={`app-due-date-schedule${dateTimeAnchor != null ? " is-open" : ""}`}
-                                aria-hidden={dateTimeAnchor == null}
-                              >
-                                <div className="app-due-date-schedule-inner">
-                                  <label className="app-due-date-field">
-                                    Date
-                                    <input
-                                      ref={taskDateInputRef}
-                                      type="date"
-                                      value={taskDate}
-                                      tabIndex={dateTimeAnchor == null ? -1 : 0}
-                                      onChange={(event) =>
-                                        setTaskDateValue(event.target.value)
-                                      }
-                                      onInput={(event) =>
-                                        setTaskDateValue(event.currentTarget.value)
-                                      }
-                                      aria-label="Task date"
-                                    />
-                                  </label>
-                                  <label className="app-due-date-field">
-                                    Time
-                                    <input
-                                      ref={taskTimeInputRef}
-                                      type="time"
-                                      value={taskTimeValue}
-                                      tabIndex={dateTimeAnchor == null ? -1 : 0}
-                                      onChange={(event) =>
-                                        setTaskTimeValue(event.target.value)
-                                      }
-                                      onInput={(event) =>
-                                        setTaskTimeValue(event.currentTarget.value)
-                                      }
-                                      aria-label="Task time"
-                                    />
-                                  </label>
-                                </div>
-                              </div>
                               <div className="app-due-date-divider" aria-hidden="true" />
                               <div className="app-due-date-option-row">
-                                <span
-                                  className={`app-due-date-option-row-legend${
-                                    urgencyRowSelected ? " is-active" : ""
-                                  }`}
-                                >
-                                  <span className="app-due-date-option-row-icon" aria-hidden="true">
-                                    <UrgencyIcon />
-                                  </span>
-                                </span>
                                 <div
                                   className="app-due-date-urgency-options"
                                   role="group"

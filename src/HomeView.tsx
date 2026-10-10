@@ -28,6 +28,7 @@ type HomeViewProps = {
   onSelectPlan: (planId: string) => void;
   focusTask: ComposerDraft | null;
   renderFocusTask: (task: ComposerDraft) => ReactNode;
+  focusLockControl?: ReactNode;
   deferredTasks: ComposerDraft[];
   overdueTasks: ComposerDraft[];
   overdueOpen: boolean;
@@ -47,6 +48,7 @@ export function HomeView({
   onSelectPlan,
   focusTask,
   renderFocusTask,
+  focusLockControl,
   deferredTasks,
   overdueTasks,
   overdueOpen,
@@ -138,28 +140,31 @@ export function HomeView({
             <div className="home-top-main">
               {focusTask != null ? (
                 <div className="home-focus-current">
-                  <p className="task-current-focus-label">
-                    Current focus
-                    <span className="task-current-focus-label-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24">
-                        <circle
-                          cx="12"
-                          cy="12"
-                          r="3"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                        />
-                        <path
-                          d="M12 3.5v3.2M12 17.3v3.2M3.5 12h3.2M17.3 12h3.2"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    </span>
-                  </p>
+                  <div className="task-current-focus-label-row">
+                    <p className="task-current-focus-label">
+                      Current focus
+                      <span className="task-current-focus-label-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                          <circle
+                            cx="12"
+                            cy="12"
+                            r="3"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                          />
+                          <path
+                            d="M12 3.5v3.2M12 17.3v3.2M3.5 12h3.2M17.3 12h3.2"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </span>
+                    </p>
+                    {focusLockControl}
+                  </div>
                   <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
                 </div>
               ) : (

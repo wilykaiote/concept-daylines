@@ -435,8 +435,12 @@
   min-width: 0;
 }
 
-.home-focus-current .task-current-focus-label {
+.home-focus-current .task-current-focus-label-row {
   padding: 0 2px;
+}
+
+.home-focus-current .task-current-focus-label {
+  padding: 0;
 }
 
 @media (max-width: 560px) {
@@ -1565,7 +1569,7 @@
 }
 
 .task-day-overflow-row {
-  padding-top: 8px;
+  padding-top: 2px;
 }
 
 .task-day-overflow-row .task-overdue-toggle {
@@ -1974,6 +1978,16 @@
   text-transform: uppercase;
 }
 
+.task-overflow-footer::before,
+.task-overflow-footer::after {
+  content: "•";
+  margin: 0 0.5em;
+  color: inherit;
+  font-size: 1.15em;
+  font-weight: 700;
+  vertical-align: 0.05em;
+}
+
 .task-overflow-footer .task-overflow-notice-overflow {
   color: var(--danger);
 }
@@ -1992,12 +2006,31 @@
   margin: 0 0 10px;
 }
 
+.task-current-focus {
+  margin-bottom: 2px;
+}
+
+.task-current-focus-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 2px 0;
+}
+
+.task-current-focus-label-row .task-row-focus-lock {
+  flex: 0 0 28px;
+  align-self: center;
+}
+
 .task-current-focus-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin: 0;
-  padding: 10px 2px 0;
+  padding: 0;
   color: var(--text-h);
   font-size: 0.72rem;
   font-weight: 650;
@@ -2005,6 +2038,11 @@
   line-height: 1.2;
   text-align: left;
   text-transform: uppercase;
+  min-width: 0;
+}
+
+.task-day-next .task-current-focus-label {
+  padding: 10px 2px 6px;
 }
 
 .task-current-focus-label-icon {
@@ -4129,6 +4167,11 @@
   letter-spacing: 0.01em;
 }
 
+.app-composer-field .app-composer-task-row .task-row-parent svg {
+  width: 0.95em;
+  height: 0.95em;
+}
+
 .app-composer-field .app-composer-task-row .task-row-recurring svg {
   width: 11px;
   height: 11px;
@@ -4766,6 +4809,9 @@
 }
 
 .app-composer-tool-hint.is-due-date {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   box-sizing: border-box;
   min-width: 0;
   max-width: none;
@@ -5103,6 +5149,7 @@
   border-radius: 10px;
   background: color-mix(in srgb, var(--text) 4%, var(--bg));
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .app-due-date-selector .app-due-date-divider {
@@ -5149,6 +5196,7 @@
   width: 100%;
   min-width: 0;
   max-width: 100%;
+  overflow: hidden;
   color: var(--text);
   font-size: 0.75rem;
   font-weight: 600;
@@ -5182,6 +5230,10 @@
   min-inline-size: 0;
   max-width: 100%;
   box-sizing: border-box;
+  /* iOS WebKit ignores width unless native appearance is cleared. */
+  -webkit-appearance: none;
+  appearance: none;
+  overflow: hidden;
   /* Extra left padding so the picker icon stays inside the field on narrow viewports. */
   padding-left: 2.5rem;
   padding-right: 10px;
@@ -5282,13 +5334,14 @@
 .app-due-date-urgency-options {
   display: flex;
   flex-wrap: nowrap;
-  gap: 4px;
+  gap: 0;
   flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
 }
 
 .app-due-date-urgency-button {
+  position: relative;
   flex: 1 1 0;
   box-sizing: border-box;
   min-width: 0;
@@ -5303,6 +5356,17 @@
   letter-spacing: 0.02em;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+.app-due-date-urgency-button:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 22%;
+  bottom: 22%;
+  width: 1px;
+  background: color-mix(in srgb, var(--border) 90%, transparent);
+  pointer-events: none;
 }
 
 .app-due-date-urgency-button.is-active {
