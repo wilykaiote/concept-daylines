@@ -67,17 +67,6 @@ export function HomeView({
         <header className="home-header">
           <div className="home-top-row">
             <div className="home-wheel">
-              <DayWheelChart
-                label={wheelLabel}
-                slices={wheelSlices}
-                elapsedEndMin={wheelElapsedEndMin}
-                windowStartMin={windowStartMin}
-                windowEndMin={windowEndMin}
-                showLegend={false}
-                showLabel={false}
-                compact
-                hubCenter={wheelCountdown}
-              />
               <div
                 className="home-step-nav"
                 role="group"
@@ -105,33 +94,48 @@ export function HomeView({
                   ›
                 </button>
               </div>
+              <DayWheelChart
+                label={wheelLabel}
+                slices={wheelSlices}
+                elapsedEndMin={wheelElapsedEndMin}
+                windowStartMin={windowStartMin}
+                windowEndMin={windowEndMin}
+                showLegend={false}
+                showLabel={false}
+                compact
+                hubCenter={wheelCountdown}
+              />
             </div>
             <div className="home-top-main">
-              <div className="home-wheel-key-col">
-                {overflowCount > 0 && (
-                  <button
-                    type="button"
-                    className={`task-day-label task-overdue-toggle home-overdue-toggle${overdueOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
-                    aria-expanded={overdueOpen}
-                    aria-controls="home-overdue-list"
-                    aria-label="Overflow"
-                    onClick={onOverdueToggle}
-                  >
-                    <span className="task-overdue-toggle-action">
-                      <span className="task-overdue-toggle-reschedule">Overflow</span>
-                      <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                        {overdueOpen ? "∨" : ">"}
-                      </span>
-                    </span>
-                  </button>
-                )}
-              </div>
               {focusTask != null ? (
                 <div className="home-focus-current">
                   <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
                 </div>
               ) : (
                 <p className="home-focus-empty">No focus task right now</p>
+              )}
+              {overflowCount > 0 && (
+                <button
+                  type="button"
+                  className={`task-day-label task-overdue-toggle home-overdue-toggle${overdueOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
+                  aria-expanded={overdueOpen}
+                  aria-controls="home-overdue-list"
+                  aria-label="Overflow"
+                  onClick={onOverdueToggle}
+                >
+                  <span className="task-overdue-toggle-action">
+                    <span className="task-overdue-toggle-reschedule">
+                      Overflow
+                      <span className="task-overdue-toggle-count">
+                        {" "}
+                        - {overflowCount}
+                      </span>
+                    </span>
+                    <span className="task-overdue-toggle-chevron" aria-hidden="true">
+                      {overdueOpen ? "∨" : ">"}
+                    </span>
+                  </span>
+                </button>
               )}
             </div>
           </div>
@@ -145,11 +149,6 @@ export function HomeView({
               >
                 {overdueTasks.length > 0 && (
                   <div className="task-overflow-bucket">
-                    <div className="task-overflow-bucket-header">
-                      <span className="task-overflow-bucket-label">
-                        The following will be rescheduled at end of day
-                      </span>
-                    </div>
                     <ul className="task-day-tasks task-overdue-tasks">
                       {overdueTasks.map((task) => renderOverdueTask(task))}
                     </ul>

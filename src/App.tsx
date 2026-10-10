@@ -1108,7 +1108,6 @@ function CompactTaskRow({
   parentTitle,
   onComplete,
   onEdit,
-  showOverflowAdvance = false,
 }: {
   task: ComposerDraft;
   overdue: boolean;
@@ -1119,9 +1118,7 @@ function CompactTaskRow({
   parentTitle?: string | null;
   onComplete: () => void;
   onEdit: () => void;
-  showOverflowAdvance?: boolean;
 }) {
-  const [advanceOpen, setAdvanceOpen] = useState(showOverflowAdvance);
   const urgencyLabel = isUrgencyOption(task.urgency) ? task.urgency : null;
   const hasDateOrTime =
     parseTaskDate(task.date) != null ||
@@ -1153,15 +1150,12 @@ function CompactTaskRow({
             ? "LOG"
             : "TASK";
   const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
-  const showAdvance = advanceOpen;
 
-  const toggleAdvance = () => {
-    setAdvanceOpen((open) => !open);
-  };
-
-  const rowClassName = `task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`;
-  const rowBody = (
-    <>
+  return (
+    <li
+      data-task-id={task.id ?? undefined}
+      className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
+    >
       <div
         className="task-row-primary"
         onClick={(event) => {
@@ -1244,63 +1238,15 @@ function CompactTaskRow({
         )}
       </div>
       <div className="task-row-rail">
-        <button
-          type="button"
-          className="task-row-type-label"
-          aria-label={`${showAdvance ? "Hide" : "Show"} advance for ${task.title}`}
-          aria-pressed={showAdvance}
-          onClick={toggleAdvance}
-        >
-          {typeLabel}
-        </button>
+        <span className="task-row-type-label">{typeLabel}</span>
         {durationLabel != null ? (
-          <button
-            type="button"
-            className="task-row-duration-slot"
-            aria-label={`${showAdvance ? "Hide" : "Show"} advance for ${task.title}`}
-            aria-pressed={showAdvance}
-            onClick={toggleAdvance}
-          >
+          <span className="task-row-duration-slot">
             <span className="task-row-duration">{durationLabel}</span>
-          </button>
+          </span>
         ) : (
           <span className="task-row-rail-spacer" aria-hidden="true" />
         )}
       </div>
-    </>
-  );
-
-  const advanceButton = showAdvance ? (
-    <button
-      type="button"
-      className={`task-overflow-advance is-${scheduleKind}${overdue ? " is-overdue" : ""}`}
-      aria-label={`Advance ${task.title}`}
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          d="M9 6l6 6-6 6"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </button>
-  ) : null;
-
-  if (showAdvance) {
-    return (
-      <li data-task-id={task.id ?? undefined} className="task-overflow-item">
-        <div className={rowClassName}>{rowBody}</div>
-        {advanceButton}
-      </li>
-    );
-  }
-
-  return (
-    <li data-task-id={task.id ?? undefined} className={rowClassName}>
-      {rowBody}
     </li>
   );
 }
@@ -3650,7 +3596,7 @@ function App() {
         pendingViewScrollTaskIdRef.current = null;
         pendingViewPreserveChromeRef.current = false;
         chromeLockRef.current = false;
-      } else {
+        } else {
         pendingViewScrollTaskIdRef.current = null;
         pendingTimelineScrollDayRef.current = null;
         pendingViewPreserveChromeRef.current = false;
@@ -4313,7 +4259,9 @@ function App() {
         </ComposerOverlayMenu>
         {activeView === "home" && (
           <HomeView
-            wheelLabel={formatTwinelineDateLabel(todayStart, new Date(countdownNow))}
+            wheelLabel={formatTwinelineDateLabel(todayStart, new Date(countdownNow), {
+              weekday: true,
+            })}
             wheelSlices={todayWheelSlices}
             wheelElapsedEndMin={nowMinutes}
             windowStartMin={todayWindowStartMinutes}
@@ -4711,26 +4659,9 @@ function App() {
                       const main = mainRef.current;
                       if (main) {
                         timelineScrollSyncLockRef.current = true;
-                        const todayKeyStr = dayKey(today);
-                        const section = main.querySelector(
-                          `[data-calendar-day="${CSS.escape(todayKeyStr)}"]`,
-                        );
-                        const target =
-                          section?.querySelector<HTMLElement>(
-                            ".task-day-label-row, .calendar-timeline-day-label",
-                          ) ?? (section instanceof HTMLElement ? section : null);
-                        if (target) {
-                          const chromeHeight = twinelineChromeRef.current?.offsetHeight ?? 0;
-                          const mainRect = main.getBoundingClientRect();
-                          const targetRect = target.getBoundingClientRect();
-                          const top =
-                            main.scrollTop +
-                            (targetRect.top - mainRect.top) -
-                            chromeHeight;
-                          main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-                        } else {
-                          main.scrollTo({ top: 0, behavior: "smooth" });
-                        }
+                        // Today is the first day group — scroll to the absolute top
+                        // (notice / tasks), not the Overflow row at the bottom.
+                        main.scrollTo({ top: 0, behavior: "smooth" });
                         window.setTimeout(() => {
                           timelineScrollSyncLockRef.current = false;
                           lastScrollTopRef.current = main.scrollTop;
@@ -4809,9 +4740,10 @@ function App() {
                         });
                       }}
                     >
-                      Not enough time remaining. {overflowTaskCount}{" "}
-                      {overflowTaskCount === 1 ? "task has" : "tasks have"} been moved to{" "}
-                      <span className="task-overflow-notice-overflow">Overflow</span>.
+                      {overflowTaskCount}{" "}
+                      {overflowTaskCount === 1 ? "task" : "tasks"} moved to{" "}
+                      <span className="task-overflow-notice-overflow">Overflow</span> and
+                      will be rescheduled at end of day.
                     </button>
                   )}
                   {dayTasks.length > 0 && (
@@ -4835,16 +4767,9 @@ function App() {
                             editTask(block.task);
                           }}
                         />
-                      ))}
-                    </ul>
-                  )}
-                  {showOverdueToggle && overdueTasks.length > 0 && (
-                    <div className="task-overflow-bucket-header">
-                      <span className="task-overflow-bucket-label">
-                        The following will be rescheduled at end of day
-                      </span>
-                    </div>
-                  )}
+            ))}
+          </ul>
+        )}
                   {showOverdueToggle && (
                     <div className="task-day-label-row task-day-overflow-row">
                       <button
@@ -4857,7 +4782,13 @@ function App() {
                         onClick={() => setOverdueSectionOpen((open) => !open)}
                       >
                         <span className="task-overdue-toggle-action">
-                          <span className="task-overdue-toggle-reschedule">Overflow</span>
+                          <span className="task-overdue-toggle-reschedule">
+                            Overflow
+                            <span className="task-overdue-toggle-count">
+                              {" "}
+                              - {overflowTaskCount}
+                            </span>
+                          </span>
                           <span className="task-overdue-toggle-chevron" aria-hidden="true">
                             {overdueSectionOpen ? "∨" : ">"}
                           </span>
@@ -4881,7 +4812,6 @@ function App() {
                                   key={task.id ?? task.title}
                                   task={task}
                                   overdue
-                                  showOverflowAdvance
                                   editing={editingTaskId === task.id}
                                   highlighted={isTaskHighlighted(task.id)}
                                   popping={isTaskPopping(task.id)}
@@ -4908,7 +4838,6 @@ function App() {
                                   key={task.id ?? task.title}
                                   task={task}
                                   overdue={false}
-                                  showOverflowAdvance
                                   editing={editingTaskId === task.id}
                                   highlighted={isTaskHighlighted(task.id)}
                                   popping={isTaskPopping(task.id)}
@@ -4988,9 +4917,10 @@ function App() {
                       });
                     }}
                   >
-                    Not enough time remaining. {overflowTaskCount}{" "}
-                    {overflowTaskCount === 1 ? "task has" : "tasks have"} been moved to{" "}
-                    <span className="task-overflow-notice-overflow">Overflow</span>.
+                    {overflowTaskCount}{" "}
+                    {overflowTaskCount === 1 ? "task" : "tasks"} moved to{" "}
+                    <span className="task-overflow-notice-overflow">Overflow</span> and
+                    will be rescheduled at end of day.
                   </button>
                 )}
                 <div
@@ -5027,9 +4957,9 @@ function App() {
                       />
                     )}
                     {view.stubs.map((stub) => (
-                      <button
+                  <button
                         key={`${stub.region}-${stub.collapsed ? "expand" : "collapse"}`}
-                        type="button"
+                    type="button"
                         className={`calendar-timeline-outside-stub${stub.collapsed ? " is-collapsed" : " is-expanded"} is-${stub.region}`}
                         style={{ top: stub.topPx, height: stub.heightPx }}
                         aria-expanded={!stub.collapsed}
@@ -5045,8 +4975,8 @@ function App() {
                         onClick={() => toggleOutsideRegion(stub.region)}
                       >
                         <span className="calendar-timeline-outside-stub-label">{stub.label}</span>
-                      </button>
-                    ))}
+                  </button>
+                ))}
                     {view.blocks.map((block) => {
                       const scheduleKind = isAnchoredTask(block.task) ? "anchored" : "soft";
                       return (
@@ -5056,8 +4986,8 @@ function App() {
                         className={`calendar-timeline-block is-${scheduleKind}${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${block.overdue ? " is-overdue" : ""}${isTaskPopping(block.taskId) ? " is-popping" : ""}`}
                         style={{ top: block.topPx, height: block.heightPx }}
                       >
-                        <button
-                          type="button"
+                <button
+                  type="button"
                           className="calendar-timeline-block-body"
                           onClick={() => {
                             if (!block.taskId) return;
@@ -5076,24 +5006,17 @@ function App() {
                           }
                         >
                           <span className="calendar-timeline-block-title">{block.title}</span>
-                        </button>
-                      </div>
+                </button>
+              </div>
                       );
                     })}
-                  </div>
+          </div>
                 </div>
-                {showOverdueToggle && overdueTasks.length > 0 && (
-                  <div className="task-overflow-bucket-header">
-                    <span className="task-overflow-bucket-label">
-                      The following will be rescheduled at end of day
-                    </span>
-                  </div>
-                )}
                 {showOverdueToggle && (
                   <div className="task-day-label-row task-day-overflow-row">
-                    <button
+            <button
                       ref={overflowToggleRef}
-                      type="button"
+              type="button"
                       className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
                       aria-expanded={overdueSectionOpen}
                       aria-controls="task-overdue-list"
@@ -5101,12 +5024,18 @@ function App() {
                       onClick={() => setOverdueSectionOpen((open) => !open)}
                     >
                       <span className="task-overdue-toggle-action">
-                        <span className="task-overdue-toggle-reschedule">Overflow</span>
+                        <span className="task-overdue-toggle-reschedule">
+                          Overflow
+                          <span className="task-overdue-toggle-count">
+                            {" "}
+                            - {overflowTaskCount}
+                          </span>
+                        </span>
                         <span className="task-overdue-toggle-chevron" aria-hidden="true">
                           {overdueSectionOpen ? "∨" : ">"}
                         </span>
                       </span>
-                    </button>
+            </button>
                   </div>
                 )}
                 {showOverdueToggle && overdueSectionOpen && (
@@ -5125,7 +5054,6 @@ function App() {
                                 key={task.id ?? task.title}
                                 task={task}
                                 overdue
-                                showOverflowAdvance
                                 editing={editingTaskId === task.id}
                                 highlighted={isTaskHighlighted(task.id)}
                                 popping={isTaskPopping(task.id)}
@@ -5152,7 +5080,6 @@ function App() {
                                 key={task.id ?? task.title}
                                 task={task}
                                 overdue={false}
-                                showOverflowAdvance
                                 editing={editingTaskId === task.id}
                                 highlighted={isTaskHighlighted(task.id)}
                                 popping={isTaskPopping(task.id)}
@@ -5210,16 +5137,16 @@ function App() {
             {[HOME_TAB, null, DISCOVER_TAB].map((tab) => {
               if (!tab) {
                 return (
-                  <button
+              <button
                     key="dayline"
-                    type="button"
+                type="button"
                     className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
                     onClick={() => selectView("dayline")}
-                    tabIndex={collapsed && !searchOpen ? 0 : -1}
+                tabIndex={collapsed && !searchOpen ? 0 : -1}
                     aria-label={DAYLINE_TAB.label}
-                  >
+              >
                     <DaylineIcon />
-                  </button>
+              </button>
                 );
               }
               const { id, label, Icon } = tab;
@@ -6573,8 +6500,8 @@ function App() {
                         setDurationMenuOpen((open) => !open);
                       }}
                     >
-                      <ClockIcon />
-                    </button>
+                    <ClockIcon />
+                  </button>
                   </div>
                 )}
                 {composeKind === "task" && (
@@ -6606,7 +6533,7 @@ function App() {
                     <LinkIcon />
                   </button>
                 )}
-                </div>
+              </div>
               </div>
               <div className="app-compose-action-row">
               <div className="app-compose-action">
