@@ -560,15 +560,13 @@ function UrgencyIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
-        d="M6.5 4.5v10M12 4.5v10M17.5 4.5v10"
+        d="M12 4.5v11"
         fill="none"
         stroke="currentColor"
-        strokeWidth="2.2"
+        strokeWidth="2.4"
         strokeLinecap="round"
       />
-      <circle cx="6.5" cy="18.5" r="1.15" fill="currentColor" />
-      <circle cx="12" cy="18.5" r="1.15" fill="currentColor" />
-      <circle cx="17.5" cy="18.5" r="1.15" fill="currentColor" />
+      <circle cx="12" cy="19" r="1.35" fill="currentColor" />
     </svg>
   );
 }
@@ -1325,9 +1323,13 @@ function ComposerOverlayMenu({
       const viewRight = viewLeft + viewWidth;
       const gap = 10;
       const pad = 8;
+      const availableWidth = Math.max(0, viewWidth - pad * 2);
       const match = matchWidthRef?.current;
       const matchRect = match?.getBoundingClientRect();
-      const menuWidth = matchRect?.width ?? menu.offsetWidth;
+      const menuWidth = Math.min(
+        matchRect?.width ?? menu.offsetWidth,
+        availableWidth,
+      );
       const menuHeight = menu.offsetHeight;
 
       let left = matchRect
@@ -1347,7 +1349,7 @@ function ComposerOverlayMenu({
         const bottom = window.innerHeight - rect.top + gap;
         setCoords(
           matchRect
-            ? { bottom, left, width: matchRect.width }
+            ? { bottom, left, width: menuWidth }
             : { bottom, left },
         );
         return;
@@ -1355,7 +1357,7 @@ function ComposerOverlayMenu({
 
       let top = rect.bottom + gap;
       top = Math.min(Math.max(top, viewTop + pad), Math.max(viewTop + pad, viewBottom - menuHeight - pad));
-      setCoords(matchRect ? { top, left, width: matchRect.width } : { top, left });
+      setCoords(matchRect ? { top, left, width: menuWidth } : { top, left });
     };
 
     updatePosition();
@@ -5493,127 +5495,177 @@ function App() {
                 >
                   {taskToolHint === "Date & Time" ? (
                     <>
-                      <p className="app-due-date-title app-due-date-urgency-label">Urgency</p>
-                      <div className="app-due-date-divider" aria-hidden="true" />
                       <div className="app-due-date-fields">
-                        <div
-                          className={`app-due-date-schedule${dateTimeAnchor != null ? " is-open" : ""}`}
-                          aria-hidden={dateTimeAnchor == null}
-                        >
-                          <div className="app-due-date-schedule-inner">
-                            <label className="app-due-date-field">
-                              Time
-                              <input
-                                ref={taskTimeInputRef}
-                                type="time"
-                                value={taskTimeValue}
-                                tabIndex={dateTimeAnchor == null ? -1 : 0}
-                                onChange={(event) => setTaskTimeValue(event.target.value)}
-                                onInput={(event) =>
-                                  setTaskTimeValue(event.currentTarget.value)
-                                }
-                                aria-label="Task time"
-                              />
-                            </label>
-                            <label className="app-due-date-field">
-                              Date
-                              <input
-                                ref={taskDateInputRef}
-                                type="date"
-                                value={taskDate}
-                                tabIndex={dateTimeAnchor == null ? -1 : 0}
-                                onChange={(event) => setTaskDateValue(event.target.value)}
-                                onInput={(event) =>
-                                  setTaskDateValue(event.currentTarget.value)
-                                }
-                                aria-label="Task date"
-                              />
-                            </label>
-                          </div>
-                        </div>
-                        <div className="app-due-date-urgency">
-                          <div
-                            className="app-due-date-urgency-options"
-                            role="group"
-                            aria-label="Urgency"
-                          >
-                            {(() => {
-                              const todayKeyValue = dayKey(
-                                toStartOfDay(new Date(countdownNow)),
-                              );
-                              const tomorrowKeyValue = dayKey(
-                                addDays(toStartOfDay(new Date(countdownNow)), 1),
-                              );
-                              return (
-                                [
-                                  { id: "today", label: "Today" },
-                                  { id: "tomorrow", label: "Tomorrow" },
-                                  { id: "starts_on", label: "Starts on" },
-                                  { id: "due_by", label: "Due by" },
-                                  { id: "ASAP", label: "ASAP" },
-                                  { id: "Soon", label: "Soon" },
-                                  { id: "Later", label: "Later" },
-                                  { id: "Future", label: "Future" },
-                                ] as const
-                              ).map((option) => {
-                                const isActive =
-                                  option.id === "today"
-                                    ? dateTimeAnchor === "today"
-                                    : option.id === "tomorrow"
-                                      ? dateTimeAnchor === "tomorrow"
-                                      : option.id === "starts_on"
-                                        ? dateTimeAnchor === "starts_on"
-                                        : option.id === "due_by"
-                                          ? dateTimeAnchor === "due_by"
-                                          : urgencyActivated &&
-                                            urgency === option.id &&
-                                            dateTimeAnchor == null;
-                                return (
-                                  <button
-                                    key={option.id}
-                                    type="button"
-                                    className={`app-due-date-urgency-button${
-                                      isActive ? " is-active" : ""
-                                    }`}
-                                    aria-pressed={isActive}
-                                    onClick={() => {
-                                      if (option.id === "today") {
-                                        setDateTimeAnchor("today");
-                                        setUrgencyActivated(false);
-                                        setTaskDateValue(todayKeyValue);
-                                        return;
+                        {(() => {
+                          const todayKeyValue = dayKey(
+                            toStartOfDay(new Date(countdownNow)),
+                          );
+                          const tomorrowKeyValue = dayKey(
+                            addDays(toStartOfDay(new Date(countdownNow)), 1),
+                          );
+                          const scheduleOptions = [
+                            { id: "today", label: "Today" },
+                            { id: "tomorrow", label: "Tomorrow" },
+                            { id: "starts_on", label: "Starts on" },
+                            { id: "due_by", label: "Due by" },
+                          ] as const;
+                          const urgencyOptions = [
+                            { id: "ASAP", label: "ASAP" },
+                            { id: "Soon", label: "Soon" },
+                            { id: "Later", label: "Later" },
+                            { id: "Future", label: "Future" },
+                          ] as const;
+                          const scheduleRowSelected = dateTimeAnchor != null;
+                          const urgencyRowSelected =
+                            urgencyActivated && dateTimeAnchor == null;
+                          return (
+                            <div className="app-due-date-selector">
+                              <div className="app-due-date-option-row">
+                                <span
+                                  className={`app-due-date-option-row-legend${
+                                    scheduleRowSelected ? " is-active" : ""
+                                  }`}
+                                >
+                                  <span className="app-due-date-option-row-icon" aria-hidden="true">
+                                    <CalendarIcon />
+                                  </span>
+                                </span>
+                                <div
+                                  className="app-due-date-urgency-options"
+                                  role="group"
+                                  aria-label="Date"
+                                >
+                                  {scheduleOptions.map((option) => {
+                                    const isActive =
+                                      option.id === "today"
+                                        ? dateTimeAnchor === "today"
+                                        : option.id === "tomorrow"
+                                          ? dateTimeAnchor === "tomorrow"
+                                          : option.id === "starts_on"
+                                            ? dateTimeAnchor === "starts_on"
+                                            : dateTimeAnchor === "due_by";
+                                    return (
+                                      <button
+                                        key={option.id}
+                                        type="button"
+                                        className={`app-due-date-urgency-button${
+                                          isActive ? " is-active" : ""
+                                        }`}
+                                        aria-pressed={isActive}
+                                        onClick={() => {
+                                          if (option.id === "today") {
+                                            setDateTimeAnchor("today");
+                                            setUrgencyActivated(false);
+                                            setTaskDateValue(todayKeyValue);
+                                            return;
+                                          }
+                                          if (option.id === "tomorrow") {
+                                            setDateTimeAnchor("tomorrow");
+                                            setUrgencyActivated(false);
+                                            setTaskDateValue(tomorrowKeyValue);
+                                            return;
+                                          }
+                                          if (option.id === "starts_on") {
+                                            setDateTimeAnchor("starts_on");
+                                            setUrgencyActivated(false);
+                                            setTaskTimeModeValue("starts_at");
+                                            return;
+                                          }
+                                          setDateTimeAnchor("due_by");
+                                          setUrgencyActivated(false);
+                                          setTaskTimeModeValue("due_at");
+                                        }}
+                                      >
+                                        {option.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <div
+                                className={`app-due-date-schedule${dateTimeAnchor != null ? " is-open" : ""}`}
+                                aria-hidden={dateTimeAnchor == null}
+                              >
+                                <div className="app-due-date-schedule-inner">
+                                  <label className="app-due-date-field">
+                                    Date
+                                    <input
+                                      ref={taskDateInputRef}
+                                      type="date"
+                                      value={taskDate}
+                                      tabIndex={dateTimeAnchor == null ? -1 : 0}
+                                      onChange={(event) =>
+                                        setTaskDateValue(event.target.value)
                                       }
-                                      if (option.id === "tomorrow") {
-                                        setDateTimeAnchor("tomorrow");
-                                        setUrgencyActivated(false);
-                                        setTaskDateValue(tomorrowKeyValue);
-                                        return;
+                                      onInput={(event) =>
+                                        setTaskDateValue(event.currentTarget.value)
                                       }
-                                      if (option.id === "starts_on") {
-                                        setDateTimeAnchor("starts_on");
-                                        setUrgencyActivated(false);
-                                        setTaskTimeModeValue("starts_at");
-                                        return;
+                                      aria-label="Task date"
+                                    />
+                                  </label>
+                                  <label className="app-due-date-field">
+                                    Time
+                                    <input
+                                      ref={taskTimeInputRef}
+                                      type="time"
+                                      value={taskTimeValue}
+                                      tabIndex={dateTimeAnchor == null ? -1 : 0}
+                                      onChange={(event) =>
+                                        setTaskTimeValue(event.target.value)
                                       }
-                                      if (option.id === "due_by") {
-                                        setDateTimeAnchor("due_by");
-                                        setUrgencyActivated(false);
-                                        setTaskTimeModeValue("due_at");
-                                        return;
+                                      onInput={(event) =>
+                                        setTaskTimeValue(event.currentTarget.value)
                                       }
-                                      clearTaskDueDate();
-                                      clearEditingTaskSchedule();
-                                      setUrgency(option.id);
-                                      setUrgencyActivated(true);
-                                    }}
-                                  >
-                                    {option.label}
-                                  </button>
-                                );
-                              });
-                            })()}
-                          </div>
-                        </div>
+                                      aria-label="Task time"
+                                    />
+                                  </label>
+                                </div>
+                              </div>
+                              <div className="app-due-date-divider" aria-hidden="true" />
+                              <div className="app-due-date-option-row">
+                                <span
+                                  className={`app-due-date-option-row-legend${
+                                    urgencyRowSelected ? " is-active" : ""
+                                  }`}
+                                >
+                                  <span className="app-due-date-option-row-icon" aria-hidden="true">
+                                    <UrgencyIcon />
+                                  </span>
+                                </span>
+                                <div
+                                  className="app-due-date-urgency-options"
+                                  role="group"
+                                  aria-label="Urgency"
+                                >
+                                  {urgencyOptions.map((option) => {
+                                    const isActive =
+                                      urgencyActivated &&
+                                      urgency === option.id &&
+                                      dateTimeAnchor == null;
+                                    return (
+                                      <button
+                                        key={option.id}
+                                        type="button"
+                                        className={`app-due-date-urgency-button${
+                                          isActive ? " is-active" : ""
+                                        }`}
+                                        aria-pressed={isActive}
+                                        onClick={() => {
+                                          clearTaskDueDate();
+                                          clearEditingTaskSchedule();
+                                          setUrgency(option.id);
+                                          setUrgencyActivated(true);
+                                        }}
+                                      >
+                                        {option.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </>
                   ) : taskToolHint === LINKING_TOOL_HINT && isLinkingToolComposeKind(composeKind) ? (

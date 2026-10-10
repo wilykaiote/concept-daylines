@@ -508,7 +508,7 @@ export function formatTwinelineDateLabel(
   const stamp = `${MONTH_LABELS[selected.getMonth()]} ${selected.getDate()}`;
   let label: string;
   if (diffDays === 0) label = `Today - ${stamp}`;
-  else if (diffDays === 1) label = `Tomorrow - ${stamp}`;
+  else if (diffDays === 1) label = `${stamp} - Tomorrow`;
   else if (diffDays === -1) label = `${stamp} - Yesterday`;
   else label = stamp;
   if (options?.weekday) {
