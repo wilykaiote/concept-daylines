@@ -1149,7 +1149,7 @@ function formatTaskClockLabel(hhmm: string): string | null {
 }
 
 function formatTaskScheduleMetaLabel(
-  task: ComposerDraft,
+  task: Pick<ComposerDraft, "date" | "starts_at" | "due_at">,
   now: Date,
 ): string | null {
   const date = parseTaskDate(task.date);
@@ -2942,6 +2942,110 @@ function App() {
     ? formatRecurring(recurringCount, recurringUnit)
     : null;
 
+  const showComposerTaskRowChrome = !isContainerComposeKind(composeKind);
+  const composerPreviewNow = new Date(countdownNow);
+  const composerPreviewScheduleLabel = formatTaskScheduleMetaLabel(
+    {
+      date: composerDate,
+      starts_at: composerStartsAt,
+      due_at: composerDueAt,
+    },
+    composerPreviewNow,
+  );
+  const composerHasDateOrTime =
+    composerDate != null || composerStartsAt != null || composerDueAt != null;
+  const composerUrgencyLabel =
+    urgencyActivated && isUrgencyOption(urgency) ? urgency : null;
+  const composerShowUrgency =
+    composerUrgencyLabel != null && !composerHasDateOrTime;
+  const composerTopMetaLabel =
+    composerPreviewScheduleLabel ?? (composerShowUrgency ? composerUrgencyLabel : null);
+  const composerHasTopMeta = composerTopMetaLabel != null;
+  const composerImpactValue =
+    impactActivated || composerMetaAuto.has("impact")
+      ? clampImpact(impact)
+      : null;
+  const composerImpactPercent =
+    composerImpactValue != null
+      ? Math.min(100, Math.max(0, (composerImpactValue / IMPACT_MAX) * 100))
+      : null;
+  const composerHasImpact =
+    composerImpactValue != null && composerImpactPercent != null;
+  const composerDurationLabel = formatTaskDurationLabel(estDurationMinutes);
+  const composerParentTitle = parentTitleFor(pendingParentId);
+  const composerHasParent = normalizeOptionalField(composerParentTitle) != null;
+  const composerIsRecurring = composerRecurring != null;
+  const composerTypeLabel =
+    composeKind === "event"
+      ? "EVENT"
+      : composeKind === "item"
+        ? "ITEM"
+        : composeKind === "note"
+          ? "NOTE"
+          : composeKind === "log"
+            ? "LOG"
+            : "TASK";
+  const composerScheduleAuto =
+    composerMetaAuto.has("schedule") || composerAutoRescheduled;
+  const composerUrgencyAuto = composerMetaAuto.has("urgency");
+  const composerDurationAuto = composerMetaAuto.has("duration");
+  const composerImpactAuto = composerMetaAuto.has("impact");
+  const composerTypeAuto = composerMetaAuto.has("type");
+  const composerParentAuto = composerMetaAuto.has("parent");
+  const composerRecurringAuto = composerMetaAuto.has("recurring");
+
+  const openComposerScheduleTool = () => {
+    if (composeKind !== "task" || dueDateButtonRef.current == null) return;
+    openTaskToolHint(dueDateButtonRef.current, "Date & Time");
+  };
+  const openComposerLinkingTool = () => {
+    if (!isLinkingToolComposeKind(composeKind) || parentTaskButtonRef.current == null) {
+      return;
+    }
+    openTaskToolHint(parentTaskButtonRef.current, LINKING_TOOL_HINT);
+  };
+  const openComposerDurationTool = () => {
+    if (composeKind !== "task") return;
+    setAttachMenuOpen(false);
+    setComposeKindMenuOpen(false);
+    setRecurringMenuOpen(false);
+    setImpactMenuOpen(false);
+    closeTaskToolHint();
+    clearComposerMetaAuto("duration");
+    setDurationActivated(true);
+    setDurationMenuOpen((open) => !open);
+  };
+  const openComposerImpactTool = () => {
+    if (composeKind !== "task") return;
+    setAttachMenuOpen(false);
+    setComposeKindMenuOpen(false);
+    setDurationMenuOpen(false);
+    setRecurringMenuOpen(false);
+    closeTaskToolHint();
+    clearComposerMetaAuto("impact");
+    setImpactActivated(true);
+    setImpactMenuOpen((open) => !open);
+  };
+  const openComposerRecurringTool = () => {
+    if (composeKind !== "task") return;
+    setAttachMenuOpen(false);
+    setComposeKindMenuOpen(false);
+    setDurationMenuOpen(false);
+    setImpactMenuOpen(false);
+    closeTaskToolHint();
+    clearComposerMetaAuto("recurring");
+    setRecurringMenuOpen((open) => !open);
+  };
+  const openComposerTypeTool = () => {
+    setAttachMenuOpen(false);
+    setDurationMenuOpen(false);
+    setRecurringMenuOpen(false);
+    setImpactMenuOpen(false);
+    closeTaskToolHint();
+    clearComposerMetaAuto("type");
+    setComposeKindMenuOpen((open) => !open);
+  };
+
   const isEditDirty =
     editingTaskId != null &&
     editTaskBaseline != null &&
@@ -4346,6 +4450,7 @@ function App() {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest(".app-composer-meta-chip")) return;
       if (composeKindMenuRef.current?.contains(target)) return;
       if (composeKindButtonRef.current?.contains(target)) return;
       if (composeAddButtonRef.current?.contains(target)) return;
@@ -4437,6 +4542,7 @@ function App() {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest(".app-composer-meta-chip")) return;
       if (durationMenuRef.current?.contains(target)) return;
       if (durationButtonRef.current?.contains(target)) return;
       setDurationMenuOpen(false);
@@ -4452,6 +4558,7 @@ function App() {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest(".app-composer-meta-chip")) return;
       if (recurringMenuRef.current?.contains(target)) return;
       if (cycleButtonRef.current?.contains(target)) return;
       setRecurringMenuOpen(false);
@@ -4468,6 +4575,7 @@ function App() {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest(".app-composer-meta-chip")) return;
       if (impactMenuRef.current?.contains(target)) return;
       if (impactButtonRef.current?.contains(target)) return;
       setImpactMenuOpen(false);
@@ -4483,6 +4591,7 @@ function App() {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest(".app-composer-meta-chip")) return;
       if (taskToolHintMenuRef.current?.contains(target)) return;
       if (taskToolHintAnchorRef.current?.contains(target)) return;
       if (linkContainerTypeMenuRef.current?.contains(target)) return;
@@ -5598,30 +5707,189 @@ function App() {
             >
               <CloseIcon />
             </button>
-            <div className="app-composer-field-row">
-              {editingTaskId != null && (
-                <div className="app-composer-complete-slot">
+            {showComposerTaskRowChrome ? (
+              <div className={`task-row is-${composerScheduleKind} app-composer-task-row`}>
+                <div className="task-row-primary">
+                  {(composerHasTopMeta || composerHasImpact) && (
+                    <div className="task-row-top">
+                      <span className="task-row-top-meta">
+                        {composerPreviewScheduleLabel != null ? (
+                          <button
+                            type="button"
+                            className={`task-row-schedule app-composer-meta-chip${
+                              composerScheduleAuto ? " is-auto" : ""
+                            }`}
+                            tabIndex={collapsed ? -1 : 0}
+                            aria-label="Date & Time"
+                            aria-expanded={taskToolHint === "Date & Time"}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={openComposerScheduleTool}
+                          >
+                            {composerPreviewScheduleLabel}
+                          </button>
+                        ) : composerShowUrgency ? (
+                          <button
+                            type="button"
+                            className={`task-row-urgency app-composer-meta-chip${
+                              composerUrgencyAuto ? " is-auto" : ""
+                            }`}
+                            tabIndex={collapsed ? -1 : 0}
+                            aria-label="Date & Time"
+                            aria-expanded={taskToolHint === "Date & Time"}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={openComposerScheduleTool}
+                          >
+                            {composerUrgencyLabel}
+                          </button>
+                        ) : null}
+                        {composerIsRecurring && (
+                          <button
+                            type="button"
+                            className={`task-row-recurring app-composer-meta-chip${
+                              composerRecurringAuto ? " is-auto" : ""
+                            }`}
+                            tabIndex={collapsed ? -1 : 0}
+                            aria-label="Repeat"
+                            aria-expanded={recurringMenuOpen}
+                            title="Repeats"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={openComposerRecurringTool}
+                          >
+                            <CycleIcon />
+                          </button>
+                        )}
+                      </span>
+                      {composerHasImpact && (
+                        <button
+                          type="button"
+                          className={`task-row-impact app-composer-meta-chip${
+                            composerImpactAuto ? " is-auto" : ""
+                          }`}
+                          tabIndex={collapsed ? -1 : 0}
+                          aria-label={`Impact ${composerImpactValue} of ${IMPACT_MAX}`}
+                          title={`Impact ${composerImpactValue}`}
+                          aria-expanded={impactMenuOpen}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={openComposerImpactTool}
+                        >
+                          <span className="task-row-impact-track" aria-hidden="true">
+                            <span
+                              className="task-row-impact-fill"
+                              style={{ width: `${composerImpactPercent}%` }}
+                            />
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <div className="task-row-content">
+                    <div className="task-row-content-main">
+                      <div className="task-row-main app-composer-field-row">
+                        {editingTaskId != null && (
+                          <div className="app-composer-complete-slot">
+                            <button
+                              type="button"
+                              className={`task-complete is-${composerScheduleKind}`}
+                              aria-label="Mark complete"
+                              tabIndex={collapsed ? -1 : 0}
+                              onClick={() => requestCompleteTask(editingTaskId)}
+                              disabled={isTaskPopping(editingTaskId)}
+                            />
+                          </div>
+                        )}
+                        <textarea
+                          ref={composeInputRef}
+                          rows={1}
+                          value={content}
+                          onChange={(e) => setContent(e.target.value)}
+                          placeholder={composePlaceholder}
+                          enterKeyHint="enter"
+                          autoComplete="off"
+                          tabIndex={collapsed ? -1 : 0}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  {composerHasParent && (
+                    <div className="task-row-bottom">
+                      <button
+                        type="button"
+                        className={`task-row-parent app-composer-meta-chip${
+                          composerParentAuto ? " is-auto" : ""
+                        }`}
+                        tabIndex={collapsed ? -1 : 0}
+                        aria-label="Linking"
+                        aria-expanded={taskToolHint === LINKING_TOOL_HINT}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={openComposerLinkingTool}
+                      >
+                        <span className="task-row-parent-name">{composerParentTitle}</span>
+                        <LinkIcon />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="task-row-rail">
                   <button
                     type="button"
-                    className={`task-complete is-${composerScheduleKind}`}
-                    aria-label="Mark complete"
+                    className={`task-row-type-label app-composer-meta-chip${
+                      composerTypeAuto ? " is-auto" : ""
+                    }`}
                     tabIndex={collapsed ? -1 : 0}
-                    onClick={() => requestCompleteTask(editingTaskId)}
-                    disabled={isTaskPopping(editingTaskId)}
-                  />
+                    aria-label="Compose type"
+                    aria-expanded={composeKindMenuOpen}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={openComposerTypeTool}
+                  >
+                    {composerTypeLabel}
+                  </button>
+                  {composerDurationLabel != null ? (
+                    <span className="task-row-duration-slot">
+                      <button
+                        type="button"
+                        className={`task-row-duration app-composer-meta-chip${
+                          composerDurationAuto ? " is-auto" : ""
+                        }`}
+                        tabIndex={collapsed ? -1 : 0}
+                        aria-label="Time"
+                        aria-expanded={durationMenuOpen}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={openComposerDurationTool}
+                      >
+                        {composerDurationLabel}
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="task-row-rail-spacer" aria-hidden="true" />
+                  )}
                 </div>
-              )}
-              <textarea
-                ref={composeInputRef}
-                rows={1}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder={composePlaceholder}
-                enterKeyHint="enter"
-                autoComplete="off"
-                tabIndex={collapsed ? -1 : 0}
-              />
-            </div>
+              </div>
+            ) : (
+              <div className="app-composer-field-row">
+                {editingTaskId != null && (
+                  <div className="app-composer-complete-slot">
+                    <button
+                      type="button"
+                      className={`task-complete is-${composerScheduleKind}`}
+                      aria-label="Mark complete"
+                      tabIndex={collapsed ? -1 : 0}
+                      onClick={() => requestCompleteTask(editingTaskId)}
+                      disabled={isTaskPopping(editingTaskId)}
+                    />
+                  </div>
+                )}
+                <textarea
+                  ref={composeInputRef}
+                  rows={1}
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  placeholder={composePlaceholder}
+                  enterKeyHint="enter"
+                  autoComplete="off"
+                  tabIndex={collapsed ? -1 : 0}
+                />
+              </div>
+            )}
             {composerSavePromptOpen && (
               <div className="twineline-save-prompt" role="dialog" aria-label="Save Changes?">
                 <p className="twineline-save-prompt-title">Save Changes?</p>

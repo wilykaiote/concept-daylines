@@ -4008,6 +4008,150 @@
   padding-left: 14px;
 }
 
+/* CompactTaskRow chrome inside the composer field — match list/home task cards */
+.app-composer-field .app-composer-task-row.task-row {
+  flex: none;
+  align-items: stretch;
+  width: auto;
+  margin: 4px 4px 6px;
+  padding: 8px 12px;
+  gap: 8px;
+  border: 1px solid #2e303a;
+  border-radius: var(--radius);
+  background: #101116;
+  --border: #2e303a;
+  --bg-raised: #101116;
+}
+
+.app-composer-field .app-composer-task-row .task-row-primary {
+  cursor: default;
+  gap: 2px;
+}
+
+.app-composer-field .app-composer-task-row .task-row-top {
+  padding-bottom: 2px;
+}
+
+.app-composer-field .app-composer-task-row .task-row-main {
+  gap: 10px;
+}
+
+.app-composer-field .app-composer-task-row .app-composer-field-row {
+  min-height: 0;
+  padding-left: 0;
+  width: 100%;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.app-composer-field .app-composer-task-row .app-composer-complete-slot {
+  width: 18px;
+  height: auto;
+  margin-top: 2px;
+  place-items: start center;
+}
+
+.app-composer-field .app-composer-task-row .task-complete {
+  margin-top: 0;
+  width: 18px;
+  height: 18px;
+}
+
+.app-composer-field .app-composer-task-row textarea {
+  height: auto;
+  min-height: calc(0.95rem * 1.25);
+  max-height: min(70dvh, calc(100dvh - 160px));
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1.25;
+  color: var(--text-h);
+}
+
+.app-composer-field .app-composer-task-row .app-composer-field-row:not(:has(.app-composer-complete-slot)) textarea {
+  padding-left: 0;
+}
+
+.app-composer-field .app-composer-meta-chip {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  text-align: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  opacity: inherit;
+}
+
+.app-composer-field .app-composer-meta-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.app-composer-field .app-composer-task-row .task-row-schedule {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  color: var(--text);
+}
+
+.app-composer-field .app-composer-task-row .task-row-urgency,
+.app-composer-field .app-composer-task-row .task-row-top .task-row-urgency {
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  opacity: 0.58;
+  text-transform: uppercase;
+  font-weight: 650;
+}
+
+.app-composer-field .app-composer-task-row .task-row-type-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  opacity: 0.58;
+}
+
+.app-composer-field .app-composer-task-row .task-row-duration-slot,
+.app-composer-field .app-composer-task-row .task-row-duration {
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+}
+
+.app-composer-field .app-composer-task-row .task-row-parent {
+  max-width: 100%;
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+}
+
+.app-composer-field .app-composer-task-row .task-row-recurring svg {
+  width: 11px;
+  height: 11px;
+}
+
+.app-composer-field .task-row-schedule.is-auto,
+.app-composer-field .task-row-urgency.is-auto,
+.app-composer-field .task-row-duration.is-auto,
+.app-composer-field .task-row-type-label.is-auto,
+.app-composer-field .task-row-parent.is-auto,
+.app-composer-field .task-row-recurring.is-auto {
+  color: #e8a317;
+  opacity: 1;
+}
+
+.app-composer-field .task-row-impact.is-auto .task-row-impact-fill {
+  background: #e8a317;
+}
+
+.app-composer-field .task-row-impact.is-auto .task-row-impact-track {
+  background: color-mix(in srgb, #e8a317 22%, transparent);
+}
+
 .app-composer-field textarea:focus,
 .app-composer-field:focus-within {
   outline: none;
