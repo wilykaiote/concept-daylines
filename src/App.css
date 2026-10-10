@@ -280,9 +280,10 @@
 
 .home-plans-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   min-width: 0;
+  width: 100%;
 }
 
 .home-plan-card {
@@ -429,7 +430,8 @@
   }
 }
 
-.home-focus-task {
+.home-focus-task,
+.task-current-focus {
   margin: 0;
   width: 100%;
 }
@@ -1701,11 +1703,31 @@
   padding-top: 6px;
 }
 
+.task-overflow-notice-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 8px;
+}
+
+.task-overflow-notice-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
 .task-overflow-notice {
   display: block;
-  width: 100%;
+  flex: 0 1 auto;
+  min-width: 0;
+  width: fit-content;
+  max-width: calc(100% - 36px);
   margin: 0;
-  padding: 8px 12px 4px;
+  padding: 8px 0 4px;
   border: 0;
   background: transparent;
   color: var(--text);
@@ -1714,7 +1736,7 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   line-height: 1.35;
-  text-align: center;
+  text-align: left;
   text-transform: uppercase;
   cursor: pointer;
 }
@@ -1725,19 +1747,233 @@
   border-radius: 6px;
 }
 
+.task-overflow-notice-chevron {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.task-overflow-notice-block:not(.is-defer-only) .task-overflow-notice-chevron {
+  color: var(--danger);
+}
+
+.task-overflow-notice-chevron:hover,
+.task-overflow-notice-chevron:focus-visible {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.task-overflow-notice-chevron:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .task-overflow-notice-overflow {
   color: var(--danger);
 }
 
-.task-overflow-notice.is-defer-only .task-overflow-notice-overflow {
+.task-overflow-notice-block.is-defer-only .task-overflow-notice-overflow {
   color: var(--text-h);
+}
+
+.task-overflow-notice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-overflow-notice-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+.task-overflow-notice-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+}
+
+.task-overflow-notice-task {
+  display: block;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 2px 0 2px 1.1em;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  text-align: left;
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.task-overflow-notice-task::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: inherit;
+}
+
+.task-overflow-notice-task:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.task-overflow-notice-focus,
+.task-row-focus,
+.task-row-focus-lock {
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.task-overflow-notice-focus svg,
+.task-row-focus svg,
+.task-row-focus-lock svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.task-overflow-notice-focus:hover,
+.task-overflow-notice-focus:focus-visible,
+.task-row-focus:hover,
+.task-row-focus:focus-visible,
+.task-row-focus-lock:hover,
+.task-row-focus-lock:focus-visible {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.task-overflow-notice-focus.is-active,
+.task-row-focus.is-active,
+.task-row-focus-lock.is-locked {
+  color: var(--accent);
+}
+
+.task-row-focus-lock.is-unlocked {
+  color: var(--text);
+  opacity: 0.72;
+}
+
+.task-overflow-notice-focus:focus-visible,
+.task-row-focus:focus-visible,
+.task-row-focus-lock:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.task-overflow-notice-block:not(.is-defer-only) .task-overflow-notice-task {
+  color: var(--text);
+}
+
+.task-overflow-notice-block:not(.is-defer-only) .task-overflow-notice-task:hover {
+  color: var(--danger);
+}
+
+.task-current-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 10px;
+}
+
+.task-current-focus-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 2px 0;
+  color: var(--text-h);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.task-current-focus-label-icon {
+  display: grid;
+  place-items: center;
+  color: inherit;
+}
+
+.task-current-focus-label-icon svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.task-current-focus-tasks {
+  margin: 0;
+}
+
+.task-row-shell {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
 }
 
 .task-row {
   display: flex;
   flex-direction: row;
   align-items: stretch;
+  flex: 1 1 0;
   gap: 8px;
+  min-width: 0;
   padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1835,7 +2071,8 @@
 
 .task-list.is-compact .task-row,
 .task-overdue-tasks .task-row,
-.home-focus-task .task-row {
+.home-focus-task .task-row,
+.task-current-focus .task-row {
   align-items: stretch;
   gap: 8px;
   padding: 8px 12px;
@@ -1843,13 +2080,15 @@
 
 .task-list.is-compact .task-row-primary,
 .task-overdue-tasks .task-row-primary,
-.home-focus-task .task-row-primary {
+.home-focus-task .task-row-primary,
+.task-current-focus .task-row-primary {
   gap: 2px;
 }
 
 .task-list.is-compact .task-row-main,
 .task-overdue-tasks .task-row-main,
-.home-focus-task .task-row-main {
+.home-focus-task .task-row-main,
+.task-current-focus .task-row-main {
   gap: 10px;
 }
 
@@ -1858,18 +2097,21 @@
 .collections-children .task-row-bottom,
 .named-children .task-row-bottom,
 .home-focus-task .task-row-bottom,
+.task-current-focus .task-row-bottom,
 .task-list.is-compact .task-row-duration-slot,
 .task-overdue-tasks .task-row-duration-slot,
 .collections-children .task-row-duration-slot,
 .named-children .task-row-duration-slot,
-.home-focus-task .task-row-duration-slot {
+.home-focus-task .task-row-duration-slot,
+.task-current-focus .task-row-duration-slot {
   font-size: 0.72rem;
   letter-spacing: 0.01em;
 }
 
 .task-list.is-compact .task-complete,
 .task-overdue-tasks .task-complete,
-.home-focus-task .task-complete {
+.home-focus-task .task-complete,
+.task-current-focus .task-complete {
   margin-top: 2px;
   width: 18px;
   height: 18px;
@@ -1877,7 +2119,8 @@
 
 .task-list.is-compact .task-row-title,
 .task-overdue-tasks .task-row-title,
-.home-focus-task .task-row-title {
+.home-focus-task .task-row-title,
+.task-current-focus .task-row-title {
   font-size: 0.95rem;
   line-height: 1.25;
 }
@@ -1952,7 +2195,8 @@
 .task-overdue-tasks .task-row-parent,
 .collections-children .task-row-parent,
 .named-children .task-row-parent,
-.home-focus-task .task-row-parent {
+.home-focus-task .task-row-parent,
+.task-current-focus .task-row-parent {
   font-size: 0.72rem;
 }
 
@@ -1991,7 +2235,9 @@
 .named-children .task-row-urgency,
 .named-children .task-row-top .task-row-urgency,
 .home-focus-task .task-row-urgency,
-.home-focus-task .task-row-top .task-row-urgency {
+.task-current-focus .task-row-urgency,
+.home-focus-task .task-row-top .task-row-urgency,
+.task-current-focus .task-row-top .task-row-urgency {
   font-size: 0.62rem;
   letter-spacing: 0.05em;
   opacity: 0.58;
@@ -2037,6 +2283,67 @@
   white-space: nowrap;
 }
 
+/* Unverified default/auto meta — same orange as composer auto-reschedule. */
+.task-row-schedule.is-auto,
+.task-row-urgency.is-auto,
+.task-row-duration.is-auto,
+.task-row-type-label.is-auto,
+.task-row-parent.is-auto,
+.task-row-recurring.is-auto,
+.task-list.is-compact .task-row-schedule.is-auto,
+.task-list.is-compact .task-row-urgency.is-auto,
+.task-list.is-compact .task-row-top .task-row-urgency.is-auto,
+.task-list.is-compact .task-row-duration.is-auto,
+.task-list.is-compact .task-row-type-label.is-auto,
+.task-list.is-compact .task-row-parent.is-auto,
+.task-list.is-compact .task-row-recurring.is-auto,
+.task-overdue-tasks .task-row-schedule.is-auto,
+.task-overdue-tasks .task-row-urgency.is-auto,
+.task-overdue-tasks .task-row-top .task-row-urgency.is-auto,
+.task-overdue-tasks .task-row-duration.is-auto,
+.task-overdue-tasks .task-row-type-label.is-auto,
+.task-overdue-tasks .task-row-parent.is-auto,
+.task-overdue-tasks .task-row-recurring.is-auto,
+.collections-children .task-row-schedule.is-auto,
+.collections-children .task-row-urgency.is-auto,
+.collections-children .task-row-top .task-row-urgency.is-auto,
+.collections-children .task-row-duration.is-auto,
+.collections-children .task-row-type-label.is-auto,
+.collections-children .task-row-parent.is-auto,
+.collections-children .task-row-recurring.is-auto,
+.named-children .task-row-schedule.is-auto,
+.named-children .task-row-urgency.is-auto,
+.named-children .task-row-top .task-row-urgency.is-auto,
+.named-children .task-row-duration.is-auto,
+.named-children .task-row-type-label.is-auto,
+.named-children .task-row-parent.is-auto,
+.named-children .task-row-recurring.is-auto,
+.home-focus-task .task-row-schedule.is-auto,
+.home-focus-task .task-row-urgency.is-auto,
+.home-focus-task .task-row-top .task-row-urgency.is-auto,
+.home-focus-task .task-row-duration.is-auto,
+.home-focus-task .task-row-type-label.is-auto,
+.home-focus-task .task-row-parent.is-auto,
+.home-focus-task .task-row-recurring.is-auto,
+.task-current-focus .task-row-schedule.is-auto,
+.task-current-focus .task-row-urgency.is-auto,
+.task-current-focus .task-row-top .task-row-urgency.is-auto,
+.task-current-focus .task-row-duration.is-auto,
+.task-current-focus .task-row-type-label.is-auto,
+.task-current-focus .task-row-parent.is-auto,
+.task-current-focus .task-row-recurring.is-auto {
+  color: #e8a317;
+  opacity: 1;
+}
+
+.task-row-impact.is-auto .task-row-impact-fill {
+  background: #e8a317;
+}
+
+.task-row-impact.is-auto .task-row-impact-track {
+  background: color-mix(in srgb, #e8a317 22%, transparent);
+}
+
 .task-row-recurring {
   display: inline-flex;
   align-items: center;
@@ -2055,7 +2362,8 @@
 .task-overdue-tasks .task-row-recurring svg,
 .collections-children .task-row-recurring svg,
 .named-children .task-row-recurring svg,
-.home-focus-task .task-row-recurring svg {
+.home-focus-task .task-row-recurring svg,
+.task-current-focus .task-row-recurring svg {
   width: 11px;
   height: 11px;
 }
@@ -2072,7 +2380,8 @@
 .task-overdue-tasks .task-row-schedule,
 .collections-children .task-row-schedule,
 .named-children .task-row-schedule,
-.home-focus-task .task-row-schedule {
+.home-focus-task .task-row-schedule,
+.task-current-focus .task-row-schedule {
   font-size: 0.72rem;
 }
 
@@ -2273,7 +2582,8 @@
 .task-overdue-tasks .task-row-title-row,
 .collections-children .task-row-title-row,
 .named-children .task-row-title-row,
-.home-focus-task .task-row-title-row {
+.home-focus-task .task-row-title-row,
+.task-current-focus .task-row-title-row {
   padding-bottom: 0;
 }
 
@@ -2306,7 +2616,8 @@
 .task-overdue-tasks .task-row-type-label,
 .collections-children .task-row-type-label,
 .named-children .task-row-type-label,
-.home-focus-task .task-row-type-label {
+.home-focus-task .task-row-type-label,
+.task-current-focus .task-row-type-label {
   font-size: 0.62rem;
   letter-spacing: 0.05em;
   opacity: 0.58;

@@ -1,5 +1,5 @@
 import { addDays, dayKey, parseTaskDate } from "./calendarTimeline";
-import type { ComposerDraft } from "./composer";
+import { withMetaAuto, type ComposerDraft } from "./composer";
 import { toStartOfDay } from "./taskStorage";
 
 export type RecurringUnit = "day" | "week" | "month";
@@ -91,12 +91,14 @@ export function buildNextRecurringTask(
   const schedule = parseRecurring(task.recurring);
   if (!schedule) return null;
   const nextDate = nextRecurringDateKey(task, schedule, now);
-  return {
-    ...task,
-    id: crypto.randomUUID(),
-    date: nextDate,
-    completed_at: null,
-    created_at: new Date().toISOString(),
-    auto_rescheduled: true,
-  };
+  return withMetaAuto(
+    {
+      ...task,
+      id: crypto.randomUUID(),
+      date: nextDate,
+      completed_at: null,
+      created_at: new Date().toISOString(),
+    },
+    "schedule",
+  );
 }

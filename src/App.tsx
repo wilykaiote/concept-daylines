@@ -10,7 +10,16 @@ import { ListsView } from "./ListsView";
 import { DayScheduleTrack } from "./DayScheduleTrack";
 import { type DayWheelSlice } from "./DayWheelChart";
 import { TwinelineCountdownButton } from "./TwinelineCountdownButton";
-import { buildComposerDraft, type ComposerDraft } from "./composer";
+import {
+  buildComposerDraft,
+  formatMetaAuto,
+  hasMetaAuto,
+  parseMetaAuto,
+  withMetaAuto,
+  withoutMetaAuto,
+  type ComposerDraft,
+  type MetaAutoKey,
+} from "./composer";
 import {
   buildNextRecurringTask,
   clampRecurringCount,
@@ -34,9 +43,12 @@ import {
   loadTaskGapMinutes,
   loadTasks,
   loadCollections,
+  loadCurrentFocus,
   loadTodayWindowBaseline,
   loadWindowStartOverrides,
   loadWindowStartTime,
+  clearCurrentFocusStorage,
+  saveCurrentFocus,
   MAX_TASK_GAP_MINUTES,
   MIN_TASK_GAP_MINUTES,
   msUntilTargetTime,
@@ -59,6 +71,7 @@ import {
   todayWindowSignature,
   toStartOfDay,
   WEEKDAY_BUTTONS,
+  type CurrentFocus,
   type TodayWindowBaseline,
 } from "./taskStorage";
 import { buildScheduleLayoutForWindow } from "./schedule";
@@ -577,6 +590,71 @@ function ImpactIcon() {
       <circle cx="12" cy="12" r="2.2" fill="currentColor" />
       <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function FocusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M12 3.5v3.2M12 17.3v3.2M3.5 12h3.2M17.3 12h3.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect
+        x="5"
+        y="10"
+        width="14"
+        height="11"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M8 10V8a4 4 0 0 1 8 0v2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="15.5" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function UnlockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect
+        x="5"
+        y="10"
+        width="14"
+        height="11"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M8 10V8a4 4 0 0 1 7.5-2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="15.5" r="1.2" fill="currentColor" />
     </svg>
   );
 }
@@ -1104,8 +1182,12 @@ function CompactTaskRow({
   popping,
   now,
   parentTitle,
+  isCurrentFocus = false,
+  focusLocked = true,
   onComplete,
   onEdit,
+  onSetFocus,
+  onToggleFocusLock,
 }: {
   task: ComposerDraft;
   overdue: boolean;
@@ -1114,8 +1196,12 @@ function CompactTaskRow({
   popping?: boolean;
   now: Date;
   parentTitle?: string | null;
+  isCurrentFocus?: boolean;
+  focusLocked?: boolean;
   onComplete: () => void;
   onEdit: () => void;
+  onSetFocus?: () => void;
+  onToggleFocusLock?: () => void;
 }) {
   const urgencyLabel = isUrgencyOption(task.urgency) ? task.urgency : null;
   const hasDateOrTime =
@@ -1148,103 +1234,160 @@ function CompactTaskRow({
             ? "LOG"
             : "TASK";
   const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
+  const scheduleAuto = hasMetaAuto(task, "schedule");
+  const urgencyAuto = hasMetaAuto(task, "urgency");
+  const durationAuto = hasMetaAuto(task, "duration");
+  const impactAuto = hasMetaAuto(task, "impact");
+  const typeAuto = hasMetaAuto(task, "type");
+  const parentAuto = hasMetaAuto(task, "parent");
+  const recurringAuto = hasMetaAuto(task, "recurring");
 
   return (
-    <li
-      data-task-id={task.id ?? undefined}
-      className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
-    >
+    <li data-task-id={task.id ?? undefined} className="task-row-shell">
       <div
-        className="task-row-primary"
-        onClick={(event) => {
-          if (event.target instanceof Element && event.target.closest("button")) return;
-          onEdit();
-        }}
+        className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
       >
-        {(hasTopMeta || hasImpact) && (
-          <div className="task-row-top">
-            <span className="task-row-top-meta">
-              {scheduleLabel != null ? (
-                <span className="task-row-schedule">{scheduleLabel}</span>
-              ) : showUrgency ? (
-                <span className="task-row-urgency">{urgencyLabel}</span>
-              ) : null}
-              {isRecurring && (
-                <span className="task-row-recurring" aria-label="Repeats" title="Repeats">
-                  <CycleIcon />
+        <div
+          className="task-row-primary"
+          onClick={(event) => {
+            if (event.target instanceof Element && event.target.closest("button")) return;
+            onEdit();
+          }}
+        >
+          {(hasTopMeta || hasImpact) && (
+            <div className="task-row-top">
+              <span className="task-row-top-meta">
+                {scheduleLabel != null ? (
+                  <span
+                    className={`task-row-schedule${scheduleAuto ? " is-auto" : ""}`}
+                  >
+                    {scheduleLabel}
+                  </span>
+                ) : showUrgency ? (
+                  <span
+                    className={`task-row-urgency${urgencyAuto ? " is-auto" : ""}`}
+                  >
+                    {urgencyLabel}
+                  </span>
+                ) : null}
+                {isRecurring && (
+                  <span
+                    className={`task-row-recurring${recurringAuto ? " is-auto" : ""}`}
+                    aria-label="Repeats"
+                    title="Repeats"
+                  >
+                    <CycleIcon />
+                  </span>
+                )}
+              </span>
+              {hasImpact && (
+                <span
+                  className={`task-row-impact${impactAuto ? " is-auto" : ""}`}
+                  role="img"
+                  aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
+                  title={`Impact ${impactValue}`}
+                >
+                  <span className="task-row-impact-track" aria-hidden="true">
+                    <span
+                      className="task-row-impact-fill"
+                      style={{ width: `${impactPercent}%` }}
+                    />
+                  </span>
                 </span>
               )}
-            </span>
-            {hasImpact && (
-              <span
-                className="task-row-impact"
-                role="img"
-                aria-label={`Impact ${impactValue} of ${IMPACT_MAX}`}
-                title={`Impact ${impactValue}`}
-              >
-                <span className="task-row-impact-track" aria-hidden="true">
-                  <span
-                    className="task-row-impact-fill"
-                    style={{ width: `${impactPercent}%` }}
-                  />
-                </span>
-              </span>
-            )}
-          </div>
-        )}
-        <div className="task-row-content">
-          <div className="task-row-content-main">
-            <div className="task-row-main">
-              <button
-                type="button"
-                className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
-                aria-label="Mark complete"
-                disabled={popping}
-                onClick={onComplete}
-              >
-                <span className="task-complete-check" aria-hidden="true">
-                  <svg viewBox="0 0 16 16" fill="none">
-                    <path
-                      d="M3.2 8.2 6.4 11.4 12.8 4.6"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      pathLength="1"
-                    />
-                  </svg>
-                </span>
-              </button>
-              <button
-                type="button"
-                className="task-row-body"
-                aria-label={`Edit task ${task.title}`}
-                onClick={onEdit}
-              >
-                <p className="task-row-title">{task.title}</p>
-              </button>
+            </div>
+          )}
+          <div className="task-row-content">
+            <div className="task-row-content-main">
+              <div className="task-row-main">
+                <button
+                  type="button"
+                  className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
+                  aria-label="Mark complete"
+                  disabled={popping}
+                  onClick={onComplete}
+                >
+                  <span className="task-complete-check" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M3.2 8.2 6.4 11.4 12.8 4.6"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        pathLength="1"
+                      />
+                    </svg>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="task-row-body"
+                  aria-label={`Edit task ${task.title}`}
+                  onClick={onEdit}
+                >
+                  <p className="task-row-title">{task.title}</p>
+                </button>
+              </div>
             </div>
           </div>
+          {hasParent && (
+            <div className="task-row-bottom">
+              <div className={`task-row-parent${parentAuto ? " is-auto" : ""}`}>
+                <span className="task-row-parent-name">{resolvedParentTitle}</span>
+                <LinkIcon />
+              </div>
+            </div>
+          )}
         </div>
-        {hasParent && (
-          <div className="task-row-bottom">
-            <div className="task-row-parent">
-              <span className="task-row-parent-name">{resolvedParentTitle}</span>
-              <LinkIcon />
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="task-row-rail">
-        <span className="task-row-type-label">{typeLabel}</span>
-        {durationLabel != null ? (
-          <span className="task-row-duration-slot">
-            <span className="task-row-duration">{durationLabel}</span>
+        <div className="task-row-rail">
+          <span className={`task-row-type-label${typeAuto ? " is-auto" : ""}`}>
+            {typeLabel}
           </span>
-        ) : (
-          <span className="task-row-rail-spacer" aria-hidden="true" />
-        )}
+          {durationLabel != null ? (
+            <span className="task-row-duration-slot">
+              <span
+                className={`task-row-duration${durationAuto ? " is-auto" : ""}`}
+              >
+                {durationLabel}
+              </span>
+            </span>
+          ) : (
+            <span className="task-row-rail-spacer" aria-hidden="true" />
+          )}
+        </div>
       </div>
+      {isCurrentFocus && onToggleFocusLock != null ? (
+        <button
+          type="button"
+          className={`task-row-focus-lock${focusLocked ? " is-locked" : " is-unlocked"}`}
+          aria-label={
+            focusLocked
+              ? `Unlock ${task.title} — allow moving to overflow`
+              : `Lock ${task.title} — keep out of overflow`
+          }
+          aria-pressed={focusLocked}
+          title={focusLocked ? "Locked — stays out of overflow" : "Unlocked — can move to overflow"}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleFocusLock();
+          }}
+        >
+          {focusLocked ? <LockIcon /> : <UnlockIcon />}
+        </button>
+      ) : onSetFocus != null ? (
+        <button
+          type="button"
+          className="task-row-focus"
+          aria-label={`Set ${task.title} as current focus`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSetFocus();
+          }}
+        >
+          <FocusIcon />
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -1627,6 +1770,10 @@ function App() {
   const [composerAutoRescheduled, setComposerAutoRescheduled] = useState(false);
   /** True after the user opens Date & Time; keeps the schedule icon green after the menu closes. */
   const [scheduleToolActivated, setScheduleToolActivated] = useState(false);
+  /** Meta keys still auto/default until the user opens the matching composer tool. */
+  const [composerMetaAuto, setComposerMetaAuto] = useState<Set<MetaAutoKey>>(
+    () => new Set(["type", "duration", "urgency", "impact"]),
+  );
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
   const [linkRelation, setLinkRelation] = useState<LinkRelation>("parent");
   const [linkSearchQuery, setLinkSearchQuery] = useState("");
@@ -1691,6 +1838,9 @@ function App() {
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [focusedOverflowTaskIds, setFocusedOverflowTaskIds] = useState<string[] | null>(null);
+  /** IDs dismissed from the top overflow notice list (still remain in Overflow). */
+  const [dismissedOverflowNoticeIds, setDismissedOverflowNoticeIds] = useState<string[]>([]);
+  const [currentFocus, setCurrentFocus] = useState<CurrentFocus | null>(() => loadCurrentFocus());
   const [timelineMultiSelect, setTimelineMultiSelect] = useState(false);
   const [selectedTimelineTaskIds, setSelectedTimelineTaskIds] = useState<string[]>([]);
   const [defaultTargetTime, setDefaultTargetTime] = useState(() => loadTargetTime());
@@ -1706,6 +1856,7 @@ function App() {
   const [selectedDay, setSelectedDay] = useState(() => toStartOfDay(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [overdueSectionOpen, setOverdueSectionOpen] = useState(true);
+  const [overflowNoticeListOpen, setOverflowNoticeListOpen] = useState(true);
   const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [timePickerDay, setTimePickerDay] = useState(() => toStartOfDay(new Date()));
@@ -1875,6 +2026,11 @@ function App() {
       ? todayWindowBaseline.taskIds
       : [],
   );
+  const todayFocusId =
+    currentFocus?.dayKey === todayKeyStr ? currentFocus.taskId : null;
+  const focusLocked = currentFocus?.dayKey === todayKeyStr && currentFocus.locked !== false;
+  /** Only a locked focus is force-pinned so packing cannot push it to overflow. */
+  const pinnedFocusId = focusLocked ? todayFocusId : null;
   const calendarTasksLayout = layoutCalendarTasks(
     tasksForCalendar,
     new Date(countdownNow),
@@ -1882,12 +2038,27 @@ function App() {
     taskGapMinutes,
     getWindowStartTimeForDay,
     baselineIds,
+    pinnedFocusId,
   );
   const calendarTaskLayout = calendarTasksLayout.days;
   const overdueTasks = calendarTasksLayout.overdueTasks;
   const deferredTasks = calendarTasksLayout.deferredTasks;
-  const overflowTaskCount = overdueTasks.length + deferredTasks.length;
+  const overflowTasks = [...overdueTasks, ...deferredTasks];
+  const overflowTaskCount = overflowTasks.length;
   const overflowDeferOnly = overdueTasks.length === 0 && deferredTasks.length > 0;
+  const overflowIds = overflowTasks
+    .map((task) => task.id)
+    .filter((id): id is string => id != null);
+  const overflowNoticeTasks = overflowTasks.filter(
+    (task) =>
+      task.id != null &&
+      !dismissedOverflowNoticeIds.includes(task.id) &&
+      // Locked focus is pinned out of overflow; unlocked focus may appear here.
+      !(focusLocked && task.id === todayFocusId),
+  );
+  const overflowNoticeCount = overflowNoticeTasks.length;
+  const showOverflowNotice = overflowNoticeCount > 0;
+  const overflowIdsKey = overflowIds.join("|");
   const parentTitleById = (() => {
     const map = new Map<string, string>();
     for (const collection of collections) {
@@ -1927,7 +2098,12 @@ function App() {
   const todayLayout = calendarLayoutByKey.get(dayKey(todayStart));
   const todayFocusBlock =
     todayLayout?.blocks.find((block) => !block.overdue) ?? null;
-  const todayFocusTask = todayFocusBlock?.task ?? null;
+  const pinnedFocusTask =
+    todayFocusId != null
+      ? (tasks.find((task) => task.id === todayFocusId) ?? null)
+      : null;
+  const todayFocusTask = pinnedFocusTask ?? todayFocusBlock?.task ?? null;
+  const currentFocusTaskId = todayFocusTask?.id ?? null;
   const dayElapsedPct = Math.min(
     100,
     Math.max(0, (nowMinutes / MINUTES_PER_DAY) * 100),
@@ -2415,7 +2591,8 @@ function App() {
             parent_id: withLinks.parent_id,
             after_id: withLinks.after_id,
             after: withLinks.after,
-            auto_rescheduled: composerAutoRescheduled ? true : false,
+            auto_rescheduled: withLinks.auto_rescheduled === true,
+            meta_auto: withLinks.meta_auto ?? null,
           };
         });
       }
@@ -2426,6 +2603,14 @@ function App() {
       }
       return next;
     });
+    if (
+      editingTaskId != null &&
+      currentFocus?.taskId === editingTaskId &&
+      withLinks.date !== dayKey(toStartOfDay(new Date(countdownNowRef.current)))
+    ) {
+      setCurrentFocus(null);
+      clearCurrentFocusStorage();
+    }
   };
 
   /** Plan / list — name + type only for now. */
@@ -2617,6 +2802,7 @@ function App() {
     setDateTimeAnchor(null);
     setComposerAutoRescheduled(false);
     setScheduleToolActivated(false);
+    setComposerMetaAuto(new Set(["type", "duration", "urgency", "impact"]));
     syncScheduleDraftRef({
       date: null,
       starts_at: null,
@@ -2680,6 +2866,17 @@ function App() {
     return { date, starts_at, due_at };
   };
 
+  const clearComposerMetaAuto = (...keys: MetaAutoKey[]) => {
+    setComposerMetaAuto((current) => {
+      let changed = false;
+      const next = new Set(current);
+      for (const key of keys) {
+        if (next.delete(key)) changed = true;
+      }
+      return changed ? next : current;
+    });
+  };
+
   const closeTaskToolHint = () => {
     // Flush native date/time values before unmounting the Date & Time popover.
     if (taskDateInputRef.current || taskTimeInputRef.current) {
@@ -2705,6 +2902,10 @@ function App() {
     if (title === "Date & Time") {
       setComposerAutoRescheduled(false);
       setScheduleToolActivated(true);
+      clearComposerMetaAuto("schedule", "urgency");
+    }
+    if (title === LINKING_TOOL_HINT) {
+      clearComposerMetaAuto("parent");
     }
     taskToolHintAnchorRef.current = anchor;
     setAttachMenuOpen(false);
@@ -2792,6 +2993,10 @@ function App() {
         return next.length > 0 ? next : null;
       });
     }
+    if (currentFocus?.taskId === id) {
+      setCurrentFocus(null);
+      clearCurrentFocusStorage();
+    }
   };
 
   const requestCompleteTask = (id: string | null) => {
@@ -2840,7 +3045,6 @@ function App() {
     setEstDurationMinutes(minutes);
     setDurationUnit("minutes");
     setDurationInput(String(Math.round(minutes)));
-    setDurationActivated(task.est_duration != null && task.est_duration > 0);
     setDurationMenuOpen(false);
     setRecurringMenuOpen(false);
     if (nextRecurring) {
@@ -2859,13 +3063,21 @@ function App() {
     setUrgency(nextUrgency);
     setUrgencyActivated(task.urgency != null || !hasSchedule);
     setImpact(nextImpact);
-    setImpactActivated(task.impact != null);
     setImpactMenuOpen(false);
     setTaskDate(nextDate ?? "");
     setTaskStartsAt(nextStartsAt ?? "");
     setTaskDueAt(nextDueAt ?? "");
     setComposerAutoRescheduled(task.auto_rescheduled === true);
-    setScheduleToolActivated(hasSchedule && task.auto_rescheduled !== true);
+    {
+      const loaded = parseMetaAuto(task.meta_auto);
+      if (task.auto_rescheduled === true) loaded.add("schedule");
+      setComposerMetaAuto(loaded);
+      setScheduleToolActivated(hasSchedule && !loaded.has("schedule"));
+      setDurationActivated(
+        task.est_duration != null && task.est_duration > 0 && !loaded.has("duration"),
+      );
+      setImpactActivated(task.impact != null && !loaded.has("impact"));
+    }
     const nextMode = nextDueAt && !nextStartsAt ? "due_at" : "starts_at";
     setTaskTimeMode(nextMode);
     setDateTimeAnchor(
@@ -2905,6 +3117,7 @@ function App() {
     setTaskDueAt("");
     setDateTimeAnchor(null);
     setComposerAutoRescheduled(false);
+    clearComposerMetaAuto("schedule");
     syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
   };
 
@@ -2913,13 +3126,15 @@ function App() {
     setTasks((current) =>
       current.map((task) =>
         task.id === editingTaskId
-          ? {
-              ...task,
-              date: null,
-              starts_at: null,
-              due_at: null,
-              auto_rescheduled: false,
-            }
+          ? withoutMetaAuto(
+              {
+                ...task,
+                date: null,
+                starts_at: null,
+                due_at: null,
+              },
+              "schedule",
+            )
           : task,
       ),
     );
@@ -3096,6 +3311,19 @@ function App() {
     setTaskDueAt(schedule.due_at ?? "");
     const hasSchedule =
       schedule.date != null || schedule.starts_at != null || schedule.due_at != null;
+    const metaKeys = new Set(composerMetaAuto);
+    if (hasSchedule) {
+      metaKeys.delete("urgency");
+      if (composerAutoRescheduled || !scheduleToolActivated) metaKeys.add("schedule");
+      else metaKeys.delete("schedule");
+    } else {
+      metaKeys.delete("schedule");
+      if (!(urgencyActivated && urgency != null)) metaKeys.delete("urgency");
+    }
+    if (estDurationMinutes == null) metaKeys.delete("duration");
+    if (impact == null) metaKeys.delete("impact");
+    if (composerRecurring == null) metaKeys.delete("recurring");
+    if (pendingParentId == null && pendingChildId == null) metaKeys.delete("parent");
     return buildComposerDraft({
       title: content,
       type: composeKind,
@@ -3106,6 +3334,8 @@ function App() {
       starts_at: schedule.starts_at,
       due_at: schedule.due_at,
       recurring: composerRecurring,
+      auto_rescheduled: hasSchedule && metaKeys.has("schedule") ? true : false,
+      meta_auto: formatMetaAuto(metaKeys),
     });
   };
 
@@ -3214,6 +3444,7 @@ function App() {
       const key = dayKey(day);
       setTaskDate(key);
       setComposerAutoRescheduled(true);
+      setComposerMetaAuto((current) => new Set(current).add("schedule"));
       syncScheduleDraftRef({ date: key });
       return;
     }
@@ -3225,6 +3456,155 @@ function App() {
       syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
     }
     setComposerAutoRescheduled(false);
+    setComposerMetaAuto((current) => {
+      if (!current.has("schedule")) return current;
+      const next = new Set(current);
+      next.delete("schedule");
+      return next;
+    });
+  };
+
+  const setTaskAsCurrentFocus = (task: ComposerDraft) => {
+    if (!task.id) return;
+    const focusDayKey = dayKey(toStartOfDay(new Date(countdownNowRef.current)));
+    const nextFocus: CurrentFocus = { dayKey: focusDayKey, taskId: task.id, locked: true };
+    setTasks((current) =>
+      current.map((item) =>
+        item.id === task.id
+          ? withMetaAuto(
+              {
+                ...item,
+                date: focusDayKey,
+                starts_at: null,
+                due_at: null,
+              },
+              "schedule",
+            )
+          : item,
+      ),
+    );
+    setCurrentFocus(nextFocus);
+    saveCurrentFocus(nextFocus);
+    setDismissedOverflowNoticeIds((current) => current.filter((id) => id !== task.id));
+    setFocusedOverflowTaskIds(null);
+    setFocusedTaskId(task.id);
+  };
+
+  const toggleCurrentFocusLock = () => {
+    setCurrentFocus((current) => {
+      if (current == null) return current;
+      const next: CurrentFocus = { ...current, locked: !current.locked };
+      saveCurrentFocus(next);
+      return next;
+    });
+  };
+
+  const renderCurrentFocus = () => {
+    if (!todayFocusTask?.id) return null;
+    return (
+      <div className="task-current-focus">
+        <p className="task-current-focus-label">
+          Current focus
+          <span className="task-current-focus-label-icon" aria-hidden="true">
+            <FocusIcon />
+          </span>
+        </p>
+        <ul className="task-day-tasks task-current-focus-tasks">
+          <CompactTaskRow
+            key={todayFocusTask.id}
+            task={todayFocusTask}
+            overdue={false}
+            editing={editingTaskId === todayFocusTask.id}
+            highlighted={isTaskHighlighted(todayFocusTask.id)}
+            popping={isTaskPopping(todayFocusTask.id)}
+            now={new Date(countdownNow)}
+            parentTitle={parentTitleFor(todayFocusTask.parent_id)}
+            isCurrentFocus
+            focusLocked={focusLocked}
+            onComplete={() => requestCompleteTask(todayFocusTask.id)}
+            onEdit={() => {
+              setFocusedOverflowTaskIds(null);
+              setFocusedTaskId(todayFocusTask.id!);
+              editTask(todayFocusTask);
+            }}
+            onToggleFocusLock={toggleCurrentFocusLock}
+          />
+        </ul>
+      </div>
+    );
+  };
+
+  const renderOverflowNotice = () => {
+    if (!showOverflowNotice) return null;
+    return (
+      <div
+        className={`task-overflow-notice-block${overflowDeferOnly ? " is-defer-only" : ""}${overflowNoticeListOpen ? " is-open" : ""}`}
+      >
+        <div className="task-overflow-notice-header">
+          <button
+            type="button"
+            className="task-overflow-notice"
+            onClick={() => setOverflowNoticeListOpen((open) => !open)}
+          >
+            {overflowNoticeCount}{" "}
+            {overflowNoticeCount === 1 ? "task" : "tasks"} moved to{" "}
+            <span className="task-overflow-notice-overflow">Overflow</span> and
+            will be rescheduled at end of day.
+          </button>
+          <button
+            type="button"
+            className="task-overflow-notice-chevron"
+            aria-label={
+              overflowNoticeListOpen
+                ? "Hide overflow notice tasks"
+                : "Show overflow notice tasks"
+            }
+            aria-expanded={overflowNoticeListOpen}
+            onClick={() => setOverflowNoticeListOpen((open) => !open)}
+          >
+            {overflowNoticeListOpen ? "∨" : ">"}
+          </button>
+        </div>
+        {overflowNoticeListOpen && (
+          <ul className="task-overflow-notice-list">
+            {overflowNoticeTasks.map((task) => {
+              const id = task.id!;
+              const isFocused = todayFocusTask?.id === id;
+              return (
+                <li key={id} className="task-overflow-notice-row">
+                  <div
+                    className="task-overflow-notice-item"
+                    onClick={() => {
+                      setFocusedOverflowTaskIds(null);
+                      setFocusedTaskId(id);
+                      editTask(task);
+                    }}
+                  >
+                    <span className="task-overflow-notice-task">{task.title}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`task-overflow-notice-focus${isFocused ? " is-active" : ""}`}
+                    aria-label={
+                      isFocused
+                        ? `${task.title} is current focus`
+                        : `Set ${task.title} as current focus`
+                    }
+                    aria-pressed={isFocused}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setTaskAsCurrentFocus(task);
+                    }}
+                  >
+                    <FocusIcon />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    );
   };
 
   const openComposer = () => {
@@ -3248,6 +3628,27 @@ function App() {
     setCollapsed(false);
     seedNewComposerDateFromSelectedDay({ wasEditing });
   };
+
+  useEffect(() => {
+    const live = new Set(overflowIdsKey ? overflowIdsKey.split("|") : []);
+    setDismissedOverflowNoticeIds((current) => {
+      const next = current.filter((id) => live.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [overflowIdsKey]);
+
+  useEffect(() => {
+    if (!currentFocus) return;
+    if (currentFocus.dayKey !== todayKeyStr) {
+      setCurrentFocus(null);
+      clearCurrentFocusStorage();
+      return;
+    }
+    if (!tasks.some((task) => task.id === currentFocus.taskId)) {
+      setCurrentFocus(null);
+      clearCurrentFocusStorage();
+    }
+  }, [currentFocus, todayKeyStr, tasks]);
 
   useEffect(() => {
     saveTasks(tasks);
@@ -4317,6 +4718,10 @@ function App() {
                   }
                   editTask(task);
                 }}
+                isCurrentFocus={todayFocusTask?.id === task.id}
+                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                focusLocked={focusLocked}
+                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
             plans={tasks
@@ -4366,6 +4771,10 @@ function App() {
                   }
                   editTask(task);
                 }}
+                isCurrentFocus={todayFocusTask?.id === task.id}
+                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                focusLocked={focusLocked}
+                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
             renderOverdueTask={(task) => (
@@ -4386,6 +4795,10 @@ function App() {
                   }
                   editTask(task);
                 }}
+                isCurrentFocus={todayFocusTask?.id === task.id}
+                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                focusLocked={focusLocked}
+                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
           />
@@ -4421,6 +4834,10 @@ function App() {
                   }
                   editTask(task);
                 }}
+                isCurrentFocus={todayFocusTask?.id === task.id}
+                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                focusLocked={focusLocked}
+                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
           />
@@ -4447,6 +4864,10 @@ function App() {
                   }
                   editTask(task);
                 }}
+                isCurrentFocus={todayFocusTask?.id === task.id}
+                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                focusLocked={focusLocked}
+                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
           />
@@ -4473,6 +4894,10 @@ function App() {
                   }
                   editTask(task);
                 }}
+                isCurrentFocus={todayFocusTask?.id === task.id}
+                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                focusLocked={focusLocked}
+                onToggleFocusLock={toggleCurrentFocusLock}
               />
             )}
           />
@@ -4718,13 +5143,20 @@ function App() {
           <div className="task-list is-compact">
             {timelineDays.map((day) => {
               const seenTaskIds = new Set<string>();
+              const isTodayGroup = day.dayKey === todayKey;
               const dayTasks = day.blocks.filter((block) => {
                 const id = block.taskId ?? block.key;
                 if (seenTaskIds.has(id)) return false;
+                if (
+                  isTodayGroup &&
+                  currentFocusTaskId != null &&
+                  block.taskId === currentFocusTaskId
+                ) {
+                  return false;
+                }
                 seenTaskIds.add(id);
                 return true;
               });
-              const isTodayGroup = day.dayKey === todayKey;
               const showOverdueToggle =
                 isTodayGroup &&
                 activeView === "dayline" &&
@@ -4747,23 +5179,11 @@ function App() {
                       </button>
                     </div>
                   )}
-                  {showOverdueToggle && (
-                    <button
-                      type="button"
-                      className={`task-overflow-notice${overflowDeferOnly ? " is-defer-only" : ""}`}
-                      onClick={() => {
-                        overflowToggleRef.current?.scrollIntoView({
-                          behavior: "smooth",
-                          block: "start",
-                        });
-                      }}
-                    >
-                      {overflowTaskCount}{" "}
-                      {overflowTaskCount === 1 ? "task" : "tasks"} moved to{" "}
-                      <span className="task-overflow-notice-overflow">Overflow</span> and
-                      will be rescheduled at end of day.
-                    </button>
-                  )}
+                  {isTodayGroup &&
+                    activeView === "dayline" &&
+                    !calendarOpen &&
+                    renderCurrentFocus()}
+                  {showOverdueToggle && renderOverflowNotice()}
                   {dayTasks.length > 0 && (
                     <ul className="task-day-tasks">
                       {dayTasks.map((block) => (
@@ -4784,6 +5204,10 @@ function App() {
                             }
                             editTask(block.task);
                           }}
+                          isCurrentFocus={todayFocusTask?.id === block.taskId}
+                          onSetFocus={() => setTaskAsCurrentFocus(block.task)}
+                          focusLocked={focusLocked}
+                          onToggleFocusLock={toggleCurrentFocusLock}
                         />
             ))}
           </ul>
@@ -4843,6 +5267,10 @@ function App() {
                                     }
                                     editTask(task);
                                   }}
+                                  isCurrentFocus={todayFocusTask?.id === task.id}
+                                  onSetFocus={() => setTaskAsCurrentFocus(task)}
+                                  focusLocked={focusLocked}
+                                  onToggleFocusLock={toggleCurrentFocusLock}
                                 />
                               ))}
                             </ul>
@@ -4869,6 +5297,10 @@ function App() {
                                     }
                                     editTask(task);
                                   }}
+                                  isCurrentFocus={todayFocusTask?.id === task.id}
+                                  onSetFocus={() => setTaskAsCurrentFocus(task)}
+                                  focusLocked={focusLocked}
+                                  onToggleFocusLock={toggleCurrentFocusLock}
                                 />
                               ))}
                             </ul>
@@ -4924,23 +5356,11 @@ function App() {
                     </button>
                   </div>
                 )}
-                {showOverdueToggle && (
-                  <button
-                    type="button"
-                    className={`task-overflow-notice${overflowDeferOnly ? " is-defer-only" : ""}`}
-                    onClick={() => {
-                      overflowToggleRef.current?.scrollIntoView({
-                        behavior: "smooth",
-                        block: "start",
-                      });
-                    }}
-                  >
-                    {overflowTaskCount}{" "}
-                    {overflowTaskCount === 1 ? "task" : "tasks"} moved to{" "}
-                    <span className="task-overflow-notice-overflow">Overflow</span> and
-                    will be rescheduled at end of day.
-                  </button>
-                )}
+                {isTodayGroup &&
+                  activeView === "dayline" &&
+                  !calendarOpen &&
+                  renderCurrentFocus()}
+                {showOverdueToggle && renderOverflowNotice()}
                 <div
                   className="calendar-timeline-body"
                   style={{ height: Math.max(PX_PER_MINUTE, view.visibleDisplayPx) }}
@@ -5085,6 +5505,10 @@ function App() {
                                   }
                                   editTask(task);
                                 }}
+                                isCurrentFocus={todayFocusTask?.id === task.id}
+                                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                                focusLocked={focusLocked}
+                                onToggleFocusLock={toggleCurrentFocusLock}
                               />
                             ))}
                           </ul>
@@ -5111,6 +5535,10 @@ function App() {
                                   }
                                   editTask(task);
                                 }}
+                                isCurrentFocus={todayFocusTask?.id === task.id}
+                                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                                focusLocked={focusLocked}
+                                onToggleFocusLock={toggleCurrentFocusLock}
                               />
                             ))}
                           </ul>
@@ -6402,8 +6830,9 @@ function App() {
                           setAttachMenuOpen(false);
                           setComposeKindMenuOpen(false);
                           setDurationMenuOpen(false);
-                                                    setImpactMenuOpen(false);
+                          setImpactMenuOpen(false);
                           closeTaskToolHint();
+                          clearComposerMetaAuto("recurring");
                           setRecurringMenuOpen((open) => !open);
                         }}
                       >
@@ -6469,6 +6898,7 @@ function App() {
                           setDurationMenuOpen(false);
                           setRecurringMenuOpen(false);
                           closeTaskToolHint();
+                          clearComposerMetaAuto("impact");
                           setImpactActivated(true);
                           setImpactMenuOpen((open) => !open);
                         }}
@@ -6562,8 +6992,9 @@ function App() {
                         setAttachMenuOpen(false);
                         setComposeKindMenuOpen(false);
                         setRecurringMenuOpen(false);
-                                                setImpactMenuOpen(false);
+                        setImpactMenuOpen(false);
                         closeTaskToolHint();
+                        clearComposerMetaAuto("duration");
                         setDurationActivated(true);
                         setDurationMenuOpen((open) => !open);
                       }}
@@ -6620,6 +7051,7 @@ function App() {
                       className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
                       role="menuitem"
                       onClick={() => {
+                        clearComposerMetaAuto("type");
                         setComposeKind(id);
                         setComposeKindMenuOpen(false);
                       }}
@@ -6639,6 +7071,7 @@ function App() {
                       className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
                       role="menuitem"
                       onClick={() => {
+                        clearComposerMetaAuto("type");
                         setComposeKind(id);
                         setComposeKindMenuOpen(false);
                       }}
@@ -6659,6 +7092,7 @@ function App() {
                     className={`app-attach-menu-item${composeKind === "assistant" ? " is-selected" : ""}`}
                     role="menuitem"
                     onClick={() => {
+                      clearComposerMetaAuto("type");
                       setComposeKind("assistant");
                       setComposeKindMenuOpen(false);
                     }}
@@ -6676,8 +7110,9 @@ function App() {
                   onClick={() => {
                     setAttachMenuOpen(false);
                     setDurationMenuOpen(false);
-                                        setImpactMenuOpen(false);
+                    setImpactMenuOpen(false);
                     closeTaskToolHint();
+                    clearComposerMetaAuto("type");
                     setComposeKindMenuOpen((open) => !open);
                   }}
                   tabIndex={collapsed ? -1 : 0}
@@ -6705,8 +7140,9 @@ function App() {
                       : () => {
                           setAttachMenuOpen(false);
                           setDurationMenuOpen(false);
-                                                    setImpactMenuOpen(false);
+                          setImpactMenuOpen(false);
                           closeTaskToolHint();
+                          clearComposerMetaAuto("type");
                           setComposeKindMenuOpen((open) => !open);
                         }
                   }

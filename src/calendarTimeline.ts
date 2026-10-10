@@ -1,4 +1,4 @@
-import type { ComposerDraft } from "./composer";
+import { withMetaAuto, type ComposerDraft } from "./composer";
 import { toStartOfDay } from "./taskStorage";
 
 export const PACK_START_MINUTES = 6 * 60;
@@ -601,13 +601,15 @@ export function rescheduleOverdueTasksForNewDay(
 
     working = working.map((task) =>
       task.id === overdueTask.id
-        ? {
-            ...task,
-            date: nextDate,
-            starts_at: current.starts_at,
-            due_at: current.due_at,
-            auto_rescheduled: true,
-          }
+        ? withMetaAuto(
+            {
+              ...task,
+              date: nextDate,
+              starts_at: current.starts_at,
+              due_at: current.due_at,
+            },
+            "schedule",
+          )
         : task,
     );
     changed = true;
@@ -704,6 +706,23 @@ export function collectPushedFromTodayWindowTasks(
   return overflow;
 }
 
+/** Pin the current-focus task at the start of today's pack window. */
+function pinFocusTaskOnToday(
+  byDay: Map<string, PackBlock[]>,
+  task: ComposerDraft,
+  now: Date,
+  getPackEnd: (day: Date) => number,
+  getWindowStart: (day: Date) => number,
+) {
+  const today = toStartOfDay(now);
+  const packEnd = getPackEnd(today);
+  const windowStart = getWindowStart(today);
+  const packStart = packStartForDay(today, now, packEnd, windowStart);
+  const minutes = Math.max(1, taskDurationMinutes(task));
+  const startMin = packStart < packEnd ? packStart : minutesFromMidnight(now);
+  pushBlock(byDay, today, task, startMin, startMin + minutes, 0, false);
+}
+
 export function layoutCalendarTasks(
   tasks: ComposerDraft[],
   now: Date,
@@ -712,6 +731,8 @@ export function layoutCalendarTasks(
   getWindowStartTimeForDay: (day: Date) => string = () => "06:00",
   /** Softs that started in today's window; leftovers that no longer fit → Deferring. */
   todaySoftBaselineIds: ReadonlySet<string> = new Set(),
+  /** Soft/date-only task pinned first on today until cleared. */
+  focusTaskId: string | null = null,
 ): CalendarTasksLayout {
   const getWindowStart = (day: Date) => packWindowStartMinutes(getWindowStartTimeForDay(day));
   const getPackEnd = (day: Date) =>
@@ -729,8 +750,13 @@ export function layoutCalendarTasks(
   const timed: ComposerDraft[] = [];
   const dateOnlyByDay = new Map<string, ComposerDraft[]>();
   const undated: ComposerDraft[] = [];
+  let focusTask: ComposerDraft | null = null;
 
   for (const task of tasks) {
+    if (focusTaskId != null && task.id === focusTaskId) {
+      focusTask = task;
+      continue;
+    }
     const kind = classifyTask(task);
     if (kind === "undated") {
       undated.push(task);
@@ -776,6 +802,10 @@ export function layoutCalendarTasks(
 
   for (const task of timed) {
     placeTimedTask(byDay, task, now, getPackEnd, getWindowStart, overdueTasks);
+  }
+
+  if (focusTask) {
+    pinFocusTaskOnToday(byDay, focusTask, now, getPackEnd, getWindowStart);
   }
 
   packSoftTasks(

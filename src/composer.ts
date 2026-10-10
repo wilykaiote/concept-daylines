@@ -1,3 +1,15 @@
+export const META_AUTO_KEYS = [
+  "schedule",
+  "urgency",
+  "duration",
+  "impact",
+  "type",
+  "parent",
+  "recurring",
+] as const;
+
+export type MetaAutoKey = (typeof META_AUTO_KEYS)[number];
+
 export type ComposerDraft = {
   id: string | null;
   usr_id: string | null;
@@ -26,7 +38,63 @@ export type ComposerDraft = {
   completed_at: string | null;
   /** True when date was moved automatically after midnight; cleared when user edits date/time. */
   auto_rescheduled: boolean | null;
+  /**
+   * Pipe-separated meta keys still set by default/auto and not user-verified
+   * (e.g. `schedule|urgency|duration`).
+   */
+  meta_auto: string | null;
 };
+
+export function parseMetaAuto(value: string | null | undefined): Set<MetaAutoKey> {
+  const keys = new Set<MetaAutoKey>();
+  if (!value) return keys;
+  for (const part of value.split("|")) {
+    if ((META_AUTO_KEYS as readonly string[]).includes(part)) {
+      keys.add(part as MetaAutoKey);
+    }
+  }
+  return keys;
+}
+
+export function formatMetaAuto(keys: Iterable<MetaAutoKey>): string | null {
+  const set = keys instanceof Set ? keys : new Set(keys);
+  const list = META_AUTO_KEYS.filter((key) => set.has(key));
+  return list.length > 0 ? list.join("|") : null;
+}
+
+export function hasMetaAuto(
+  task: Pick<ComposerDraft, "meta_auto" | "auto_rescheduled">,
+  key: MetaAutoKey,
+): boolean {
+  if (key === "schedule" && task.auto_rescheduled === true) return true;
+  return parseMetaAuto(task.meta_auto).has(key);
+}
+
+export function withMetaAuto(
+  task: ComposerDraft,
+  key: MetaAutoKey,
+): ComposerDraft {
+  const keys = parseMetaAuto(task.meta_auto);
+  keys.add(key);
+  return {
+    ...task,
+    meta_auto: formatMetaAuto(keys),
+    auto_rescheduled: key === "schedule" ? true : task.auto_rescheduled,
+  };
+}
+
+export function withoutMetaAuto(
+  task: ComposerDraft,
+  key: MetaAutoKey,
+): ComposerDraft {
+  const keys = parseMetaAuto(task.meta_auto);
+  keys.delete(key);
+  return {
+    ...task,
+    meta_auto: formatMetaAuto(keys),
+    auto_rescheduled: key === "schedule" ? false : task.auto_rescheduled,
+  };
+}
 
 type ComposerDraftOverrides = Partial<
   Omit<ComposerDraft, "id" | "title" | "type" | "created_at">
@@ -66,5 +134,6 @@ export function buildComposerDraft({
     created_at: new Date().toISOString(),
     completed_at: overrides.completed_at ?? null,
     auto_rescheduled: overrides.auto_rescheduled ?? null,
+    meta_auto: overrides.meta_auto ?? null,
   };
 }

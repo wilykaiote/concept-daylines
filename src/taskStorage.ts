@@ -1,4 +1,8 @@
-import type { ComposerDraft } from "./composer";
+import {
+  formatMetaAuto,
+  type ComposerDraft,
+  type MetaAutoKey,
+} from "./composer";
 
 const TASKS_STORAGE_KEY = "twineline.tasks";
 const TARGET_TIME_STORAGE_KEY = "twineline.targetTime";
@@ -9,6 +13,7 @@ const DAY_SNOOZE_STORAGE_KEY = "twineline.daySnooze";
 const TASK_GAP_STORAGE_KEY = "twineline.taskGapMinutes";
 const LAST_AUTO_RESCHEDULE_DAY_KEY = "twineline.lastAutoRescheduleDay";
 const TODAY_WINDOW_BASELINE_KEY = "twineline.todayWindowBaseline";
+const CURRENT_FOCUS_KEY = "twineline.currentFocus";
 const RECENT_LINK_IDS_KEY = "twineline.recentLinkIds";
 const MAX_RECENT_LINK_IDS = 40;
 const DEFAULT_TARGET_TIME = "17:00";
@@ -36,6 +41,28 @@ function migrateUrgencyNowToAsap(drafts: ComposerDraft[]): {
   return { drafts: next, changed };
 }
 
+/** One-time: mark pre-meta_auto fields as unverified defaults. */
+function migrateLegacyMetaAuto(
+  drafts: ComposerDraft[],
+  rawItems: unknown[],
+): { drafts: ComposerDraft[]; changed: boolean } {
+  let changed = false;
+  const next = drafts.map((draft, index) => {
+    const raw = rawItems[index];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return draft;
+    if ("meta_auto" in (raw as Record<string, unknown>)) return draft;
+    const keys = new Set<MetaAutoKey>();
+    if (draft.type != null) keys.add("type");
+    if (draft.est_duration != null) keys.add("duration");
+    if (draft.urgency != null) keys.add("urgency");
+    if (draft.impact != null) keys.add("impact");
+    if (draft.auto_rescheduled === true) keys.add("schedule");
+    changed = true;
+    return { ...draft, meta_auto: formatMetaAuto(keys) };
+  });
+  return { drafts: next, changed };
+}
+
 function normalizePlanDraft(draft: ComposerDraft): ComposerDraft {
   if (draft.type === "project" || draft.type === "program" || draft.type === "plan") {
     return { ...draft, type: "plan" };
@@ -49,7 +76,11 @@ export function loadTasks(): ComposerDraft[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    const { drafts, changed } = migrateUrgencyNowToAsap(parsed.filter(isComposerDraft));
+    const filteredRaw = parsed.filter(isComposerDraft);
+    const urgencyMigrated = migrateUrgencyNowToAsap(filteredRaw);
+    const metaMigrated = migrateLegacyMetaAuto(urgencyMigrated.drafts, filteredRaw);
+    const drafts = metaMigrated.drafts;
+    const changed = urgencyMigrated.changed || metaMigrated.changed;
     const normalized = drafts.map(normalizePlanDraft);
     const typeChanged = normalized.some((draft, index) => draft.type !== drafts[index]?.type);
     if (changed || typeChanged) saveTasks(normalized);
@@ -304,6 +335,51 @@ export function loadTodayWindowBaseline(): TodayWindowBaseline | null {
 export function saveTodayWindowBaseline(baseline: TodayWindowBaseline): void {
   try {
     localStorage.setItem(TODAY_WINDOW_BASELINE_KEY, JSON.stringify(baseline));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export type CurrentFocus = {
+  dayKey: string;
+  taskId: string;
+  /** When true, focus stays pinned on today and is not pushed to overflow. */
+  locked: boolean;
+};
+
+export function loadCurrentFocus(): CurrentFocus | null {
+  try {
+    const raw = localStorage.getItem(CURRENT_FOCUS_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const value = parsed as Record<string, unknown>;
+    if (typeof value.dayKey !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.dayKey)) {
+      return null;
+    }
+    if (typeof value.taskId !== "string" || value.taskId.length === 0) return null;
+    return {
+      dayKey: value.dayKey,
+      taskId: value.taskId,
+      // Legacy focus entries without `locked` stay pinned.
+      locked: value.locked !== false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveCurrentFocus(focus: CurrentFocus): void {
+  try {
+    localStorage.setItem(CURRENT_FOCUS_KEY, JSON.stringify(focus));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export function clearCurrentFocusStorage(): void {
+  try {
+    localStorage.removeItem(CURRENT_FOCUS_KEY);
   } catch {
     // Ignore quota / private-mode write failures.
   }
