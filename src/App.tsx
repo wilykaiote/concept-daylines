@@ -83,6 +83,7 @@ import {
   formatHourLabel,
   formatMinutesLabel,
   layoutCalendarTasks,
+  latestFocusFreeStartMin,
   minutesFromMidnight,
   MINUTES_PER_DAY,
   packWindowEndMinutes,
@@ -594,67 +595,23 @@ function ImpactIcon() {
   );
 }
 
-function FocusIcon() {
+function PinIcon({ filled = false }: { filled?: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <path
-        d="M12 3.5v3.2M12 17.3v3.2M3.5 12h3.2M17.3 12h3.2"
+        d="M9 3.5h6l-.6 6.2 2.8 2.3V14H6.8v-2l2.8-2.3L9 3.5Z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 14v6.5"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
       />
-    </svg>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect
-        x="5"
-        y="10"
-        width="14"
-        height="11"
-        rx="2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M8 10V8a4 4 0 0 1 8 0v2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <circle cx="12" cy="15.5" r="1.2" fill="currentColor" />
-    </svg>
-  );
-}
-
-function UnlockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect
-        x="5"
-        y="10"
-        width="14"
-        height="11"
-        rx="2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M8 10V8a4 4 0 0 1 7.5-2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <circle cx="12" cy="15.5" r="1.2" fill="currentColor" />
     </svg>
   );
 }
@@ -1357,13 +1314,13 @@ function CompactTaskRow({
         <button
           type="button"
           className="task-row-focus"
-          aria-label={`Set ${task.title} as current focus`}
+          aria-label={`Pin ${task.title} as current focus`}
           onClick={(event) => {
             event.stopPropagation();
             onSetFocus();
           }}
         >
-          <FocusIcon />
+          <PinIcon />
         </button>
       ) : null}
     </li>
@@ -2003,7 +1960,7 @@ function App() {
   );
   const todayFocusId =
     currentFocus?.dayKey === todayKeyStr ? currentFocus.taskId : null;
-  const focusLocked = currentFocus?.dayKey === todayKeyStr && currentFocus.locked !== false;
+  const focusLocked = currentFocus?.dayKey === todayKeyStr && currentFocus.locked === true;
   /** Only a locked focus is force-pinned so packing cannot push it to overflow. */
   const pinnedFocusId = focusLocked ? todayFocusId : null;
   const calendarTasksLayout = layoutCalendarTasks(
@@ -2021,6 +1978,11 @@ function App() {
   const overflowTasks = [...overdueTasks, ...deferredTasks];
   const overflowTaskCount = overflowTasks.length;
   const overflowDeferOnly = overdueTasks.length === 0 && deferredTasks.length > 0;
+  const unlockedFocusInOverflow =
+    currentFocus != null &&
+    currentFocus.dayKey === todayKeyStr &&
+    currentFocus.locked !== true &&
+    overflowTasks.some((task) => task.id === currentFocus.taskId);
   const parentTitleById = (() => {
     const map = new Map<string, string>();
     for (const collection of collections) {
@@ -2066,6 +2028,42 @@ function App() {
       : null;
   const todayFocusTask = pinnedFocusTask ?? todayFocusBlock?.task ?? null;
   const currentFocusTaskId = todayFocusTask?.id ?? null;
+  const todayFocusLayoutBlock =
+    currentFocusTaskId != null
+      ? (todayLayout?.blocks.find(
+          (block) => !block.overdue && block.taskId === currentFocusTaskId,
+        ) ?? null)
+      : null;
+  const focusTaskInOverflow =
+    currentFocusTaskId != null &&
+    overflowTasks.some((task) => task.id === currentFocusTaskId);
+  const focusLatestStartMin =
+    todayFocusTask != null && !focusTaskInOverflow
+      ? latestFocusFreeStartMin(
+          todayFocusTask,
+          todayPackEnd,
+          nowMinutes,
+          todayLayout?.blocks ?? [],
+          taskGapMinutes,
+        )
+      : null;
+  // Free time until the next focus/Up-next task must start (latest feasible),
+  // not until packing's earliest start (which is usually "now").
+  const focusFreeTimeMode =
+    !focusLocked &&
+    focusLatestStartMin != null &&
+    focusLatestStartMin > nowMinutes;
+  const focusCountdownTargetMin = focusFreeTimeMode
+    ? focusLatestStartMin
+    : (todayFocusLayoutBlock?.endMin ?? null);
+  const focusCountdownMs =
+    focusCountdownTargetMin != null
+      ? todayStart.getTime() + focusCountdownTargetMin * 60_000 - countdownNow
+      : null;
+  const focusCountdownLabel =
+    !focusLocked && focusCountdownMs != null
+      ? `- ${formatCountdown(focusCountdownMs, { hideZeroHours: true })}`
+      : null;
   const dayElapsedPct = Math.min(
     100,
     Math.max(0, (nowMinutes / MINUTES_PER_DAY) * 100),
@@ -3530,10 +3528,33 @@ function App() {
     });
   };
 
-  const setTaskAsCurrentFocus = (task: ComposerDraft) => {
+  const setTaskAsCurrentFocus = (
+    task: ComposerDraft,
+    options?: {
+      locked?: boolean;
+      overflowBucket?: "overdue" | "deferred" | null;
+      overflowIndex?: number | null;
+    },
+  ) => {
     if (!task.id) return;
     const focusDayKey = dayKey(toStartOfDay(new Date(countdownNowRef.current)));
-    const nextFocus: CurrentFocus = { dayKey: focusDayKey, taskId: task.id, locked: true };
+    const locked = options?.locked === true;
+    const overflowBucket = locked ? (options.overflowBucket ?? null) : null;
+    const overflowIndex =
+      locked &&
+      overflowBucket != null &&
+      typeof options?.overflowIndex === "number" &&
+      Number.isFinite(options.overflowIndex) &&
+      options.overflowIndex >= 0
+        ? Math.floor(options.overflowIndex)
+        : null;
+    const nextFocus: CurrentFocus = {
+      dayKey: focusDayKey,
+      taskId: task.id,
+      locked,
+      overflowBucket,
+      overflowIndex,
+    };
     setTasks((current) =>
       current.map((item) =>
         item.id === task.id
@@ -3556,12 +3577,97 @@ function App() {
   };
 
   const toggleCurrentFocusLock = () => {
+    const taskId = todayFocusTask?.id;
+    if (!taskId) return;
+    const focusDayKey = dayKey(toStartOfDay(new Date(countdownNowRef.current)));
     setCurrentFocus((current) => {
-      if (current == null) return current;
-      const next: CurrentFocus = { ...current, locked: !current.locked };
+      // Fallback "current focus" has no stored entry — lock creates one for that task.
+      if (
+        current == null ||
+        current.dayKey !== focusDayKey ||
+        current.taskId !== taskId
+      ) {
+        const next: CurrentFocus = {
+          dayKey: focusDayKey,
+          taskId,
+          locked: true,
+          overflowBucket: null,
+          overflowIndex: null,
+        };
+        saveCurrentFocus(next);
+        return next;
+      }
+      const next: CurrentFocus = {
+        ...current,
+        locked: !current.locked,
+        overflowBucket: !current.locked ? current.overflowBucket : null,
+        overflowIndex: !current.locked ? current.overflowIndex : null,
+      };
       saveCurrentFocus(next);
       return next;
     });
+  };
+
+  const unpinOverflowFocus = () => {
+    setCurrentFocus(null);
+    clearCurrentFocusStorage();
+  };
+
+  const renderOverflowPinnedPlaceholder = (bucket: "overdue" | "deferred") => {
+    if (
+      currentFocus == null ||
+      currentFocus.dayKey !== todayKeyStr ||
+      currentFocus.locked !== true ||
+      currentFocus.overflowBucket !== bucket
+    ) {
+      return null;
+    }
+    return (
+      <li
+        key="overflow-pinned-placeholder"
+        className="task-overflow-pinned-placeholder"
+      >
+        <p className="task-overflow-pinned-placeholder-text">
+          Task pinned to current focus
+        </p>
+        <button
+          type="button"
+          className="task-overflow-pinned-undo"
+          aria-label="Undo pin to current focus"
+          title="Undo"
+          onClick={unpinOverflowFocus}
+        >
+          Undo
+        </button>
+      </li>
+    );
+  };
+
+  const renderOverflowBucketItems = (
+    bucket: "overdue" | "deferred",
+    tasks: ComposerDraft[],
+    renderTask: (task: ComposerDraft, index: number) => ReactNode,
+  ) => {
+    const placeholder = renderOverflowPinnedPlaceholder(bucket);
+    if (placeholder == null) {
+      return tasks.map((task, index) => renderTask(task, index));
+    }
+    const insertAt = Math.min(
+      Math.max(
+        0,
+        typeof currentFocus?.overflowIndex === "number"
+          ? currentFocus.overflowIndex
+          : 0,
+      ),
+      tasks.length,
+    );
+    const items: ReactNode[] = [];
+    tasks.forEach((task, index) => {
+      if (index === insertAt) items.push(placeholder);
+      items.push(renderTask(task, index));
+    });
+    if (insertAt === tasks.length) items.push(placeholder);
+    return items;
   };
 
   const renderCurrentFocusLockButton = (taskTitle?: string | null) => {
@@ -3572,14 +3678,14 @@ function App() {
         className={`task-row-focus-lock${focusLocked ? " is-locked" : " is-unlocked"}`}
         aria-label={
           focusLocked
-            ? `Unlock ${title} — allow moving to overflow`
-            : `Lock ${title} — keep out of overflow`
+            ? `Unpin ${title} — allow moving to overflow`
+            : `Pin ${title} — keep out of overflow`
         }
         aria-pressed={focusLocked}
-        title={focusLocked ? "Locked — stays out of overflow" : "Unlocked — can move to overflow"}
+        title={focusLocked ? "Pinned — stays out of overflow" : "Unpinned — can move to overflow"}
         onClick={toggleCurrentFocusLock}
       >
-        {focusLocked ? <LockIcon /> : <UnlockIcon />}
+        <PinIcon filled={focusLocked} />
       </button>
     );
   };
@@ -3591,44 +3697,66 @@ function App() {
         <div className="task-current-focus-label-row">
           <p className="task-current-focus-label">
             Current focus
-            <span className="task-current-focus-label-icon" aria-hidden="true">
-              <FocusIcon />
-            </span>
+            {focusCountdownLabel != null && (
+              <span className="task-current-focus-countdown" aria-live="polite">
+                {focusCountdownLabel}
+              </span>
+            )}
           </p>
           {renderCurrentFocusLockButton(todayFocusTask.title)}
         </div>
-        <ul className="task-day-tasks task-current-focus-tasks">
-          <CompactTaskRow
-            key={todayFocusTask.id}
-            task={todayFocusTask}
-            overdue={false}
-            editing={editingTaskId === todayFocusTask.id}
-            highlighted={isTaskHighlighted(todayFocusTask.id)}
-            popping={isTaskPopping(todayFocusTask.id)}
-            now={new Date(countdownNow)}
-            parentTitle={parentTitleFor(todayFocusTask.parent_id)}
-            isCurrentFocus
-            onComplete={() => requestCompleteTask(todayFocusTask.id)}
-            onEdit={() => {
-              setFocusedOverflowTaskIds(null);
-              setFocusedTaskId(todayFocusTask.id!);
-              editTask(todayFocusTask);
-            }}
-          />
-        </ul>
+        {focusFreeTimeMode ? (
+          <div className="task-current-focus-free-time" aria-label="Free time">
+            <p className="task-current-focus-free-time-title">Free time</p>
+          </div>
+        ) : (
+          <ul className="task-day-tasks task-current-focus-tasks">
+            <CompactTaskRow
+              key={todayFocusTask.id}
+              task={todayFocusTask}
+              overdue={false}
+              editing={editingTaskId === todayFocusTask.id}
+              highlighted={isTaskHighlighted(todayFocusTask.id)}
+              popping={isTaskPopping(todayFocusTask.id)}
+              now={new Date(countdownNow)}
+              parentTitle={parentTitleFor(todayFocusTask.parent_id)}
+              isCurrentFocus
+              onComplete={() => requestCompleteTask(todayFocusTask.id)}
+              onEdit={() => {
+                setFocusedOverflowTaskIds(null);
+                setFocusedTaskId(todayFocusTask.id!);
+                editTask(todayFocusTask);
+              }}
+            />
+          </ul>
+        )}
       </div>
     );
   };
 
+  const overflowPinnedBucket =
+    currentFocus?.dayKey === todayKeyStr &&
+    currentFocus.locked === true &&
+    (currentFocus.overflowBucket === "overdue" ||
+      currentFocus.overflowBucket === "deferred")
+      ? currentFocus.overflowBucket
+      : null;
+  const overflowDisplayCount =
+    overflowTaskCount + (overflowPinnedBucket != null ? 1 : 0);
+
   const renderOverflowSection = () => {
-    if (overflowTaskCount <= 0) return null;
+    if (overflowDisplayCount <= 0) return null;
+    const showOverdueBucket =
+      overdueTasks.length > 0 || overflowPinnedBucket === "overdue";
+    const showDeferredBucket =
+      deferredTasks.length > 0 || overflowPinnedBucket === "deferred";
     return (
       <>
         <div className="task-day-label-row task-day-overflow-row">
           <button
             ref={overflowToggleRef}
             type="button"
-            className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
+            className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly && overflowPinnedBucket !== "overdue" ? " is-defer-only" : ""}`}
             aria-expanded={overdueSectionOpen}
             aria-controls="task-overdue-list"
             aria-label="Overflow tasks"
@@ -3636,8 +3764,8 @@ function App() {
           >
             <span className="task-overdue-toggle-action">
               <span className="task-overdue-toggle-reschedule">
-                {overflowTaskCount}{" "}
-                {overflowTaskCount === 1 ? "task" : "tasks"} moved to{" "}
+                <span className="task-overdue-toggle-count">{overflowDisplayCount}</span>{" "}
+                {overflowDisplayCount === 1 ? "task" : "tasks"} moved to{" "}
                 <span className="task-overflow-notice-overflow">Overflow</span>
               </span>
               <span className="task-overdue-toggle-chevron" aria-hidden="true">
@@ -3651,13 +3779,13 @@ function App() {
             <section
               ref={overdueSectionRef}
               id="task-overdue-list"
-              className={`task-overdue-section${overflowDeferOnly ? " is-defer-only" : ""}`}
+              className={`task-overdue-section${overflowDeferOnly && overflowPinnedBucket !== "overdue" ? " is-defer-only" : ""}`}
               aria-label="Overflow tasks"
             >
-              {overdueTasks.length > 0 && (
+              {showOverdueBucket && (
                 <div className="task-overflow-bucket">
                   <ul className="task-day-tasks task-overdue-tasks">
-                    {overdueTasks.map((task) => (
+                    {renderOverflowBucketItems("overdue", overdueTasks, (task, index) => (
                       <CompactTaskRow
                         key={task.id ?? task.title}
                         task={task}
@@ -3676,16 +3804,25 @@ function App() {
                           editTask(task);
                         }}
                         isCurrentFocus={todayFocusTask?.id === task.id}
-                        onSetFocus={() => setTaskAsCurrentFocus(task)}
+                        onSetFocus={() =>
+                          setTaskAsCurrentFocus(task, {
+                            locked: true,
+                            overflowBucket: "overdue",
+                            overflowIndex: index,
+                          })
+                        }
                       />
                     ))}
                   </ul>
                 </div>
               )}
-              {deferredTasks.length > 0 && (
+              {showDeferredBucket && (
                 <div className="task-overflow-bucket">
                   <ul className="task-day-tasks task-overdue-tasks">
-                    {deferredTasks.map((task) => (
+                    {renderOverflowBucketItems(
+                      "deferred",
+                      deferredTasks,
+                      (task, index) => (
                       <CompactTaskRow
                         key={task.id ?? task.title}
                         task={task}
@@ -3704,9 +3841,16 @@ function App() {
                           editTask(task);
                         }}
                         isCurrentFocus={todayFocusTask?.id === task.id}
-                        onSetFocus={() => setTaskAsCurrentFocus(task)}
+                        onSetFocus={() =>
+                          setTaskAsCurrentFocus(task, {
+                            locked: true,
+                            overflowBucket: "deferred",
+                            overflowIndex: index,
+                          })
+                        }
                       />
-                    ))}
+                    ),
+                    )}
                   </ul>
                 </div>
               )}
@@ -3753,8 +3897,14 @@ function App() {
     if (!tasks.some((task) => task.id === currentFocus.taskId)) {
       setCurrentFocus(null);
       clearCurrentFocusStorage();
+      return;
     }
-  }, [currentFocus, todayKeyStr, tasks]);
+    // Unlocked focus that no longer fits today → release so it returns to overflow.
+    if (unlockedFocusInOverflow) {
+      setCurrentFocus(null);
+      clearCurrentFocusStorage();
+    }
+  }, [currentFocus, todayKeyStr, tasks, unlockedFocusInOverflow]);
 
   useEffect(() => {
     saveTasks(tasks);
@@ -4192,7 +4342,7 @@ function App() {
     const observer = new ResizeObserver(syncSlotHeight);
     observer.observe(slide);
     return () => observer.disconnect();
-  }, [activeView, calendarOpen, timePickerOpen, overflowTaskCount]);
+  }, [activeView, calendarOpen, timePickerOpen, overflowDisplayCount]);
 
   useLayoutEffect(() => {
     const el = composeInputRef.current;
@@ -4837,6 +4987,8 @@ function App() {
                 ? renderCurrentFocusLockButton(todayFocusTask.title)
                 : null
             }
+            focusFreeTime={focusFreeTimeMode}
+            focusCountdownLabel={focusCountdownLabel}
             plans={tasks
               .filter((task) => isPlanTaskType(task.type) && task.id != null)
               .map((plan) => {
@@ -4866,7 +5018,7 @@ function App() {
             overdueTasks={overdueTasks}
             overdueOpen={homeOverdueSectionOpen}
             onOverdueToggle={() => setHomeOverdueSectionOpen((open) => !open)}
-            renderDeferredTask={(task) => (
+            renderDeferredTask={(task, index) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
                 task={task}
@@ -4885,10 +5037,16 @@ function App() {
                   editTask(task);
                 }}
                 isCurrentFocus={todayFocusTask?.id === task.id}
-                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                onSetFocus={() =>
+                  setTaskAsCurrentFocus(task, {
+                    locked: true,
+                    overflowBucket: "deferred",
+                    overflowIndex: index,
+                  })
+                }
               />
             )}
-            renderOverdueTask={(task) => (
+            renderOverdueTask={(task, index) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
                 task={task}
@@ -4907,9 +5065,17 @@ function App() {
                   editTask(task);
                 }}
                 isCurrentFocus={todayFocusTask?.id === task.id}
-                onSetFocus={() => setTaskAsCurrentFocus(task)}
+                onSetFocus={() =>
+                  setTaskAsCurrentFocus(task, {
+                    locked: true,
+                    overflowBucket: "overdue",
+                    overflowIndex: index,
+                  })
+                }
               />
             )}
+            overflowPinnedBucket={overflowPinnedBucket}
+            renderOverflowBucketItems={renderOverflowBucketItems}
           />
         )}
         {activeView === "discover" && <DiscoverView />}
@@ -5255,6 +5421,7 @@ function App() {
                 if (seenTaskIds.has(id)) return false;
                 if (
                   isTodayGroup &&
+                  !focusFreeTimeMode &&
                   currentFocusTaskId != null &&
                   block.taskId === currentFocusTaskId
                 ) {
@@ -5267,7 +5434,7 @@ function App() {
                 isTodayGroup &&
                 activeView === "dayline" &&
                 !calendarOpen &&
-                overflowTaskCount > 0;
+                overflowDisplayCount > 0;
               return (
                 <section
                   key={day.dayKey}
@@ -5336,7 +5503,7 @@ function App() {
                 isTodayGroup &&
                 activeView === "dayline" &&
                 !calendarOpen &&
-                overflowTaskCount > 0;
+                overflowDisplayCount > 0;
               const toggleOutsideRegion = (region: OutsideRegionId) => {
                 setOutsideExpandedByDay((current) => {
                   const prev = current[day.dayKey] ?? {};

@@ -340,11 +340,17 @@ export function saveTodayWindowBaseline(baseline: TodayWindowBaseline): void {
   }
 }
 
+export type CurrentFocusOverflowBucket = "overdue" | "deferred";
+
 export type CurrentFocus = {
   dayKey: string;
   taskId: string;
   /** When true, focus stays pinned on today and is not pushed to overflow. */
   locked: boolean;
+  /** When pinned from overflow, keep a placeholder row in that bucket. */
+  overflowBucket?: CurrentFocusOverflowBucket | null;
+  /** Index in that overflow bucket where the pinned task sat. */
+  overflowIndex?: number | null;
 };
 
 export function loadCurrentFocus(): CurrentFocus | null {
@@ -358,11 +364,23 @@ export function loadCurrentFocus(): CurrentFocus | null {
       return null;
     }
     if (typeof value.taskId !== "string" || value.taskId.length === 0) return null;
+    const overflowBucket =
+      value.overflowBucket === "overdue" || value.overflowBucket === "deferred"
+        ? value.overflowBucket
+        : null;
+    const overflowIndex =
+      typeof value.overflowIndex === "number" &&
+      Number.isFinite(value.overflowIndex) &&
+      value.overflowIndex >= 0
+        ? Math.floor(value.overflowIndex)
+        : null;
     return {
       dayKey: value.dayKey,
       taskId: value.taskId,
-      // Legacy focus entries without `locked` stay pinned.
-      locked: value.locked !== false,
+      // Only explicitly locked focus stays pinned out of overflow.
+      locked: value.locked === true,
+      overflowBucket,
+      overflowIndex: overflowBucket != null ? overflowIndex : null,
     };
   } catch {
     return null;

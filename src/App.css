@@ -1703,15 +1703,35 @@
 }
 
 .task-overdue-toggle-reschedule .task-overflow-notice-overflow {
-  color: var(--danger);
+  color: inherit;
 }
 
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-reschedule .task-overflow-notice-overflow {
+  color: inherit;
+}
+
+.task-overdue-toggle-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.85em;
+  height: 1.85em;
+  margin-right: 0.2em;
+  padding: 0 0.4em;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--text) 12%, var(--bg-raised));
   color: var(--text-h);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+  vertical-align: 0.05em;
+  box-sizing: border-box;
 }
 
 .task-overdue-toggle-chevron {
-  color: var(--danger);
+  color: var(--text);
   font-size: 0.85rem;
   font-weight: 500;
   line-height: 1;
@@ -1734,6 +1754,10 @@
 
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-reschedule,
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-chevron {
+  color: var(--text);
+}
+
+.task-overdue-toggle.is-defer-only .task-overdue-toggle-count {
   color: var(--text-h);
 }
 
@@ -1828,11 +1852,11 @@
 }
 
 .task-overflow-notice-overflow {
-  color: var(--danger);
+  color: inherit;
 }
 
 .task-overflow-notice-block.is-defer-only .task-overflow-notice-overflow {
-  color: var(--text-h);
+  color: inherit;
 }
 
 .task-overflow-notice-list {
@@ -1989,11 +2013,11 @@
 }
 
 .task-overflow-footer .task-overflow-notice-overflow {
-  color: var(--danger);
+  color: inherit;
 }
 
 .task-overdue-section.is-defer-only .task-overflow-footer .task-overflow-notice-overflow {
-  color: var(--text-h);
+  color: inherit;
 }
 
 .task-current-focus,
@@ -2041,20 +2065,92 @@
   min-width: 0;
 }
 
+.task-current-focus-countdown {
+  flex-shrink: 0;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.task-current-focus-free-time {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-sizing: border-box;
+}
+
+.task-current-focus-free-time-title {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
 .task-day-next .task-current-focus-label {
   padding: 10px 2px 6px;
 }
 
-.task-current-focus-label-icon {
-  display: grid;
-  place-items: center;
-  color: inherit;
+.task-overflow-pinned-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 14px 4px 14px 16px;
+  box-sizing: border-box;
+  list-style: none;
 }
 
-.task-current-focus-label-icon svg {
-  width: 14px;
-  height: 14px;
-  display: block;
+.task-overflow-pinned-placeholder-text {
+  flex: 1 1 0;
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.task-overflow-pinned-undo {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  min-width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.task-overflow-pinned-undo:hover,
+.task-overflow-pinned-undo:focus-visible {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+
+.task-overflow-pinned-undo:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .task-current-focus-tasks {
@@ -2244,12 +2340,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   overflow-wrap: normal;
-}
-
-.task-overdue-tasks .task-complete,
-.task-overdue-tasks .task-complete.is-soft,
-.task-overdue-tasks .task-complete.is-anchored {
-  border-color: var(--text);
 }
 
 .task-row-details {
@@ -2509,15 +2599,6 @@
 .home-focus-task .task-row-schedule,
 .task-current-focus .task-row-schedule {
   font-size: 0.72rem;
-}
-
-/* Dated overflow tasks: schedule meta uses overdue red (beats compact auto-orange). */
-.task-list.is-compact .task-overdue-tasks .task-row-schedule,
-.task-list.is-compact .task-overdue-tasks .task-row-schedule.is-auto,
-.task-overdue-tasks .task-row-schedule,
-.task-overdue-tasks .task-row-schedule.is-auto {
-  color: var(--danger);
-  opacity: 1;
 }
 
 .task-row-duration {

@@ -210,10 +210,60 @@ function classifyTask(task: ComposerDraft): TaskKind {
   return "dateOnly";
 }
 
-function taskDurationMinutes(task: ComposerDraft): number {
+export function taskDurationMinutes(task: ComposerDraft): number {
   const raw = task.est_duration;
   if (raw == null || !Number.isFinite(raw) || raw <= 0) return DEFAULT_TASK_MINUTES;
   return Math.max(1, Math.round(raw));
+}
+
+/**
+ * Latest minute a focus / next soft task can start and still finish in today's
+ * pack window (and before the next hard-timed block, if any).
+ * Used for Current focus "Free time" — not the earliest packed start.
+ */
+export function latestFocusFreeStartMin(
+  task: ComposerDraft,
+  packEndMin: number,
+  nowMin: number,
+  todayBlocks: ReadonlyArray<{
+    startMin: number;
+    overdue: boolean;
+    taskId: string | null;
+    task: ComposerDraft;
+  }>,
+  gapMinutes: number = 0,
+): number {
+  const duration = taskDurationMinutes(task);
+  let latest = packEndMin - duration;
+
+  const ownStarts = parseTimeOfDay(task.starts_at);
+  if (ownStarts != null) {
+    latest = Math.min(latest, ownStarts);
+  } else {
+    const ownDue = parseTimeOfDay(task.due_at);
+    if (ownDue != null) latest = Math.min(latest, ownDue - duration);
+  }
+
+  let nextHardStart: number | null = null;
+  for (const block of todayBlocks) {
+    if (block.overdue) continue;
+    if (block.startMin <= nowMin) continue;
+    if (task.id != null && block.taskId === task.id) continue;
+    const hard =
+      parseTimeOfDay(block.task.starts_at) != null ||
+      parseTimeOfDay(block.task.due_at) != null;
+    if (!hard) continue;
+    if (nextHardStart == null || block.startMin < nextHardStart) {
+      nextHardStart = block.startMin;
+    }
+  }
+  if (nextHardStart != null) {
+    // Must finish before the hard block (gap matches soft-pack spacing).
+    const beforeHard = nextHardStart - Math.max(0, gapMinutes) - duration;
+    latest = Math.min(latest, nextHardStart, beforeHard);
+  }
+
+  return latest;
 }
 
 type PackBlock = Omit<CalendarTaskBlock, "topPx" | "heightPx">;

@@ -29,12 +29,20 @@ type HomeViewProps = {
   focusTask: ComposerDraft | null;
   renderFocusTask: (task: ComposerDraft) => ReactNode;
   focusLockControl?: ReactNode;
+  focusFreeTime?: boolean;
+  focusCountdownLabel?: string | null;
   deferredTasks: ComposerDraft[];
   overdueTasks: ComposerDraft[];
   overdueOpen: boolean;
   onOverdueToggle: () => void;
-  renderDeferredTask: (task: ComposerDraft) => ReactNode;
-  renderOverdueTask: (task: ComposerDraft) => ReactNode;
+  renderDeferredTask: (task: ComposerDraft, index: number) => ReactNode;
+  renderOverdueTask: (task: ComposerDraft, index: number) => ReactNode;
+  overflowPinnedBucket?: "overdue" | "deferred" | null;
+  renderOverflowBucketItems?: (
+    bucket: "overdue" | "deferred",
+    tasks: ComposerDraft[],
+    renderTask: (task: ComposerDraft, index: number) => ReactNode,
+  ) => ReactNode;
 };
 
 export function HomeView({
@@ -49,19 +57,33 @@ export function HomeView({
   focusTask,
   renderFocusTask,
   focusLockControl,
+  focusFreeTime = false,
+  focusCountdownLabel = null,
   deferredTasks,
   overdueTasks,
   overdueOpen,
   onOverdueToggle,
   renderDeferredTask,
   renderOverdueTask,
+  overflowPinnedBucket = null,
+  renderOverflowBucketItems,
 }: HomeViewProps) {
   const [homeStepIndex, setHomeStepIndex] = useState(0);
   const canStepBack = homeStepIndex > 0;
   const canStepForward = homeStepIndex < HOME_STEP_COUNT - 1;
   const planTiles = plans.length > 0 ? plans : [...PLACEHOLDER_PLANS];
-  const overflowCount = deferredTasks.length + overdueTasks.length;
-  const overflowDeferOnly = overdueTasks.length === 0 && deferredTasks.length > 0;
+  const overflowCount =
+    deferredTasks.length +
+    overdueTasks.length +
+    (overflowPinnedBucket != null ? 1 : 0);
+  const overflowDeferOnly =
+    overdueTasks.length === 0 &&
+    deferredTasks.length > 0 &&
+    overflowPinnedBucket !== "overdue";
+  const showOverdueBucket =
+    overdueTasks.length > 0 || overflowPinnedBucket === "overdue";
+  const showDeferredBucket =
+    deferredTasks.length > 0 || overflowPinnedBucket === "deferred";
 
   return (
     <div className="home-view">
@@ -143,29 +165,21 @@ export function HomeView({
                   <div className="task-current-focus-label-row">
                     <p className="task-current-focus-label">
                       Current focus
-                      <span className="task-current-focus-label-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24">
-                          <circle
-                            cx="12"
-                            cy="12"
-                            r="3"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                          />
-                          <path
-                            d="M12 3.5v3.2M12 17.3v3.2M3.5 12h3.2M17.3 12h3.2"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                      </span>
+                      {focusCountdownLabel != null && (
+                        <span className="task-current-focus-countdown" aria-live="polite">
+                          {focusCountdownLabel}
+                        </span>
+                      )}
                     </p>
                     {focusLockControl}
                   </div>
-                  <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
+                  {focusFreeTime ? (
+                    <div className="task-current-focus-free-time" aria-label="Free time">
+                      <p className="task-current-focus-free-time-title">Free time</p>
+                    </div>
+                  ) : (
+                    <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
+                  )}
                 </div>
               ) : (
                 <p className="home-focus-empty">No focus task right now</p>
@@ -181,7 +195,8 @@ export function HomeView({
                 >
                   <span className="task-overdue-toggle-action">
                     <span className="task-overdue-toggle-reschedule">
-                      {overflowCount} {overflowCount === 1 ? "task" : "tasks"} moved to{" "}
+                      <span className="task-overdue-toggle-count">{overflowCount}</span>{" "}
+                      {overflowCount === 1 ? "task" : "tasks"} moved to{" "}
                       <span className="task-overflow-notice-overflow">Overflow</span>
                     </span>
                     <span className="task-overdue-toggle-chevron" aria-hidden="true">
@@ -200,17 +215,33 @@ export function HomeView({
                 className={`task-overdue-section home-overdue-section${overflowDeferOnly ? " is-defer-only" : ""}`}
                 aria-label="Overflow tasks"
               >
-                {overdueTasks.length > 0 && (
+                {showOverdueBucket && (
                   <div className="task-overflow-bucket">
                     <ul className="task-day-tasks task-overdue-tasks">
-                      {overdueTasks.map((task) => renderOverdueTask(task))}
+                      {renderOverflowBucketItems != null
+                        ? renderOverflowBucketItems(
+                            "overdue",
+                            overdueTasks,
+                            renderOverdueTask,
+                          )
+                        : overdueTasks.map((task, index) =>
+                            renderOverdueTask(task, index),
+                          )}
                     </ul>
                   </div>
                 )}
-                {deferredTasks.length > 0 && (
+                {showDeferredBucket && (
                   <div className="task-overflow-bucket">
                     <ul className="task-day-tasks task-overdue-tasks">
-                      {deferredTasks.map((task) => renderDeferredTask(task))}
+                      {renderOverflowBucketItems != null
+                        ? renderOverflowBucketItems(
+                            "deferred",
+                            deferredTasks,
+                            renderDeferredTask,
+                          )
+                        : deferredTasks.map((task, index) =>
+                            renderDeferredTask(task, index),
+                          )}
                     </ul>
                   </div>
                 )}
