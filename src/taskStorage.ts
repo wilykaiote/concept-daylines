@@ -575,7 +575,7 @@ export function buildMonthCalendarDays(month: Date): (Date | null)[] {
 export function formatTwinelineDateLabel(
   date: Date,
   now = new Date(),
-  options?: { weekday?: boolean },
+  options?: { weekday?: boolean; omitTodayWord?: boolean },
 ): string {
   const selected = startOfDay(date);
   const today = startOfDay(now);
@@ -583,7 +583,7 @@ export function formatTwinelineDateLabel(
   const diffDays = Math.round((selected.getTime() - today.getTime()) / dayMs);
   const stamp = `${MONTH_LABELS[selected.getMonth()]} ${selected.getDate()}`;
   let label: string;
-  if (diffDays === 0) label = `Today - ${stamp}`;
+  if (diffDays === 0) label = options?.omitTodayWord ? stamp : `Today - ${stamp}`;
   else if (diffDays === 1) label = `${stamp} - Tomorrow`;
   else if (diffDays === -1) label = `${stamp} - Yesterday`;
   else label = stamp;

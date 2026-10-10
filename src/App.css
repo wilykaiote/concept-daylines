@@ -139,6 +139,10 @@
 }
 
 .home-step-nav-date {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   margin: 0;
   min-width: 0;
   color: var(--text-h);
@@ -150,6 +154,24 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.date-title-calendar-icon {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.date-title-calendar-icon svg {
+  width: 0.95em;
+  height: 0.95em;
+  display: block;
+}
+
+.home-step-nav-date .date-title-calendar-icon svg {
+  width: 0.95em;
+  height: 0.95em;
 }
 
 .home-step-nav-btn {
@@ -409,8 +431,12 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
+}
+
+.home-focus-current .task-current-focus-label {
+  padding: 0 2px;
 }
 
 @media (max-width: 560px) {
@@ -828,6 +854,18 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
+}
+
+.twineline-date-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.twineline-date-label .date-title-calendar-icon svg {
+  width: 1em;
+  height: 1em;
 }
 
 .twineline-countdown-bar .twineline-date {
@@ -1627,9 +1665,9 @@
   flex-shrink: 0;
   min-height: 32px;
   padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--danger) 12%, var(--bg-raised));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
   line-height: 1.2;
   transition:
     background 120ms ease,
@@ -1637,8 +1675,8 @@
 }
 
 .task-overdue-toggle:hover .task-overdue-toggle-action {
-  border-color: color-mix(in srgb, var(--danger) 65%, var(--border));
-  background: color-mix(in srgb, var(--danger) 18%, var(--bg-raised));
+  border-color: var(--border);
+  background: transparent;
 }
 
 .task-overdue-toggle:focus-visible .task-overdue-toggle-action {
@@ -1647,20 +1685,25 @@
 }
 
 .task-overdue-toggle.is-open .task-overdue-toggle-action {
-  border-color: color-mix(in srgb, var(--danger) 70%, var(--border));
-  background: color-mix(in srgb, var(--danger) 22%, var(--bg-raised));
+  border-color: var(--border);
+  background: transparent;
 }
 
 .task-overdue-toggle-reschedule {
-  color: var(--danger);
-  font-size: 0.85rem;
+  color: var(--text);
+  font-size: 0.72rem;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
   text-transform: uppercase;
 }
 
-.task-overdue-toggle-count {
-  font-variant-numeric: tabular-nums;
+.task-overdue-toggle-reschedule .task-overflow-notice-overflow {
+  color: var(--danger);
+}
+
+.task-overdue-toggle.is-defer-only .task-overdue-toggle-reschedule .task-overflow-notice-overflow {
+  color: var(--text-h);
 }
 
 .task-overdue-toggle-chevron {
@@ -1672,17 +1715,17 @@
 
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-action {
   border-color: var(--border);
-  background: var(--bg-raised);
+  background: transparent;
 }
 
 .task-overdue-toggle.is-defer-only:hover .task-overdue-toggle-action {
   border-color: color-mix(in srgb, var(--text) 28%, var(--border));
-  background: color-mix(in srgb, var(--text) 6%, var(--bg-raised));
+  background: transparent;
 }
 
 .task-overdue-toggle.is-defer-only.is-open .task-overdue-toggle-action {
   border-color: color-mix(in srgb, var(--text) 35%, var(--border));
-  background: color-mix(in srgb, var(--text) 8%, var(--bg-raised));
+  background: transparent;
 }
 
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-reschedule,
@@ -1919,7 +1962,28 @@
   color: var(--danger);
 }
 
-.task-current-focus {
+.task-overflow-footer {
+  margin: -12px 0 0;
+  padding: 8px 0 4px;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.task-overflow-footer .task-overflow-notice-overflow {
+  color: var(--danger);
+}
+
+.task-overdue-section.is-defer-only .task-overflow-footer .task-overflow-notice-overflow {
+  color: var(--text-h);
+}
+
+.task-current-focus,
+.task-day-next {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2118,11 +2182,36 @@
 }
 
 .task-list.is-compact .task-row-title,
-.task-overdue-tasks .task-row-title,
 .home-focus-task .task-row-title,
 .task-current-focus .task-row-title {
   font-size: 0.95rem;
   line-height: 1.25;
+}
+
+/* Overflow list: muted grey title (single-line truncate) + matching complete ring. */
+.task-overdue-tasks .task-row-body {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.task-overdue-tasks .task-row-title,
+.task-overdue-tasks .task-row.is-overdue .task-row-title {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.task-overdue-tasks .task-complete,
+.task-overdue-tasks .task-complete.is-soft,
+.task-overdue-tasks .task-complete.is-anchored {
+  border-color: var(--text);
 }
 
 .task-row-details {
@@ -2297,7 +2386,6 @@
 .task-list.is-compact .task-row-type-label.is-auto,
 .task-list.is-compact .task-row-parent.is-auto,
 .task-list.is-compact .task-row-recurring.is-auto,
-.task-overdue-tasks .task-row-schedule.is-auto,
 .task-overdue-tasks .task-row-urgency.is-auto,
 .task-overdue-tasks .task-row-top .task-row-urgency.is-auto,
 .task-overdue-tasks .task-row-duration.is-auto,
@@ -2385,6 +2473,15 @@
   font-size: 0.72rem;
 }
 
+/* Dated overflow tasks: schedule meta uses overdue red (beats compact auto-orange). */
+.task-list.is-compact .task-overdue-tasks .task-row-schedule,
+.task-list.is-compact .task-overdue-tasks .task-row-schedule.is-auto,
+.task-overdue-tasks .task-row-schedule,
+.task-overdue-tasks .task-row-schedule.is-auto {
+  color: var(--danger);
+  opacity: 1;
+}
+
 .task-row-duration {
   color: var(--text);
   flex-shrink: 0;
@@ -2408,6 +2505,17 @@
 
 .task-row.is-overdue .task-row-title {
   color: var(--danger);
+}
+
+/* Overflow list rows match notice-item chrome (border + transparent fill). */
+.task-overdue-tasks .task-row:not(.is-editing):not(.is-highlighted),
+.task-overdue-tasks .task-row.is-overdue:not(.is-editing):not(.is-highlighted) {
+  border: 1px solid var(--border);
+  background: transparent;
+}
+
+.task-overdue-tasks .task-row.is-overdue .task-row-title {
+  color: var(--text);
 }
 
 @keyframes task-balloon-pop {

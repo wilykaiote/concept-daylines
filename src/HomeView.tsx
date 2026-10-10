@@ -81,7 +81,36 @@ export function HomeView({
                 >
                   ‹
                 </button>
-                <p className="home-step-nav-date">{wheelLabel}</p>
+                <p className="home-step-nav-date">
+                  {wheelLabel.startsWith("Today - ") ? (
+                    <>
+                      <span className="date-title-calendar-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                          <rect
+                            x="3.5"
+                            y="5"
+                            width="17"
+                            height="15"
+                            rx="2"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                          />
+                          <path
+                            d="M8 3.5v3M16 3.5v3M3.5 10h17"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </span>
+                      {wheelLabel.slice("Today - ".length)}
+                    </>
+                  ) : (
+                    wheelLabel
+                  )}
+                </p>
                 <button
                   type="button"
                   className="home-step-nav-btn is-next"
@@ -109,6 +138,28 @@ export function HomeView({
             <div className="home-top-main">
               {focusTask != null ? (
                 <div className="home-focus-current">
+                  <p className="task-current-focus-label">
+                    Current focus
+                    <span className="task-current-focus-label-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="3"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        />
+                        <path
+                          d="M12 3.5v3.2M12 17.3v3.2M3.5 12h3.2M17.3 12h3.2"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </span>
+                  </p>
                   <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
                 </div>
               ) : (
@@ -125,11 +176,8 @@ export function HomeView({
                 >
                   <span className="task-overdue-toggle-action">
                     <span className="task-overdue-toggle-reschedule">
-                      Overflow
-                      <span className="task-overdue-toggle-count">
-                        {" "}
-                        - {overflowCount}
-                      </span>
+                      {overflowCount} {overflowCount === 1 ? "task" : "tasks"} moved to{" "}
+                      <span className="task-overflow-notice-overflow">Overflow</span>
                     </span>
                     <span className="task-overdue-toggle-chevron" aria-hidden="true">
                       {overdueOpen ? "∨" : ">"}
@@ -144,7 +192,7 @@ export function HomeView({
             <div className="home-focus">
               <section
                 id="home-overdue-list"
-                className="task-overdue-section home-overdue-section"
+                className={`task-overdue-section home-overdue-section${overflowDeferOnly ? " is-defer-only" : ""}`}
                 aria-label="Overflow tasks"
               >
                 {overdueTasks.length > 0 && (
@@ -161,6 +209,10 @@ export function HomeView({
                     </ul>
                   </div>
                 )}
+                <p className="task-overflow-footer">
+                  <span className="task-overflow-notice-overflow">Overflow</span>{" "}
+                  tasks will be rescheduled at end of day
+                </p>
               </section>
             </div>
           )}
