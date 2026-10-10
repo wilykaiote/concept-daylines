@@ -1623,6 +1623,8 @@ function App() {
     "today" | "tomorrow" | "starts_on" | "due_by" | null
   >(null);
   const [composerAutoRescheduled, setComposerAutoRescheduled] = useState(false);
+  /** True after the user opens Date & Time; keeps the schedule icon green after the menu closes. */
+  const [scheduleToolActivated, setScheduleToolActivated] = useState(false);
   const [taskToolHint, setTaskToolHint] = useState<string | null>(null);
   const [linkRelation, setLinkRelation] = useState<LinkRelation>("parent");
   const [linkSearchQuery, setLinkSearchQuery] = useState("");
@@ -2612,6 +2614,7 @@ function App() {
     setTaskTimeMode("starts_at");
     setDateTimeAnchor(null);
     setComposerAutoRescheduled(false);
+    setScheduleToolActivated(false);
     syncScheduleDraftRef({
       date: null,
       starts_at: null,
@@ -2696,9 +2699,10 @@ function App() {
       setTaskStartsAt(schedule.starts_at ?? "");
       setTaskDueAt(schedule.due_at ?? "");
     }
-    // Confirming via the calendar icon turns orange auto-seed into a normal date.
+    // Confirming via the calendar icon turns orange into green and keeps it green.
     if (title === "Date & Time") {
       setComposerAutoRescheduled(false);
+      setScheduleToolActivated(true);
     }
     taskToolHintAnchorRef.current = anchor;
     setAttachMenuOpen(false);
@@ -2732,12 +2736,16 @@ function App() {
       ? "anchored"
       : "soft";
   const dueDateActivated = composerDate != null;
+  const scheduleIsGreen =
+    scheduleToolActivated || (dueDateActivated && !composerAutoRescheduled);
+  const scheduleIsOrange =
+    !scheduleIsGreen && (composerAutoRescheduled || dueDateActivated);
   const dueDateButtonClassName = [
     "app-composer-tool",
     "app-composer-tool-accent",
     "app-composer-tool-schedule",
-    dueDateActivated && !composerAutoRescheduled ? "is-activated" : "",
-    dueDateActivated && composerAutoRescheduled ? "is-auto-rescheduled" : "",
+    scheduleIsGreen ? "is-activated" : "",
+    scheduleIsOrange ? "is-auto-rescheduled" : "",
     taskToolHint === "Date & Time" ? "is-open" : "",
   ]
     .filter(Boolean)
@@ -2855,6 +2863,7 @@ function App() {
     setTaskStartsAt(nextStartsAt ?? "");
     setTaskDueAt(nextDueAt ?? "");
     setComposerAutoRescheduled(task.auto_rescheduled === true);
+    setScheduleToolActivated(hasSchedule && task.auto_rescheduled !== true);
     const nextMode = nextDueAt && !nextStartsAt ? "due_at" : "starts_at";
     setTaskTimeMode(nextMode);
     setDateTimeAnchor(
@@ -3681,23 +3690,25 @@ function App() {
     if (!el) return;
 
     const MIN_TEXTAREA_HEIGHT = 46;
+    const FOCUSED_MIN_HEIGHT = 160;
     const COLLAPSE_CLEARANCE = 28;
 
     const syncHeight = () => {
-      if (collapsed || el.clientWidth < 40) {
+      if (collapsed) {
         el.style.height = `${MIN_TEXTAREA_HEIGHT}px`;
         el.style.maxHeight = "";
         return;
       }
 
       const vv = window.visualViewport;
-      const viewTop = vv?.offsetTop ?? 0;
+      const vvTop = vv?.offsetTop ?? 0;
+      const vvBottom = vvTop + (vv?.height ?? window.innerHeight);
       const field = composerFieldRef.current;
       const tools = field?.querySelector<HTMLElement>(".app-composer-tools");
       const savePrompt = field?.querySelector<HTMLElement>(".twineline-save-prompt");
       const fieldRow = el.closest<HTMLElement>(".app-composer-field-row");
 
-      let maxTextarea = 160;
+      let maxTextarea = FOCUSED_MIN_HEIGHT;
       if (field) {
         const fieldRect = field.getBoundingClientRect();
         const fieldStyles = getComputedStyle(field);
@@ -3707,14 +3718,19 @@ function App() {
         const toolsH = tools?.offsetHeight ?? 0;
         const savePromptH = savePrompt?.offsetHeight ?? 0;
         const rowExtras = fieldRow ? Math.max(0, fieldRow.offsetHeight - el.offsetHeight) : 0;
+        const visibleBottom = Math.min(fieldRect.bottom, vvBottom);
         const maxFieldHeight = Math.max(
           MIN_TEXTAREA_HEIGHT,
-          fieldRect.bottom - (viewTop + COLLAPSE_CLEARANCE),
+          visibleBottom - (vvTop + COLLAPSE_CLEARANCE),
         );
         maxTextarea = Math.max(
           MIN_TEXTAREA_HEIGHT,
           Math.floor(maxFieldHeight - fieldPadY - toolsH - savePromptH - rowExtras),
         );
+      }
+
+      if (document.activeElement === el) {
+        maxTextarea = Math.max(maxTextarea, FOCUSED_MIN_HEIGHT);
       }
 
       el.style.maxHeight = `${maxTextarea}px`;

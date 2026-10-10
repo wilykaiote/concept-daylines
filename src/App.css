@@ -4157,6 +4157,12 @@
   color: #2f9e5f;
 }
 
+/* Schedule stays orange while open until the user has confirmed it (is-activated). */
+.app-composer-tool-accent.app-composer-tool-schedule.is-open:not(.is-activated) {
+  background: rgba(232, 163, 23, 0.12);
+  color: #e8a317;
+}
+
 .app-composer-tool-linking.is-activated {
   color: #2f9e5f;
 }
