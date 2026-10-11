@@ -15,15 +15,19 @@ function dayOffset(min: number) {
 }
 
 export function daySkyStops(): DaySkyStop[] {
+  // Day: #c45e18. Night: same family, slightly darker/lighter orange.
+  const day = "#c45e18";
+  const dusk = "#a84a12";
+  const night = "#944812";
   return [
-    { color: "#3d1608", offset: 0 },
-    { color: "#3d1608", offset: dayOffset(SUNRISE_MIN - 90) },
-    { color: "#a84a12", offset: dayOffset(SUNRISE_MIN) },
-    { color: "#c45e18", offset: dayOffset(SUNRISE_MIN + 90) },
-    { color: "#c45e18", offset: dayOffset(SUNSET_MIN - 90) },
-    { color: "#a84a12", offset: dayOffset(SUNSET_MIN) },
-    { color: "#3d1608", offset: dayOffset(SUNSET_MIN + 90) },
-    { color: "#3d1608", offset: 1 },
+    { color: night, offset: 0 },
+    { color: night, offset: dayOffset(SUNRISE_MIN - 90) },
+    { color: dusk, offset: dayOffset(SUNRISE_MIN) },
+    { color: day, offset: dayOffset(SUNRISE_MIN + 90) },
+    { color: day, offset: dayOffset(SUNSET_MIN - 90) },
+    { color: dusk, offset: dayOffset(SUNSET_MIN) },
+    { color: night, offset: dayOffset(SUNSET_MIN + 90) },
+    { color: night, offset: 1 },
   ];
 }
 

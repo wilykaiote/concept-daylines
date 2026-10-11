@@ -1481,6 +1481,7 @@
 }
 
 .twineline-schedule-block {
+  --schedule-block-edge: var(--text-h);
   position: relative;
   z-index: 2;
   align-self: center;
@@ -1489,16 +1490,17 @@
   height: 8px;
   margin: 0;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--text-h) 35%, var(--border));
+  border: 0 solid transparent;
   border-radius: 2px;
   background: var(--bg-raised);
-  box-shadow: none;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--schedule-block-edge) 28%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--bg) 70%, transparent);
   cursor: pointer;
   isolation: isolate;
   overflow: hidden;
   transition:
     background 0.15s ease,
-    border-color 0.15s ease,
     box-shadow 0.15s ease;
 }
 
@@ -1516,37 +1518,37 @@
 .twineline-schedule-block.has-elapsed {
   /* Unelapsed remainder stays dim; overtaken fill uses sky color inline. */
   background: color-mix(in srgb, var(--text) 22%, var(--bg-raised));
-  /* Border tracks the live overtaken/sky fill (--schedule-block-fill). */
-  border-color: color-mix(
+  /* Darker shade of the live overtaken/sky fill. */
+  --schedule-block-edge: color-mix(
     in srgb,
-    var(--schedule-block-fill, var(--text-h)) 78%,
-    var(--text-h)
+    var(--schedule-block-fill, var(--text-h)) 58%,
+    #000
   );
 }
 
 .twineline-schedule-block.is-anchored {
   background: color-mix(in srgb, var(--day-kind-anchored) 62%, var(--bg-raised));
-  border-color: color-mix(in srgb, var(--day-kind-anchored) 88%, var(--text-h));
+  --schedule-block-edge: color-mix(in srgb, var(--day-kind-anchored) 55%, #000);
 }
 
 .twineline-schedule-block.is-soft {
   background: color-mix(in srgb, var(--day-kind-soft) 62%, var(--bg-raised));
-  border-color: color-mix(in srgb, var(--day-kind-soft) 88%, var(--text-h));
+  --schedule-block-edge: color-mix(in srgb, var(--day-kind-soft) 55%, #000);
 }
 
 .twineline-schedule-block.is-overdue {
   background: color-mix(in srgb, var(--danger) 55%, var(--bg-raised));
-  border-color: color-mix(in srgb, var(--danger) 82%, var(--text-h));
+  --schedule-block-edge: color-mix(in srgb, var(--danger) 55%, #000);
 }
 
 .twineline-schedule-block.has-elapsed.is-anchored,
 .twineline-schedule-block.has-elapsed.is-soft,
 .twineline-schedule-block.has-elapsed.is-overdue {
   background: color-mix(in srgb, var(--text) 22%, var(--bg-raised));
-  border-color: color-mix(
+  --schedule-block-edge: color-mix(
     in srgb,
-    var(--schedule-block-fill, var(--text-h)) 78%,
-    var(--text-h)
+    var(--schedule-block-fill, var(--text-h)) 58%,
+    #000
   );
 }
 
@@ -1556,16 +1558,16 @@
     opacity: 1;
     filter: blur(0);
     box-shadow:
-      inset 0 0 0 1px var(--border),
-      0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, #22a06b 55%, var(--border)),
+      0 0 0 0 color-mix(in srgb, #22a06b 35%, transparent);
   }
   30% {
     transform: scale(1.55);
     opacity: 1;
     filter: blur(0);
     box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
-      0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, #22a06b 55%, transparent),
+      0 0 0 4px color-mix(in srgb, #22a06b 22%, transparent);
   }
   55% {
     transform: scale(1.8);
@@ -1573,7 +1575,7 @@
     filter: blur(0.3px);
     box-shadow:
       inset 0 0 0 1px transparent,
-      0 0 0 8px color-mix(in srgb, var(--accent) 10%, transparent);
+      0 0 0 8px color-mix(in srgb, #22a06b 10%, transparent);
   }
   78% {
     transform: scale(0.35);
@@ -1590,11 +1592,23 @@
 }
 
 .twineline-schedule-block.is-popping {
-  animation: schedule-balloon-pop 0.42s cubic-bezier(0.16, 0.95, 0.3, 1.35) forwards;
+  /* Complete green first, then the same balloon leave. */
+  background: #22a06b !important;
+  --schedule-block-edge: color-mix(in srgb, #22a06b 55%, #000);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--schedule-block-edge) 28%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--bg) 70%, transparent);
+  animation: schedule-balloon-pop 0.42s cubic-bezier(0.16, 0.95, 0.3, 1.35) 0.14s
+    forwards;
   transform-origin: center center;
   pointer-events: none;
   z-index: 4;
   will-change: transform, opacity, filter, box-shadow;
+}
+
+.twineline-schedule-block.is-popping .twineline-schedule-block-elapsed {
+  background: #22a06b !important;
+  width: 100% !important;
 }
 
 .twineline-schedule-block.is-highlighted,
