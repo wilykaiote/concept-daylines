@@ -88,6 +88,8 @@ type HomeViewProps = {
   focusLockControl?: ReactNode;
   focusFreeTime?: boolean;
   focusRest?: boolean;
+  focusRescheduleOverflow?: boolean;
+  onAutomaticOverflowReschedule?: () => void;
   focusCountdownLabel?: string | null;
   focusCountdownProgress?: number | null;
   focusCountdownBarColor?: string | null;
@@ -109,6 +111,8 @@ export function HomeView({
   focusLockControl,
   focusFreeTime = false,
   focusRest = false,
+  focusRescheduleOverflow = false,
+  onAutomaticOverflowReschedule,
   focusCountdownLabel = null,
   focusCountdownProgress = null,
   focusCountdownBarColor = null,
@@ -177,6 +181,47 @@ export function HomeView({
       <p className="task-current-focus-free-time-title">{title}</p>
     </div>
   );
+  const renderFocusRescheduleOverflowBox = () => (
+    <div
+      className={`task-current-focus-free-time task-current-focus-reschedule${showFocusCountdownBar ? " has-countdown" : ""}`}
+      aria-label="Reschedule Overflow"
+    >
+      {showFocusCountdownBar && (
+        <div
+          className="task-row-countdown"
+          aria-hidden="true"
+          style={
+            focusCountdownBarColor != null
+              ? { background: focusCountdownBarColor }
+              : undefined
+          }
+        >
+          <div
+            className="task-row-countdown-fill"
+            style={{
+              width: `${Math.min(1, Math.max(0, focusCountdownProgress)) * 100}%`,
+            }}
+          />
+        </div>
+      )}
+      <p className="task-current-focus-free-time-title">Reschedule Overflow:</p>
+      <div className="task-current-focus-reschedule-actions">
+        <button
+          type="button"
+          className="task-current-focus-reschedule-btn is-automatic"
+          onClick={onAutomaticOverflowReschedule}
+        >
+          Automatic
+        </button>
+        <button
+          type="button"
+          className="task-current-focus-reschedule-btn is-manual"
+        >
+          Manual
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="home-view">
@@ -184,7 +229,21 @@ export function HomeView({
         <header className="home-header">
           <div className="home-top-row">
             <div className="home-top-main">
-              {focusRest ? (
+              {focusRescheduleOverflow ? (
+                <div className="home-focus-current">
+                  <div className="task-current-focus-label-row">
+                    <p className="task-current-focus-label">
+                      Current focus
+                      {focusCountdownLabel != null && (
+                        <span className="task-current-focus-countdown" aria-live="polite">
+                          {focusCountdownLabel}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  {renderFocusRescheduleOverflowBox()}
+                </div>
+              ) : focusRest ? (
                 <div className="home-focus-current">
                   <div className="task-current-focus-label-row">
                     <p className="task-current-focus-label">

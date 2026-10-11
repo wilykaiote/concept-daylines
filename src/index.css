@@ -67,6 +67,8 @@ html {
   overflow-x: clip;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* Block double-tap zoom; pinch-zoom stays available for accessibility. */
+  touch-action: manipulation;
 }
 
 html,
@@ -98,6 +100,13 @@ button,
 input {
   font: inherit;
   color: inherit;
+}
+
+/* iOS Safari auto-zooms focused fields under 16px; keep intentional pinch zoom. */
+input,
+textarea,
+select {
+  font-size: max(16px, 1em);
 }
 
 h1,

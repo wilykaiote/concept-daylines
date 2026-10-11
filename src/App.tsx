@@ -1934,7 +1934,7 @@ function App() {
   countdownNowRef.current = countdownNow;
   /** Snapshot remaining ms when Rest / Free time begins so the bar can drain. */
   const focusStatusCountdownTotalRef = useRef<{
-    mode: "rest" | "free" | null;
+    mode: "rest" | "reschedule" | "free" | null;
     totalMs: number;
   }>({ mode: null, totalMs: 0 });
   const [tasksCompact, setTasksCompact] = useState(true);
@@ -2192,34 +2192,42 @@ function App() {
   const todayOpenBlockCount = (todayLayout?.blocks ?? []).filter(
     (block) => !block.overdue,
   ).length;
-  // No pin + nothing left for Up next (0–1 open tasks) → Current focus is REST.
-  const focusRestMode =
+  // No pin + nothing left for Up next (0–1 open tasks) → end-of-day idle.
+  const focusEndOfDayIdle =
     !focusLocked && !focusFreeTimeMode && todayOpenBlockCount <= 1;
+  // Before Rest: prompt to clear rescheduling overflow (midnight logic).
+  const focusRescheduleOverflowMode =
+    focusEndOfDayIdle && overdueTasks.length > 0;
+  const focusRestMode = focusEndOfDayIdle && overdueTasks.length === 0;
   const tomorrowStart = addDays(todayStart, 1);
   const nextDayWindowStartMin = packWindowStartMinutes(
     getWindowStartTimeForDay(tomorrowStart),
   );
   const nextDayWindowStartMs =
     tomorrowStart.getTime() + nextDayWindowStartMin * 60_000;
-  const focusCountdownTargetMin = focusRestMode
-    ? null
-    : focusFreeTimeMode
-      ? focusLatestStartMin
-      : (todayFocusLayoutBlock?.endMin ?? null);
-  const focusCountdownMs = focusRestMode
-    ? nextDayWindowStartMs - countdownNow
-    : focusCountdownTargetMin != null
-      ? todayStart.getTime() + focusCountdownTargetMin * 60_000 - countdownNow
-      : null;
+  const focusCountdownTargetMin =
+    focusRestMode || focusRescheduleOverflowMode
+      ? null
+      : focusFreeTimeMode
+        ? focusLatestStartMin
+        : (todayFocusLayoutBlock?.endMin ?? null);
+  const focusCountdownMs =
+    focusRestMode || focusRescheduleOverflowMode
+      ? nextDayWindowStartMs - countdownNow
+      : focusCountdownTargetMin != null
+        ? todayStart.getTime() + focusCountdownTargetMin * 60_000 - countdownNow
+        : null;
   const focusCountdownLabel =
     !focusLocked && focusCountdownMs != null
       ? `- ${formatCountdown(focusCountdownMs, { hideZeroHours: true })}`
       : null;
   const focusStatusMode = focusRestMode
     ? ("rest" as const)
-    : focusFreeTimeMode
-      ? ("free" as const)
-      : null;
+    : focusRescheduleOverflowMode
+      ? ("reschedule" as const)
+      : focusFreeTimeMode
+        ? ("free" as const)
+        : null;
   if (focusStatusMode != null && focusCountdownMs != null && focusCountdownMs > 0) {
     if (focusStatusCountdownTotalRef.current.mode !== focusStatusMode) {
       focusStatusCountdownTotalRef.current = {
@@ -3882,6 +3890,18 @@ function App() {
     );
   };
 
+  const runAutomaticOverflowReschedule = () => {
+    setTasks((current) =>
+      rescheduleOverdueTasksForNewDay(
+        current,
+        new Date(countdownNowRef.current),
+        getTargetTimeForDay,
+        taskGapMinutes,
+        getWindowStartTimeForDay,
+      ),
+    );
+  };
+
   const renderFocusStatusBox = (title: "Rest" | "Free time") => {
     const showBar =
       showFocusCountdownBarOnCurrent &&
@@ -3913,7 +3933,70 @@ function App() {
     );
   };
 
+  const renderFocusRescheduleOverflowBox = () => {
+    const showBar =
+      showFocusCountdownBarOnCurrent &&
+      typeof focusCountdownProgress === "number" &&
+      Number.isFinite(focusCountdownProgress);
+    return (
+      <div
+        className={`task-current-focus-free-time task-current-focus-reschedule${showBar ? " has-countdown" : ""}`}
+        aria-label="Reschedule Overflow"
+      >
+        {showBar && (
+          <div
+            className="task-row-countdown"
+            aria-hidden="true"
+            style={
+              nowSkyColor != null ? { background: nowSkyColor } : undefined
+            }
+          >
+            <div
+              className="task-row-countdown-fill"
+              style={{
+                width: `${Math.min(1, Math.max(0, focusCountdownProgress)) * 100}%`,
+              }}
+            />
+          </div>
+        )}
+        <p className="task-current-focus-free-time-title">Reschedule Overflow:</p>
+        <div className="task-current-focus-reschedule-actions">
+          <button
+            type="button"
+            className="task-current-focus-reschedule-btn is-automatic"
+            onClick={runAutomaticOverflowReschedule}
+          >
+            Automatic
+          </button>
+          <button
+            type="button"
+            className="task-current-focus-reschedule-btn is-manual"
+          >
+            Manual
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const renderCurrentFocus = () => {
+    if (focusRescheduleOverflowMode) {
+      return (
+        <div className="task-current-focus">
+          <div className="task-current-focus-label-row">
+            <p className="task-current-focus-label">
+              Current focus
+              {showFocusCountdownOnCurrent && (
+                <span className="task-current-focus-countdown" aria-live="polite">
+                  {focusCountdownLabel}
+                </span>
+              )}
+            </p>
+          </div>
+          {renderFocusRescheduleOverflowBox()}
+        </div>
+      );
+    }
     if (focusRestMode) {
       return (
         <div className="task-current-focus">
@@ -5348,6 +5431,8 @@ function App() {
             }
             focusFreeTime={focusFreeTimeMode}
             focusRest={focusRestMode}
+            focusRescheduleOverflow={focusRescheduleOverflowMode}
+            onAutomaticOverflowReschedule={runAutomaticOverflowReschedule}
             focusCountdownLabel={focusCountdownLabel}
             focusCountdownProgress={
               showFocusCountdownBarOnCurrent ? focusCountdownProgress : null
@@ -5758,6 +5843,7 @@ function App() {
                   isTodayGroup &&
                   !focusFreeTimeMode &&
                   !focusRestMode &&
+                  !focusRescheduleOverflowMode &&
                   currentFocusTaskId != null &&
                   block.taskId === currentFocusTaskId
                 ) {
