@@ -45,6 +45,8 @@ import {
   loadTasks,
   loadCollections,
   loadCurrentFocus,
+  loadPlanCompletedCounts,
+  incrementPlanCompletedCount,
   loadTodayWindowBaseline,
   loadUiSession,
   loadWindowStartOverrides,
@@ -596,9 +598,17 @@ function UrgencyIcon() {
 function ImpactIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="2.2" fill="currentColor" />
-      <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <text
+        x="12"
+        y="20"
+        textAnchor="middle"
+        fill="currentColor"
+        fontSize="25"
+        fontWeight="700"
+        fontFamily="system-ui, -apple-system, sans-serif"
+      >
+        !
+      </text>
     </svg>
   );
 }
@@ -1845,6 +1855,7 @@ function App() {
   const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(
     () => INITIAL_UI_SESSION?.homeOverdueSectionOpen ?? false,
   );
+  const [planCompletedCounts, setPlanCompletedCounts] = useState(loadPlanCompletedCounts);
   const overdueSectionOpenRef = useRef(overdueSectionOpen);
   overdueSectionOpenRef.current = overdueSectionOpen;
   const homeOverdueSectionOpenRef = useRef(homeOverdueSectionOpen);
@@ -1921,6 +1932,11 @@ function App() {
   selectedDayRef.current = selectedDay;
   const countdownNowRef = useRef(countdownNow);
   countdownNowRef.current = countdownNow;
+  /** Snapshot remaining ms when Rest / Free time begins so the bar can drain. */
+  const focusStatusCountdownTotalRef = useRef<{
+    mode: "rest" | "free" | null;
+    totalMs: number;
+  }>({ mode: null, totalMs: 0 });
   const [tasksCompact, setTasksCompact] = useState(true);
   const [outsideExpandedByDay, setOutsideExpandedByDay] = useState<
     Record<string, OutsideExpandedFlags>
@@ -2116,13 +2132,22 @@ function App() {
       .map((task) => task.id)
       .filter((id): id is string => id != null),
   );
+  // Pinned-from-overflow focus still belongs in Overflow — keep it off the track.
+  const overflowPinnedFocusId =
+    currentFocus?.dayKey === todayKeyStr &&
+    currentFocus.locked === true &&
+    (currentFocus.overflowBucket === "overdue" ||
+      currentFocus.overflowBucket === "deferred")
+      ? currentFocus.taskId
+      : null;
   const selectedScheduleBlocks = (
     selectedDayLayout?.scheduleBlocks ?? selectedDayLayout?.blocks ?? []
   )
     .filter(
       (block) =>
         !block.overdue &&
-        (block.taskId == null || !overflowScheduleIds.has(block.taskId)),
+        (block.taskId == null || !overflowScheduleIds.has(block.taskId)) &&
+        (overflowPinnedFocusId == null || block.taskId !== overflowPinnedFocusId),
     )
     .map((block) => ({
       startMin: block.packStartMin ?? block.startMin,
@@ -2164,23 +2189,54 @@ function App() {
     !focusLocked &&
     focusLatestStartMin != null &&
     focusLatestStartMin > nowMinutes;
-  const focusCountdownTargetMin = focusFreeTimeMode
-    ? focusLatestStartMin
-    : (todayFocusLayoutBlock?.endMin ?? null);
-  const focusCountdownMs =
-    focusCountdownTargetMin != null
+  const todayOpenBlockCount = (todayLayout?.blocks ?? []).filter(
+    (block) => !block.overdue,
+  ).length;
+  // No pin + nothing left for Up next (0–1 open tasks) → Current focus is REST.
+  const focusRestMode =
+    !focusLocked && !focusFreeTimeMode && todayOpenBlockCount <= 1;
+  const tomorrowStart = addDays(todayStart, 1);
+  const nextDayWindowStartMin = packWindowStartMinutes(
+    getWindowStartTimeForDay(tomorrowStart),
+  );
+  const nextDayWindowStartMs =
+    tomorrowStart.getTime() + nextDayWindowStartMin * 60_000;
+  const focusCountdownTargetMin = focusRestMode
+    ? null
+    : focusFreeTimeMode
+      ? focusLatestStartMin
+      : (todayFocusLayoutBlock?.endMin ?? null);
+  const focusCountdownMs = focusRestMode
+    ? nextDayWindowStartMs - countdownNow
+    : focusCountdownTargetMin != null
       ? todayStart.getTime() + focusCountdownTargetMin * 60_000 - countdownNow
       : null;
   const focusCountdownLabel =
     !focusLocked && focusCountdownMs != null
       ? `- ${formatCountdown(focusCountdownMs, { hideZeroHours: true })}`
       : null;
-  // Use task duration (stable), not packed start→end — packing can slide startMin
-  // forward mid-task and snap remaining/total back to ~1.
-  const focusCountdownTotalMs =
-    !focusFreeTimeMode && todayFocusTask != null && todayFocusLayoutBlock != null
-      ? Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000)
+  const focusStatusMode = focusRestMode
+    ? ("rest" as const)
+    : focusFreeTimeMode
+      ? ("free" as const)
       : null;
+  if (focusStatusMode != null && focusCountdownMs != null && focusCountdownMs > 0) {
+    if (focusStatusCountdownTotalRef.current.mode !== focusStatusMode) {
+      focusStatusCountdownTotalRef.current = {
+        mode: focusStatusMode,
+        totalMs: Math.max(1, focusCountdownMs),
+      };
+    }
+  } else if (focusStatusCountdownTotalRef.current.mode != null) {
+    focusStatusCountdownTotalRef.current = { mode: null, totalMs: 0 };
+  }
+  // Task: duration (stable). Rest / Free time: remaining when that mode began.
+  const focusCountdownTotalMs =
+    focusStatusMode != null
+      ? focusStatusCountdownTotalRef.current.totalMs
+      : todayFocusTask != null && todayFocusLayoutBlock != null
+        ? Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000)
+        : null;
   const focusCountdownProgress =
     !focusLocked &&
     focusCountdownMs != null &&
@@ -2188,6 +2244,46 @@ function App() {
       ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
       : null;
   const nowSkyColor = daySkyColorAtMinutes(nowMinutes);
+
+  // When overflow is pinned as Current focus, an in-progress schedule task may
+  // sit in Up next — attach the live countdown there instead.
+  const upNextOverrunBlock =
+    overflowPinnedFocusId != null
+      ? ((todayLayout?.scheduleBlocks ?? todayLayout?.blocks ?? []).find(
+          (block) => {
+            if (block.overdue || block.taskId == null) return false;
+            if (block.taskId === overflowPinnedFocusId) return false;
+            const start = block.packStartMin ?? block.startMin;
+            const end = block.packEndMin ?? block.endMin;
+            return start <= nowMinutes && end > nowMinutes;
+          },
+        ) ?? null)
+      : null;
+  const upNextCountdownTaskId = upNextOverrunBlock?.taskId ?? null;
+  const upNextCountdownTotalMs =
+    upNextOverrunBlock != null
+      ? Math.max(1, taskDurationMinutes(upNextOverrunBlock.task) * 60_000)
+      : null;
+  const upNextCountdownTargetMin =
+    upNextOverrunBlock != null
+      ? (upNextOverrunBlock.packEndMin ?? upNextOverrunBlock.endMin)
+      : null;
+  const upNextCountdownMs =
+    upNextCountdownTargetMin != null
+      ? todayStart.getTime() + upNextCountdownTargetMin * 60_000 - countdownNow
+      : null;
+  const upNextCountdownProgress =
+    upNextCountdownMs != null && upNextCountdownTotalMs != null
+      ? Math.min(1, Math.max(0, upNextCountdownMs / upNextCountdownTotalMs))
+      : null;
+  const upNextCountdownLabel =
+    upNextCountdownMs != null
+      ? `- ${formatCountdown(upNextCountdownMs, { hideZeroHours: true })}`
+      : null;
+  const showFocusCountdownOnCurrent =
+    upNextCountdownTaskId == null && focusCountdownLabel != null;
+  const showFocusCountdownBarOnCurrent =
+    upNextCountdownTaskId == null && focusCountdownProgress != null;
   const dayElapsedPct = Math.min(
     100,
     Math.max(0, (nowMinutes / MINUTES_PER_DAY) * 100),
@@ -2380,10 +2476,7 @@ function App() {
 
   const openOverflowForActiveView = () => {
     if (activeViewRef.current === "home") {
-      homeOverdueSectionOpenRef.current = true;
-      setHomeOverdueSectionOpen(true);
-      persistUiSession();
-      return;
+      selectView("dayline");
     }
     overdueSectionOpenRef.current = true;
     setOverdueSectionOpen(true);
@@ -3167,6 +3260,13 @@ function App() {
 
   const completeTask = (id: string | null) => {
     if (!id) return;
+    const completing = tasks.find((task) => task.id === id);
+    if (completing?.parent_id) {
+      const parent = tasks.find((task) => task.id === completing.parent_id);
+      if (parent != null && isPlanTaskType(parent.type)) {
+        setPlanCompletedCounts(incrementPlanCompletedCount(completing.parent_id));
+      }
+    }
     setTasks((current) => {
       const completed = current.find((task) => task.id === id);
       const without = current.filter((task) => task.id !== id);
@@ -3692,27 +3792,17 @@ function App() {
     options?: {
       locked?: boolean;
       overflowBucket?: "overdue" | "deferred" | null;
-      overflowIndex?: number | null;
     },
   ) => {
     if (!task.id) return;
     const focusDayKey = dayKey(toStartOfDay(new Date(countdownNowRef.current)));
     const locked = options?.locked === true;
     const overflowBucket = locked ? (options.overflowBucket ?? null) : null;
-    const overflowIndex =
-      locked &&
-      overflowBucket != null &&
-      typeof options?.overflowIndex === "number" &&
-      Number.isFinite(options.overflowIndex) &&
-      options.overflowIndex >= 0
-        ? Math.floor(options.overflowIndex)
-        : null;
     const nextFocus: CurrentFocus = {
       dayKey: focusDayKey,
       taskId: task.id,
       locked,
       overflowBucket,
-      overflowIndex,
     };
     setTasks((current) =>
       current.map((item) =>
@@ -3733,6 +3823,13 @@ function App() {
     saveCurrentFocus(nextFocus);
     setFocusedOverflowTaskIds(null);
     setFocusedTaskId(task.id);
+    if (overflowBucket != null) {
+      overdueSectionOpenRef.current = false;
+      setOverdueSectionOpen(false);
+      homeOverdueSectionOpenRef.current = false;
+      setHomeOverdueSectionOpen(false);
+      persistUiSession();
+    }
   };
 
   const toggleCurrentFocusLock = () => {
@@ -3751,7 +3848,6 @@ function App() {
           taskId,
           locked: true,
           overflowBucket: null,
-          overflowIndex: null,
         };
         saveCurrentFocus(next);
         return next;
@@ -3760,73 +3856,10 @@ function App() {
         ...current,
         locked: !current.locked,
         overflowBucket: !current.locked ? current.overflowBucket : null,
-        overflowIndex: !current.locked ? current.overflowIndex : null,
       };
       saveCurrentFocus(next);
       return next;
     });
-  };
-
-  const unpinOverflowFocus = () => {
-    setCurrentFocus(null);
-    clearCurrentFocusStorage();
-  };
-
-  const renderOverflowPinnedPlaceholder = (bucket: "overdue" | "deferred") => {
-    if (
-      currentFocus == null ||
-      currentFocus.dayKey !== todayKeyStr ||
-      currentFocus.locked !== true ||
-      currentFocus.overflowBucket !== bucket
-    ) {
-      return null;
-    }
-    return (
-      <li
-        key="overflow-pinned-placeholder"
-        className="task-overflow-pinned-placeholder"
-      >
-        <p className="task-overflow-pinned-placeholder-text">
-          Task pinned to current focus
-        </p>
-        <button
-          type="button"
-          className="task-overflow-pinned-undo"
-          aria-label="Undo pin to current focus"
-          title="Undo"
-          onClick={unpinOverflowFocus}
-        >
-          Undo
-        </button>
-      </li>
-    );
-  };
-
-  const renderOverflowBucketItems = (
-    bucket: "overdue" | "deferred",
-    tasks: ComposerDraft[],
-    renderTask: (task: ComposerDraft, index: number) => ReactNode,
-  ) => {
-    const placeholder = renderOverflowPinnedPlaceholder(bucket);
-    if (placeholder == null) {
-      return tasks.map((task, index) => renderTask(task, index));
-    }
-    const insertAt = Math.min(
-      Math.max(
-        0,
-        typeof currentFocus?.overflowIndex === "number"
-          ? currentFocus.overflowIndex
-          : 0,
-      ),
-      tasks.length,
-    );
-    const items: ReactNode[] = [];
-    tasks.forEach((task, index) => {
-      if (index === insertAt) items.push(placeholder);
-      items.push(renderTask(task, index));
-    });
-    if (insertAt === tasks.length) items.push(placeholder);
-    return items;
   };
 
   const renderCurrentFocusLockButton = (taskTitle?: string | null) => {
@@ -3849,14 +3882,62 @@ function App() {
     );
   };
 
+  const renderFocusStatusBox = (title: "Rest" | "Free time") => {
+    const showBar =
+      showFocusCountdownBarOnCurrent &&
+      typeof focusCountdownProgress === "number" &&
+      Number.isFinite(focusCountdownProgress);
+    return (
+      <div
+        className={`task-current-focus-free-time${showBar ? " has-countdown" : ""}`}
+        aria-label={title}
+      >
+        {showBar && (
+          <div
+            className="task-row-countdown"
+            aria-hidden="true"
+            style={
+              nowSkyColor != null ? { background: nowSkyColor } : undefined
+            }
+          >
+            <div
+              className="task-row-countdown-fill"
+              style={{
+                width: `${Math.min(1, Math.max(0, focusCountdownProgress)) * 100}%`,
+              }}
+            />
+          </div>
+        )}
+        <p className="task-current-focus-free-time-title">{title}</p>
+      </div>
+    );
+  };
+
   const renderCurrentFocus = () => {
+    if (focusRestMode) {
+      return (
+        <div className="task-current-focus">
+          <div className="task-current-focus-label-row">
+            <p className="task-current-focus-label">
+              Current focus
+              {showFocusCountdownOnCurrent && (
+                <span className="task-current-focus-countdown" aria-live="polite">
+                  {focusCountdownLabel}
+                </span>
+              )}
+            </p>
+          </div>
+          {renderFocusStatusBox("Rest")}
+        </div>
+      );
+    }
     if (!todayFocusTask?.id) return null;
     return (
       <div className="task-current-focus">
         <div className="task-current-focus-label-row">
           <p className="task-current-focus-label">
             Current focus
-            {focusCountdownLabel != null && (
+            {showFocusCountdownOnCurrent && (
               <span className="task-current-focus-countdown" aria-live="polite">
                 {focusCountdownLabel}
               </span>
@@ -3865,9 +3946,7 @@ function App() {
           {renderCurrentFocusLockButton(todayFocusTask.title)}
         </div>
         {focusFreeTimeMode ? (
-          <div className="task-current-focus-free-time" aria-label="Free time">
-            <p className="task-current-focus-free-time-title">Free time</p>
-          </div>
+          renderFocusStatusBox("Free time")
         ) : (
           <ul className="task-day-tasks task-current-focus-tasks">
             <CompactTaskRow
@@ -3880,9 +3959,11 @@ function App() {
               now={new Date(countdownNow)}
               parentTitle={parentTitleFor(todayFocusTask.parent_id)}
               isCurrentFocus
-              countdownProgress={focusCountdownProgress}
+              countdownProgress={
+                showFocusCountdownBarOnCurrent ? focusCountdownProgress : null
+              }
               countdownBarColor={
-                focusCountdownProgress != null ? nowSkyColor : null
+                showFocusCountdownBarOnCurrent ? nowSkyColor : null
               }
               onComplete={() => requestCompleteTask(todayFocusTask.id)}
               onEdit={() => {
@@ -3897,29 +3978,15 @@ function App() {
     );
   };
 
-  const overflowPinnedBucket =
-    currentFocus?.dayKey === todayKeyStr &&
-    currentFocus.locked === true &&
-    (currentFocus.overflowBucket === "overdue" ||
-      currentFocus.overflowBucket === "deferred")
-      ? currentFocus.overflowBucket
-      : null;
-  const overflowDisplayCount =
-    overflowTaskCount + (overflowPinnedBucket != null ? 1 : 0);
-
   const renderOverflowSection = () => {
-    if (overflowDisplayCount <= 0) return null;
-    const showOverdueBucket =
-      overdueTasks.length > 0 || overflowPinnedBucket === "overdue";
-    const showDeferredBucket =
-      deferredTasks.length > 0 || overflowPinnedBucket === "deferred";
+    if (overflowTaskCount <= 0) return null;
     return (
       <>
         <div className="task-day-label-row task-day-overflow-row">
           <button
             ref={overflowToggleRef}
             type="button"
-            className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly && overflowPinnedBucket !== "overdue" ? " is-defer-only" : ""}`}
+            className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
             aria-expanded={overdueSectionOpen}
             aria-controls="task-overdue-list"
             aria-label="Overflow tasks"
@@ -3934,8 +4001,8 @@ function App() {
           >
             <span className="task-overdue-toggle-action">
               <span className="task-overdue-toggle-reschedule">
-                <span className="task-overdue-toggle-count">{overflowDisplayCount}</span>{" "}
-                {overflowDisplayCount === 1 ? "task" : "tasks"} moved to{" "}
+                <span className="task-overdue-toggle-count">{overflowTaskCount}</span>{" "}
+                {overflowTaskCount === 1 ? "task" : "tasks"} moved to{" "}
                 <span className="task-overflow-notice-overflow">Overflow</span>
               </span>
               <span className="task-overdue-toggle-chevron" aria-hidden="true">
@@ -3949,13 +4016,13 @@ function App() {
             <section
               ref={overdueSectionRef}
               id="task-overdue-list"
-              className={`task-overdue-section${overflowDeferOnly && overflowPinnedBucket !== "overdue" ? " is-defer-only" : ""}`}
+              className={`task-overdue-section${overflowDeferOnly ? " is-defer-only" : ""}`}
               aria-label="Overflow tasks"
             >
-              {showOverdueBucket && (
+              {overdueTasks.length > 0 && (
                 <div className="task-overflow-bucket">
                   <ul className="task-day-tasks task-overdue-tasks">
-                    {renderOverflowBucketItems("overdue", overdueTasks, (task, index) => (
+                    {overdueTasks.map((task) => (
                       <CompactTaskRow
                         key={task.id ?? task.title}
                         task={task}
@@ -3978,7 +4045,6 @@ function App() {
                           setTaskAsCurrentFocus(task, {
                             locked: true,
                             overflowBucket: "overdue",
-                            overflowIndex: index,
                           })
                         }
                       />
@@ -3986,13 +4052,10 @@ function App() {
                   </ul>
                 </div>
               )}
-              {showDeferredBucket && (
+              {deferredTasks.length > 0 && (
                 <div className="task-overflow-bucket">
                   <ul className="task-day-tasks task-overdue-tasks">
-                    {renderOverflowBucketItems(
-                      "deferred",
-                      deferredTasks,
-                      (task, index) => (
+                    {deferredTasks.map((task) => (
                       <CompactTaskRow
                         key={task.id ?? task.title}
                         task={task}
@@ -4015,12 +4078,10 @@ function App() {
                           setTaskAsCurrentFocus(task, {
                             locked: true,
                             overflowBucket: "deferred",
-                            overflowIndex: index,
                           })
                         }
                       />
-                    ),
-                    )}
+                    ))}
                   </ul>
                 </div>
               )}
@@ -4291,7 +4352,7 @@ function App() {
     timelineDayCount,
     timelineDays.length,
     calendarLayoutSpanKey,
-    overflowDisplayCount,
+    overflowTaskCount,
   ]);
 
   useEffect(() => {
@@ -4632,7 +4693,7 @@ function App() {
     const observer = new ResizeObserver(syncSlotHeight);
     observer.observe(slide);
     return () => observer.disconnect();
-  }, [activeView, calendarOpen, timePickerOpen, overflowDisplayCount]);
+  }, [activeView, calendarOpen, timePickerOpen, overflowTaskCount]);
 
   useLayoutEffect(() => {
     const el = composeInputRef.current;
@@ -5286,101 +5347,69 @@ function App() {
                 : null
             }
             focusFreeTime={focusFreeTimeMode}
+            focusRest={focusRestMode}
             focusCountdownLabel={focusCountdownLabel}
+            focusCountdownProgress={
+              showFocusCountdownBarOnCurrent ? focusCountdownProgress : null
+            }
+            focusCountdownBarColor={
+              showFocusCountdownBarOnCurrent ? nowSkyColor : null
+            }
             plans={tasks
               .filter((task) => isPlanTaskType(task.type) && task.id != null)
               .map((plan) => {
                 const planId = plan.id as string;
-                const todayNext = (todayLayout?.blocks ?? []).find(
-                  (block) =>
-                    !block.overdue &&
-                    block.task.parent_id === planId &&
-                    block.task.id !== planId &&
-                    !isPlanTaskType(block.task.type),
-                );
-                const fallbackNext = tasks.find(
+                const openChildren = tasks.filter(
                   (task) =>
                     task.parent_id === planId &&
+                    task.id != null &&
                     task.id !== planId &&
                     !isPlanTaskType(task.type) &&
                     !isContainerTaskType(task.type),
                 );
+                const completedCount = planCompletedCounts[planId] ?? 0;
+                const toPlanTask = (task: ComposerDraft) => ({
+                  id: task.id as string,
+                  title: task.title,
+                  scheduleKind: (isAnchoredTask(task) ? "anchored" : "soft") as
+                    | "anchored"
+                    | "soft",
+                  popping: isTaskPopping(task.id),
+                });
+                const todayNext =
+                  (todayLayout?.blocks ?? []).find(
+                    (block) =>
+                      !block.overdue &&
+                      block.task.parent_id === planId &&
+                      block.task.id != null &&
+                      block.task.id !== planId &&
+                      !isPlanTaskType(block.task.type) &&
+                      !isContainerTaskType(block.task.type),
+                  )?.task ?? null;
+                const nextUpSource = todayNext ?? openChildren[0] ?? null;
+                const nextUpTask =
+                  nextUpSource?.id != null ? toPlanTask(nextUpSource) : null;
+                const nextUpId = nextUpTask?.id ?? null;
                 return {
                   id: planId,
                   title: plan.title,
-                  nextTaskTitle: todayNext?.task.title ?? fallbackNext?.title ?? null,
+                  completedCount,
+                  taskCount: completedCount + openChildren.length,
+                  nextUpTask,
+                  tasks: openChildren
+                    .filter((task) => task.id !== nextUpId)
+                    .map(toPlanTask),
                 };
               })}
             onSelectPlan={() => selectView("plans")}
-            deferredTasks={deferredTasks}
-            overdueTasks={overdueTasks}
-            overdueOpen={homeOverdueSectionOpen}
-            onOverdueToggle={() => {
-              setHomeOverdueSectionOpen((open) => {
-                const next = !open;
-                homeOverdueSectionOpenRef.current = next;
-                persistUiSession();
-                return next;
-              });
+            onCompletePlanTask={(taskId) => requestCompleteTask(taskId)}
+            onEditPlanTask={(taskId) => {
+              const task = tasks.find((item) => item.id === taskId);
+              if (!task) return;
+              setFocusedOverflowTaskIds(null);
+              setFocusedTaskId(taskId);
+              editTask(task);
             }}
-            renderDeferredTask={(task, index) => (
-              <CompactTaskRow
-                key={task.id ?? task.title}
-                task={task}
-                overdue={false}
-                editing={editingTaskId === task.id}
-                highlighted={isTaskHighlighted(task.id)}
-                popping={isTaskPopping(task.id)}
-                now={new Date(countdownNow)}
-                parentTitle={parentTitleFor(task.parent_id)}
-                onComplete={() => requestCompleteTask(task.id)}
-                onEdit={() => {
-                  if (task.id) {
-                    setFocusedOverflowTaskIds(null);
-                    setFocusedTaskId(task.id);
-                  }
-                  editTask(task);
-                }}
-                isCurrentFocus={todayFocusTask?.id === task.id}
-                onSetFocus={() =>
-                  setTaskAsCurrentFocus(task, {
-                    locked: true,
-                    overflowBucket: "deferred",
-                    overflowIndex: index,
-                  })
-                }
-              />
-            )}
-            renderOverdueTask={(task, index) => (
-              <CompactTaskRow
-                key={task.id ?? task.title}
-                task={task}
-                overdue
-                editing={editingTaskId === task.id}
-                highlighted={isTaskHighlighted(task.id)}
-                popping={isTaskPopping(task.id)}
-                now={new Date(countdownNow)}
-                parentTitle={parentTitleFor(task.parent_id)}
-                onComplete={() => requestCompleteTask(task.id)}
-                onEdit={() => {
-                  if (task.id) {
-                    setFocusedOverflowTaskIds(null);
-                    setFocusedTaskId(task.id);
-                  }
-                  editTask(task);
-                }}
-                isCurrentFocus={todayFocusTask?.id === task.id}
-                onSetFocus={() =>
-                  setTaskAsCurrentFocus(task, {
-                    locked: true,
-                    overflowBucket: "overdue",
-                    overflowIndex: index,
-                  })
-                }
-              />
-            )}
-            overflowPinnedBucket={overflowPinnedBucket}
-            renderOverflowBucketItems={renderOverflowBucketItems}
           />
         )}
         {activeView === "discover" && <DiscoverView />}
@@ -5728,6 +5757,7 @@ function App() {
                 if (
                   isTodayGroup &&
                   !focusFreeTimeMode &&
+                  !focusRestMode &&
                   currentFocusTaskId != null &&
                   block.taskId === currentFocusTaskId
                 ) {
@@ -5740,7 +5770,7 @@ function App() {
                 isTodayGroup &&
                 activeView === "dayline" &&
                 !calendarOpen &&
-                overflowDisplayCount > 0;
+                overflowTaskCount > 0;
               return (
                 <section
                   key={day.dayKey}
@@ -5766,7 +5796,17 @@ function App() {
                   {dayTasks.length > 0 && (
                     <div className="task-day-next">
                       {isTodayGroup && activeView === "dayline" && !calendarOpen && (
-                        <p className="task-current-focus-label">Up next</p>
+                        <p className="task-current-focus-label">
+                          Up next
+                          {upNextCountdownLabel != null && (
+                            <span
+                              className="task-current-focus-countdown"
+                              aria-live="polite"
+                            >
+                              {upNextCountdownLabel}
+                            </span>
+                          )}
+                        </p>
                       )}
                       <ul className="task-day-tasks">
                         {dayTasks.map((block) => (
@@ -5788,6 +5828,19 @@ function App() {
                               editTask(block.task);
                             }}
                             isCurrentFocus={todayFocusTask?.id === block.taskId}
+                            countdownProgress={
+                              block.taskId != null &&
+                              block.taskId === upNextCountdownTaskId
+                                ? upNextCountdownProgress
+                                : null
+                            }
+                            countdownBarColor={
+                              block.taskId != null &&
+                              block.taskId === upNextCountdownTaskId &&
+                              upNextCountdownProgress != null
+                                ? nowSkyColor
+                                : null
+                            }
                           />
                         ))}
                       </ul>
@@ -5809,7 +5862,7 @@ function App() {
                 isTodayGroup &&
                 activeView === "dayline" &&
                 !calendarOpen &&
-                overflowDisplayCount > 0;
+                overflowTaskCount > 0;
               const toggleOutsideRegion = (region: OutsideRegionId) => {
                 setOutsideExpandedByDay((current) => {
                   const prev = current[day.dayKey] ?? {};

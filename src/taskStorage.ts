@@ -14,6 +14,7 @@ const TASK_GAP_STORAGE_KEY = "twineline.taskGapMinutes";
 const LAST_AUTO_RESCHEDULE_DAY_KEY = "twineline.lastAutoRescheduleDay";
 const TODAY_WINDOW_BASELINE_KEY = "twineline.todayWindowBaseline";
 const CURRENT_FOCUS_KEY = "twineline.currentFocus";
+const PLAN_COMPLETED_COUNTS_KEY = "twineline.planCompletedCounts";
 const RECENT_LINK_IDS_KEY = "twineline.recentLinkIds";
 const UI_SESSION_KEY = "twineline.uiSession";
 const MAX_RECENT_LINK_IDS = 40;
@@ -397,10 +398,8 @@ export type CurrentFocus = {
   taskId: string;
   /** When true, focus stays pinned on today and is not pushed to overflow. */
   locked: boolean;
-  /** When pinned from overflow, keep a placeholder row in that bucket. */
+  /** When pinned from overflow, task still belongs conceptually to Overflow. */
   overflowBucket?: CurrentFocusOverflowBucket | null;
-  /** Index in that overflow bucket where the pinned task sat. */
-  overflowIndex?: number | null;
 };
 
 export function loadCurrentFocus(): CurrentFocus | null {
@@ -418,19 +417,12 @@ export function loadCurrentFocus(): CurrentFocus | null {
       value.overflowBucket === "overdue" || value.overflowBucket === "deferred"
         ? value.overflowBucket
         : null;
-    const overflowIndex =
-      typeof value.overflowIndex === "number" &&
-      Number.isFinite(value.overflowIndex) &&
-      value.overflowIndex >= 0
-        ? Math.floor(value.overflowIndex)
-        : null;
     return {
       dayKey: value.dayKey,
       taskId: value.taskId,
       // Only explicitly locked focus stays pinned out of overflow.
       locked: value.locked === true,
       overflowBucket,
-      overflowIndex: overflowBucket != null ? overflowIndex : null,
     };
   } catch {
     return null;
@@ -451,6 +443,40 @@ export function clearCurrentFocusStorage(): void {
   } catch {
     // Ignore quota / private-mode write failures.
   }
+}
+
+/** Completed child-task counts per plan id (open tasks live in the tasks list). */
+export function loadPlanCompletedCounts(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(PLAN_COMPLETED_COUNTS_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, number> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+        out[key] = Math.floor(value);
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function savePlanCompletedCounts(counts: Record<string, number>): void {
+  try {
+    localStorage.setItem(PLAN_COMPLETED_COUNTS_KEY, JSON.stringify(counts));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export function incrementPlanCompletedCount(planId: string): Record<string, number> {
+  const counts = loadPlanCompletedCounts();
+  counts[planId] = (counts[planId] ?? 0) + 1;
+  savePlanCompletedCounts(counts);
+  return counts;
 }
 
 export function loadUiSession(): UiSession | null {
