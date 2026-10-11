@@ -2629,52 +2629,46 @@
   white-space: nowrap;
 }
 
-/* Unverified default/auto meta — same orange as composer auto-reschedule. */
+/* Unverified default/auto meta — same orange as composer auto-reschedule.
+   Task type labels are excluded — type is never shown as auto/orange. */
 .task-row-schedule.is-auto,
 .task-row-urgency.is-auto,
 .task-row-duration.is-auto,
-.task-row-type-label.is-auto,
 .task-row-parent.is-auto,
 .task-row-recurring.is-auto,
 .task-list.is-compact .task-row-schedule.is-auto,
 .task-list.is-compact .task-row-urgency.is-auto,
 .task-list.is-compact .task-row-top .task-row-urgency.is-auto,
 .task-list.is-compact .task-row-duration.is-auto,
-.task-list.is-compact .task-row-type-label.is-auto,
 .task-list.is-compact .task-row-parent.is-auto,
 .task-list.is-compact .task-row-recurring.is-auto,
 .task-overdue-tasks .task-row-urgency.is-auto,
 .task-overdue-tasks .task-row-top .task-row-urgency.is-auto,
 .task-overdue-tasks .task-row-duration.is-auto,
-.task-overdue-tasks .task-row-type-label.is-auto,
 .task-overdue-tasks .task-row-parent.is-auto,
 .task-overdue-tasks .task-row-recurring.is-auto,
 .collections-children .task-row-schedule.is-auto,
 .collections-children .task-row-urgency.is-auto,
 .collections-children .task-row-top .task-row-urgency.is-auto,
 .collections-children .task-row-duration.is-auto,
-.collections-children .task-row-type-label.is-auto,
 .collections-children .task-row-parent.is-auto,
 .collections-children .task-row-recurring.is-auto,
 .named-children .task-row-schedule.is-auto,
 .named-children .task-row-urgency.is-auto,
 .named-children .task-row-top .task-row-urgency.is-auto,
 .named-children .task-row-duration.is-auto,
-.named-children .task-row-type-label.is-auto,
 .named-children .task-row-parent.is-auto,
 .named-children .task-row-recurring.is-auto,
 .home-focus-task .task-row-schedule.is-auto,
 .home-focus-task .task-row-urgency.is-auto,
 .home-focus-task .task-row-top .task-row-urgency.is-auto,
 .home-focus-task .task-row-duration.is-auto,
-.home-focus-task .task-row-type-label.is-auto,
 .home-focus-task .task-row-parent.is-auto,
 .home-focus-task .task-row-recurring.is-auto,
 .task-current-focus .task-row-schedule.is-auto,
 .task-current-focus .task-row-urgency.is-auto,
 .task-current-focus .task-row-top .task-row-urgency.is-auto,
 .task-current-focus .task-row-duration.is-auto,
-.task-current-focus .task-row-type-label.is-auto,
 .task-current-focus .task-row-parent.is-auto,
 .task-current-focus .task-row-recurring.is-auto {
   color: #e8a317;
@@ -4367,8 +4361,20 @@
 }
 
 .app-composer-field .app-composer-task-row .task-row-type-label {
+  display: block;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
   font-size: 0.62rem;
+  font-weight: 650;
   letter-spacing: 0.05em;
+  line-height: 1.2;
+  text-transform: uppercase;
   opacity: 0.58;
 }
 
@@ -4397,11 +4403,18 @@
 .app-composer-field .task-row-schedule.is-auto,
 .app-composer-field .task-row-urgency.is-auto,
 .app-composer-field .task-row-duration.is-auto,
-.app-composer-field .task-row-type-label.is-auto,
 .app-composer-field .task-row-parent.is-auto,
 .app-composer-field .task-row-recurring.is-auto {
   color: #e8a317;
   opacity: 1;
+}
+
+/* Type meta stays muted grey even when marked is-auto. */
+.task-row-type-label.is-auto,
+.app-composer-field .task-row-type-label.is-auto,
+.app-composer-field .app-composer-task-row .task-row-type-label.is-auto {
+  color: var(--text);
+  opacity: 0.58;
 }
 
 .app-composer-field .task-row-impact.is-auto .task-row-impact-fill {
@@ -4611,6 +4624,17 @@
   background: color-mix(in srgb, var(--text-h) 12%, var(--bg-raised));
   color: var(--text-h);
   box-shadow: none;
+}
+
+.app-composer-add .app-compose-add-plus.is-edit {
+  font-size: 0;
+  line-height: 0;
+}
+
+.app-composer .app-composer-add .app-compose-add-plus.is-edit svg {
+  width: 9px;
+  height: 9px;
+  display: block;
 }
 
 .app-composer-add.is-ready .app-compose-add-plus {

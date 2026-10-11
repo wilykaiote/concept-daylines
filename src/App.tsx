@@ -270,6 +270,27 @@ function SendIcon() {
   );
 }
 
+function EditIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M14.5 5.5 18.5 9.5 9 19H5v-4Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12.5 7.5 16.5 11.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function ClockIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -849,13 +870,22 @@ function IntelligenceIcon() {
   );
 }
 
-function ComposeAddIcon({ Icon, showPlus = true }: { Icon: () => ReactElement; showPlus?: boolean }) {
+function ComposeAddIcon({
+  Icon,
+  badge = "plus",
+}: {
+  Icon: () => ReactElement;
+  badge?: "plus" | "edit" | "none";
+}) {
   return (
     <span className="app-compose-add-icon">
       <Icon />
-      {showPlus && (
-        <span className="app-compose-add-plus" aria-hidden="true">
-          +
+      {badge !== "none" && (
+        <span
+          className={`app-compose-add-plus${badge === "edit" ? " is-edit" : ""}`}
+          aria-hidden="true"
+        >
+          {badge === "edit" ? <EditIcon /> : "+"}
         </span>
       )}
     </span>
@@ -1820,6 +1850,8 @@ function App() {
   const [collections, setCollections] = useState<ComposerDraft[]>(() => loadCollections());
   const [poppingTaskIds, setPoppingTaskIds] = useState<string[]>([]);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const editingTaskIdRef = useRef<string | null>(null);
+  editingTaskIdRef.current = editingTaskId;
   const [editTaskBaseline, setEditTaskBaseline] = useState<{
     title: string;
     est_duration: number | null;
@@ -1829,7 +1861,16 @@ function App() {
     starts_at: string | null;
     due_at: string | null;
     recurring: string | null;
+    meta_auto: string | null;
+    durationActivated: boolean;
+    impactActivated: boolean;
+    scheduleToolActivated: boolean;
+    recurringActivated: boolean;
+    urgencyActivated: boolean;
+    auto_rescheduled: boolean;
   } | null>(null);
+  const editTaskBaselineRef = useRef(editTaskBaseline);
+  editTaskBaselineRef.current = editTaskBaseline;
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [focusedOverflowTaskIds, setFocusedOverflowTaskIds] = useState<string[] | null>(null);
@@ -2756,16 +2797,25 @@ function App() {
     );
   };
 
-  const upsertTaskDraft = (draft: ComposerDraft) => {
+  const resolveComposerEditId = (editId?: string | null) => {
+    const resolved = editId !== undefined ? editId : editingTaskIdRef.current;
+    // While an edit session exists (id or baseline), never fall through to create.
+    if (resolved == null && editTaskBaselineRef.current != null) return undefined;
+    return resolved;
+  };
+
+  const upsertTaskDraft = (draft: ComposerDraft, editId?: string | null) => {
+    const resolvedEditId = resolveComposerEditId(editId);
+    if (resolvedEditId === undefined) return;
     const withLinks = applyLinkFields(draft);
-    const parentIdForChild = editingTaskId ?? withLinks.id;
+    const parentIdForChild = resolvedEditId ?? withLinks.id;
     setTasks((current) => {
       let next = current;
-      if (!editingTaskId) {
+      if (resolvedEditId == null) {
         next = [withLinks, ...current];
       } else {
         next = current.map((task) => {
-          if (task.id !== editingTaskId) return task;
+          if (task.id !== resolvedEditId) return task;
           return {
             ...task,
             title: withLinks.title,
@@ -2793,8 +2843,8 @@ function App() {
       return next;
     });
     if (
-      editingTaskId != null &&
-      currentFocus?.taskId === editingTaskId &&
+      resolvedEditId != null &&
+      currentFocus?.taskId === resolvedEditId &&
       withLinks.date !== dayKey(toStartOfDay(new Date(countdownNowRef.current)))
     ) {
       setCurrentFocus(null);
@@ -2803,7 +2853,9 @@ function App() {
   };
 
   /** Plan / list — name + type only for now. */
-  const upsertContainerDraft = (draft: ComposerDraft) => {
+  const upsertContainerDraft = (draft: ComposerDraft, editId?: string | null) => {
+    const resolvedEditId = resolveComposerEditId(editId);
+    if (resolvedEditId === undefined) return;
     const containerDraft: ComposerDraft = {
       ...draft,
       est_duration: null,
@@ -2816,14 +2868,14 @@ function App() {
       auto_rescheduled: null,
     };
     const withLinks = applyLinkFields(containerDraft);
-    const parentIdForChild = editingTaskId ?? withLinks.id;
+    const parentIdForChild = resolvedEditId ?? withLinks.id;
     setTasks((current) => {
       let next = current;
-      if (!editingTaskId) {
+      if (resolvedEditId == null) {
         next = [withLinks, ...current];
       } else {
         next = current.map((task) => {
-          if (task.id !== editingTaskId) return task;
+          if (task.id !== resolvedEditId) return task;
           return {
             ...task,
             title: withLinks.title,
@@ -2851,7 +2903,9 @@ function App() {
     });
   };
 
-  const upsertCollectionDraft = (draft: ComposerDraft) => {
+  const upsertCollectionDraft = (draft: ComposerDraft, editId?: string | null) => {
+    const resolvedEditId = resolveComposerEditId(editId);
+    if (resolvedEditId === undefined) return;
     const withLinks = applyLinkFields({
       ...draft,
       type: "collection",
@@ -2868,11 +2922,11 @@ function App() {
       ...withLinks,
       type: "collection",
     };
-    const parentIdForChild = editingTaskId ?? collectionDraft.id;
+    const parentIdForChild = resolvedEditId ?? collectionDraft.id;
     setCollections((current) => {
-      if (!editingTaskId) return [collectionDraft, ...current];
+      if (resolvedEditId == null) return [collectionDraft, ...current];
       return current.map((collection) => {
-        if (collection.id !== editingTaskId) return collection;
+        if (collection.id !== resolvedEditId) return collection;
         return {
           ...collection,
           title: collectionDraft.title,
@@ -2892,7 +2946,10 @@ function App() {
     }
   };
 
-  const submitComposerDraft: Record<ComposeKind, (draft: ComposerDraft) => void> = {
+  const submitComposerDraft: Record<
+    ComposeKind,
+    (draft: ComposerDraft, editId?: string | null) => void
+  > = {
     task: upsertTaskDraft,
     plan: upsertContainerDraft,
     collection: upsertCollectionDraft,
@@ -3261,9 +3318,17 @@ function App() {
       composerDate !== editTaskBaseline.date ||
       composerStartsAt !== editTaskBaseline.starts_at ||
       composerDueAt !== editTaskBaseline.due_at ||
-      composerRecurring !== editTaskBaseline.recurring);
+      composerRecurring !== editTaskBaseline.recurring ||
+      formatMetaAuto(composerMetaAuto) !== editTaskBaseline.meta_auto ||
+      durationActivated !== editTaskBaseline.durationActivated ||
+      impactActivated !== editTaskBaseline.impactActivated ||
+      scheduleToolActivated !== editTaskBaseline.scheduleToolActivated ||
+      recurringActivated !== editTaskBaseline.recurringActivated ||
+      urgencyActivated !== editTaskBaseline.urgencyActivated ||
+      composerAutoRescheduled !== editTaskBaseline.auto_rescheduled);
   const isCreateDirty = editingTaskId == null && content.trim() !== "";
   const isComposerDirty = isEditDirty || isCreateDirty;
+  const composeActionReady = editingTaskId != null ? isEditDirty : hasText;
 
   const completeTask = (id: string | null) => {
     if (!id) return;
@@ -3327,6 +3392,20 @@ function App() {
     const nextDueAt = normalizeOptionalField(task.due_at);
     const nextRecurring = parseRecurring(task.recurring);
     setEditingTaskId(task.id);
+    const hasSchedule =
+      nextDate != null || nextStartsAt != null || nextDueAt != null;
+    const loadedMetaAuto = parseMetaAuto(task.meta_auto);
+    if (task.auto_rescheduled === true) loadedMetaAuto.add("schedule");
+    const nextDurationActivated =
+      task.est_duration != null &&
+      task.est_duration > 0 &&
+      !loadedMetaAuto.has("duration");
+    const nextImpactActivated = task.impact != null && !loadedMetaAuto.has("impact");
+    const nextScheduleToolActivated =
+      hasSchedule && !loadedMetaAuto.has("schedule");
+    const nextRecurringActivated = nextRecurring != null;
+    const nextUrgencyActivated = task.urgency != null || !hasSchedule;
+    const nextAutoRescheduled = task.auto_rescheduled === true;
     setEditTaskBaseline({
       title: task.title,
       est_duration: minutes,
@@ -3338,6 +3417,13 @@ function App() {
       recurring: nextRecurring
         ? formatRecurring(nextRecurring.count, nextRecurring.unit)
         : null,
+      meta_auto: formatMetaAuto(loadedMetaAuto),
+      durationActivated: nextDurationActivated,
+      impactActivated: nextImpactActivated,
+      scheduleToolActivated: nextScheduleToolActivated,
+      recurringActivated: nextRecurringActivated,
+      urgencyActivated: nextUrgencyActivated,
+      auto_rescheduled: nextAutoRescheduled,
     });
     setComposerSavePromptOpen(false);
     setComposeKind(composeKindFromTaskType(task.type));
@@ -3358,26 +3444,18 @@ function App() {
       setRecurringCount(DEFAULT_RECURRING_COUNT);
       setRecurringInput(String(DEFAULT_RECURRING_COUNT));
     }
-    const hasSchedule =
-      nextDate != null || nextStartsAt != null || nextDueAt != null;
     setUrgency(nextUrgency);
-    setUrgencyActivated(task.urgency != null || !hasSchedule);
+    setUrgencyActivated(nextUrgencyActivated);
     setImpact(nextImpact);
     setImpactMenuOpen(false);
     setTaskDate(nextDate ?? "");
     setTaskStartsAt(nextStartsAt ?? "");
     setTaskDueAt(nextDueAt ?? "");
-    setComposerAutoRescheduled(task.auto_rescheduled === true);
-    {
-      const loaded = parseMetaAuto(task.meta_auto);
-      if (task.auto_rescheduled === true) loaded.add("schedule");
-      setComposerMetaAuto(loaded);
-      setScheduleToolActivated(hasSchedule && !loaded.has("schedule"));
-      setDurationActivated(
-        task.est_duration != null && task.est_duration > 0 && !loaded.has("duration"),
-      );
-      setImpactActivated(task.impact != null && !loaded.has("impact"));
-    }
+    setComposerAutoRescheduled(nextAutoRescheduled);
+    setComposerMetaAuto(loadedMetaAuto);
+    setScheduleToolActivated(nextScheduleToolActivated);
+    setDurationActivated(nextDurationActivated);
+    setImpactActivated(nextImpactActivated);
     const nextMode = nextDueAt && !nextStartsAt ? "due_at" : "starts_at";
     setTaskTimeMode(nextMode);
     setDateTimeAnchor(
@@ -3670,9 +3748,11 @@ function App() {
   };
 
   const saveComposerChanges = () => {
+    const editId = editingTaskIdRef.current;
+    if (editId == null) return;
     const draft = buildDraftFromComposer();
     if (draft) {
-      submitComposerDraft[composeKind](draft);
+      submitComposerDraft[composeKind](draft, editId);
       if (
         !isContainerComposeKind(composeKind) &&
         isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
@@ -3694,6 +3774,21 @@ function App() {
     setComposerSavePromptOpen(false);
     setFocusedTaskId(null);
     setFocusedOverflowTaskIds(null);
+  };
+
+  const submitCreate = () => {
+    if (searchOpen) return;
+    if (editingTaskIdRef.current != null || editTaskBaselineRef.current != null) return;
+    const draft = buildDraftFromComposer();
+    if (!draft) return;
+    submitComposerDraft[composeKind](draft, null);
+    if (
+      !isContainerComposeKind(composeKind) &&
+      isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
+    ) {
+      openOverflowForActiveView();
+    }
+    resetComposerFields();
   };
 
   const syncDurationInput = (minutes: number | null, unit: "minutes" | "hours" = durationUnit) => {
@@ -6232,22 +6327,10 @@ function App() {
         onSubmit={(e) => {
           e.preventDefault();
           if (searchOpen) return;
-          const draft = buildDraftFromComposer();
-          if (!draft) return;
-          const wasEditing = editingTaskId != null;
-          submitComposerDraft[composeKind](draft);
-          if (
-            !isContainerComposeKind(composeKind) &&
-            isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
-          ) {
-            openOverflowForActiveView();
-          }
-          resetComposerFields();
-          if (wasEditing) {
-            setCollapsed(true);
-            setFocusedTaskId(null);
-            setFocusedOverflowTaskIds(null);
-          }
+          // Create never runs via form submit — only the Send button onClick.
+          if (editingTaskIdRef.current == null) return;
+          if (!isEditDirty) return;
+          saveComposerChanges();
         }}
       >
         <div className="app-composer-dock">
@@ -6385,18 +6468,6 @@ function App() {
                   <div className="task-row-content">
                     <div className="task-row-content-main">
                       <div className="task-row-main app-composer-field-row">
-                        {editingTaskId != null && (
-                          <div className="app-composer-complete-slot">
-                            <button
-                              type="button"
-                              className={`task-complete is-${composerScheduleKind}`}
-                              aria-label="Mark complete"
-                              tabIndex={collapsed ? -1 : 0}
-                              onClick={() => requestCompleteTask(editingTaskId)}
-                              disabled={isTaskPopping(editingTaskId)}
-                            />
-                          </div>
-                        )}
                         <textarea
                           ref={composeInputRef}
                           rows={1}
@@ -6466,18 +6537,6 @@ function App() {
               </div>
             ) : (
               <div className="app-composer-field-row">
-                {editingTaskId != null && (
-                  <div className="app-composer-complete-slot">
-                    <button
-                      type="button"
-                      className={`task-complete is-${composerScheduleKind}`}
-                      aria-label="Mark complete"
-                      tabIndex={collapsed ? -1 : 0}
-                      onClick={() => requestCompleteTask(editingTaskId)}
-                      disabled={isTaskPopping(editingTaskId)}
-                    />
-                  </div>
-                )}
                 <textarea
                   ref={composeInputRef}
                   rows={1}
@@ -7795,20 +7854,29 @@ function App() {
                 </button>
                 <button
                   ref={composeAddButtonRef}
-                  type={hasText ? "submit" : "button"}
-                  className={`app-composer-icon app-composer-add${hasText ? " is-ready" : ""}`}
+                  type="button"
+                  className={`app-composer-icon app-composer-add${
+                    composeActionReady ? " is-ready" : ""
+                  }`}
                   aria-label={
-                    hasText
+                    composeActionReady
                       ? editingTaskId != null
                         ? "Save"
                         : "Send"
                       : "Choose compose type"
                   }
-                  aria-expanded={hasText ? undefined : composeKindMenuOpen}
+                  aria-expanded={composeActionReady ? undefined : composeKindMenuOpen}
                   tabIndex={collapsed ? -1 : 0}
                   onClick={
-                    hasText
-                      ? undefined
+                    composeActionReady
+                      ? editingTaskId != null
+                        ? () => {
+                            if (!isEditDirty) return;
+                            saveComposerChanges();
+                          }
+                        : () => {
+                            submitCreate();
+                          }
                       : () => {
                           setAttachMenuOpen(false);
                           setDurationMenuOpen(false);
@@ -7819,16 +7887,22 @@ function App() {
                         }
                   }
                 >
-                {hasText ? (
+                  {composeActionReady ? (
                     editingTaskId != null ? (
                       <CheckIcon />
                     ) : (
-                    <SendIcon />
+                      <SendIcon />
                     )
                   ) : (
                     <ComposeAddIcon
                       Icon={SelectedComposeIcon}
-                      showPlus={composeKind !== "assistant"}
+                      badge={
+                        editingTaskId != null
+                          ? "edit"
+                          : composeKind !== "assistant"
+                            ? "plus"
+                            : "none"
+                      }
                     />
                   )}
                 </button>
