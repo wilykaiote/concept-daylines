@@ -4331,13 +4331,10 @@ function App() {
                   </ul>
                 </div>
               )}
-              <p className="task-overflow-footer">
-                <span className="task-overflow-notice-overflow">Overflow</span>{" "}
-                tasks will be rescheduled at end of day
-              </p>
             </section>
           </div>
         )}
+        {activeView === "dayline" && !calendarOpen && renderCurrentFocus()}
       </>
     );
   };
@@ -5810,11 +5807,6 @@ function App() {
               ref={twinelineHeaderRef}
             >
               {!calendarOpen && (
-                <div className="twineline-current-focus-wrap">
-                  {renderCurrentFocus()}
-                </div>
-              )}
-              {!calendarOpen && (
                 <div className="twineline-countdown-bar">
                   <div className="twineline-menu-wrap">
                     <ComposerOverlayMenu
@@ -6090,6 +6082,11 @@ function App() {
                     </div>
                   )}
                   {showOverdueToggle && renderOverflowSection()}
+                  {isTodayGroup &&
+                    activeView === "dayline" &&
+                    !calendarOpen &&
+                    !showOverdueToggle &&
+                    renderCurrentFocus()}
                   {dayTasks.length > 0 && (
                     <div className="task-day-next">
                       {isTodayGroup && activeView === "dayline" && !calendarOpen && (
@@ -6196,6 +6193,11 @@ function App() {
                   </div>
                 )}
                 {showOverdueToggle && renderOverflowSection()}
+                {isTodayGroup &&
+                  activeView === "dayline" &&
+                  !calendarOpen &&
+                  !showOverdueToggle &&
+                  renderCurrentFocus()}
                 <div
                   className="calendar-timeline-body"
                   style={{ height: Math.max(PX_PER_MINUTE, view.visibleDisplayPx) }}
