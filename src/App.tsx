@@ -4968,19 +4968,20 @@ function App() {
   }, [collapsed, searchOpen, moreMenuOpen, activeView]);
 
   useLayoutEffect(() => {
-    const slide = twinelineSlideRef.current;
+    const header = twinelineHeaderRef.current;
     const slot = twinelineSlotRef.current;
-    if (!slide || !slot || activeView !== "dayline") return;
+    if (!header || !slot || activeView !== "dayline") return;
 
+    // Slot must match full sticky header (focus + bar + schedule), not only the slide.
     const syncSlotHeight = () => {
-      const height = slide.offsetHeight;
+      const height = header.offsetHeight;
       slot.style.height = `${height}px`;
       mainRef.current?.style.setProperty("--twineline-chrome-height", `${height}px`);
     };
     syncSlotHeight();
 
     const observer = new ResizeObserver(syncSlotHeight);
-    observer.observe(slide);
+    observer.observe(header);
     return () => observer.disconnect();
   }, [activeView, calendarOpen, timePickerOpen, overflowTaskCount]);
 
@@ -5804,191 +5805,199 @@ function App() {
               className={`twineline-countdown${calendarOpen ? " is-calendar-open" : ""}`}
               ref={twinelineHeaderRef}
             >
-              <div className="twineline-countdown-slide" ref={twinelineSlideRef}>
-            {!calendarOpen && (
-              <div className="twineline-countdown-bar">
-                <div className="twineline-menu-wrap">
-                  <ComposerOverlayMenu
-                    open={timelineMenuOpen}
-                    anchorRef={timelineMenuButtonRef}
-                    menuRef={timelineMenuRef}
-                    align="start"
-                    className="twineline-menu"
-                    aria-label="Timeline menu"
-                  >
-                    <button
-                      type="button"
-                      className="app-attach-menu-item"
-                      role="menuitem"
-                      onClick={() => {
-                        setTimelineMenuOpen(false);
-                        toggleTimePicker("dayline");
-                      }}
-                    >
-                      <span>Set task window</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="app-attach-menu-item"
-                      role="menuitem"
-                      onClick={() => setTimelineMenuOpen(false)}
-                    >
-                      <span>Set aggression</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="app-attach-menu-item"
-                      role="menuitem"
-                      onClick={() => setTimelineMenuOpen(false)}
-                    >
-                      <span>Metrics</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`app-attach-menu-item${timelineMultiSelect ? " is-selected" : ""}`}
-                      role="menuitemcheckbox"
-                      aria-checked={timelineMultiSelect}
-                      onClick={() => {
-                        if (timelineMultiSelect) {
-                          setTimelineMultiSelect(false);
-                          setSelectedTimelineTaskIds([]);
-                        } else {
-                          setTimelineMultiSelect(true);
-                          setSelectedTimelineTaskIds(
-                            focusedTaskId != null ? [focusedTaskId] : [],
-                          );
-                          setFocusedTaskId(null);
-                          setFocusedOverflowTaskIds(null);
-                        }
-                        setTimelineMenuOpen(false);
-                      }}
-                    >
-                      <span>Select multiple</span>
-                    </button>
-                  </ComposerOverlayMenu>
-                  <button
-                    ref={timelineMenuButtonRef}
-                    type="button"
-                    className={`twineline-menu-button${timelineMenuOpen ? " is-open" : ""}`}
-                    aria-label="Timeline menu"
-                    aria-expanded={timelineMenuOpen}
-                    aria-haspopup="menu"
-                    onClick={() => setTimelineMenuOpen((open) => !open)}
-                  >
-                    <HorizontalMoreIcon />
-                  </button>
+              {!calendarOpen && (
+                <div className="twineline-current-focus-wrap">
+                  {renderCurrentFocus()}
                 </div>
-                <button
-                  type="button"
-                  className="twineline-date"
-                  aria-label="Open calendar"
-                  aria-expanded={false}
-                  onClick={openCalendar}
-                >
-                  <span className="twineline-date-label">
-                    {selectedIsToday && (
-                      <span className="date-title-calendar-icon" aria-hidden="true">
-                        <CalendarIcon />
-                      </span>
-                    )}
-                    {formatTwinelineDateLabel(selectedDay, new Date(countdownNow), {
-                      weekday: true,
-                      omitTodayWord: true,
-                    })}
-                  </span>
-                </button>
-                <span ref={daylineCountdownButtonRef} className="twineline-countdown-button-anchor">
-                  <TwinelineCountdownButton
-                    className="is-dayline-chrome"
-                    countdownRemaining={countdownRemaining}
-                    targetTimeLabel={targetTimeLabel}
-                    windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
-                    timePickerOpen={timePickerOpen && timePickerSource === "dayline"}
-                    daySnoozed={daySnoozed}
-                    outsideTaskWindow={outsideTaskWindow}
-                    onClick={() => toggleTimePicker("dayline")}
-                  />
-                </span>
-                </div>
-            )}
-            {calendarOpen && (
-              <div className="twineline-calendar" aria-label="Choose a day">
-                <div className="twineline-calendar-header">
+              )}
+              {!calendarOpen && (
+                <div className="twineline-countdown-bar">
+                  <div className="twineline-menu-wrap">
+                    <ComposerOverlayMenu
+                      open={timelineMenuOpen}
+                      anchorRef={timelineMenuButtonRef}
+                      menuRef={timelineMenuRef}
+                      align="start"
+                      className="twineline-menu"
+                      aria-label="Timeline menu"
+                    >
+                      <button
+                        type="button"
+                        className="app-attach-menu-item"
+                        role="menuitem"
+                        onClick={() => {
+                          setTimelineMenuOpen(false);
+                          toggleTimePicker("dayline");
+                        }}
+                      >
+                        <span>Set task window</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="app-attach-menu-item"
+                        role="menuitem"
+                        onClick={() => setTimelineMenuOpen(false)}
+                      >
+                        <span>Set aggression</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="app-attach-menu-item"
+                        role="menuitem"
+                        onClick={() => setTimelineMenuOpen(false)}
+                      >
+                        <span>Metrics</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`app-attach-menu-item${timelineMultiSelect ? " is-selected" : ""}`}
+                        role="menuitemcheckbox"
+                        aria-checked={timelineMultiSelect}
+                        onClick={() => {
+                          if (timelineMultiSelect) {
+                            setTimelineMultiSelect(false);
+                            setSelectedTimelineTaskIds([]);
+                          } else {
+                            setTimelineMultiSelect(true);
+                            setSelectedTimelineTaskIds(
+                              focusedTaskId != null ? [focusedTaskId] : [],
+                            );
+                            setFocusedTaskId(null);
+                            setFocusedOverflowTaskIds(null);
+                          }
+                          setTimelineMenuOpen(false);
+                        }}
+                      >
+                        <span>Select multiple</span>
+                      </button>
+                    </ComposerOverlayMenu>
+                    <button
+                      ref={timelineMenuButtonRef}
+                      type="button"
+                      className={`twineline-menu-button${timelineMenuOpen ? " is-open" : ""}`}
+                      aria-label="Timeline menu"
+                      aria-expanded={timelineMenuOpen}
+                      aria-haspopup="menu"
+                      onClick={() => setTimelineMenuOpen((open) => !open)}
+                    >
+                      <HorizontalMoreIcon />
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    className="twineline-calendar-nav"
-                    aria-label="Previous month"
-                    onClick={() => setCalendarMonth((month) => shiftMonth(month, -1))}
+                    className="twineline-date"
+                    aria-label="Open calendar"
+                    aria-expanded={false}
+                    onClick={openCalendar}
                   >
-                    ‹
-                  </button>
-                  <button
-                    type="button"
-                    className="twineline-calendar-month"
-                    aria-label="Close calendar"
-                    onClick={closeCalendar}
-                  >
-                    <span>{calendarMonthLabel}</span>
-                    <span className="twineline-date-chevron" aria-hidden="true">
-                      ∧
+                    <span className="twineline-date-label">
+                      {selectedIsToday && (
+                        <span className="date-title-calendar-icon" aria-hidden="true">
+                          <CalendarIcon />
+                        </span>
+                      )}
+                      {formatTwinelineDateLabel(selectedDay, new Date(countdownNow), {
+                        weekday: true,
+                        omitTodayWord: true,
+                      })}
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    className="twineline-calendar-nav"
-                    aria-label="Next month"
-                    onClick={() => setCalendarMonth((month) => shiftMonth(month, 1))}
+                  <span
+                    ref={daylineCountdownButtonRef}
+                    className="twineline-countdown-button-anchor"
                   >
-                    ›
-                  </button>
+                    <TwinelineCountdownButton
+                      className="is-dayline-chrome"
+                      countdownRemaining={countdownRemaining}
+                      targetTimeLabel={targetTimeLabel}
+                      windowStartLabel={formatMinutesLabel(todayWindowStartMinutes)}
+                      timePickerOpen={timePickerOpen && timePickerSource === "dayline"}
+                      daySnoozed={daySnoozed}
+                      outsideTaskWindow={outsideTaskWindow}
+                      onClick={() => toggleTimePicker("dayline")}
+                    />
+                  </span>
                 </div>
-                <div className="twineline-calendar-weekdays" aria-hidden="true">
-                  {WEEKDAY_BUTTONS.map(({ id, label, name }) => (
-                    <span key={`${id}-${name}`}>{label}</span>
-                  ))}
-                </div>
-                <div className="twineline-calendar-grid">
-                  {calendarDays.map((day, index) =>
-                    day ? (
+              )}
+              <div className="twineline-countdown-slide" ref={twinelineSlideRef}>
+                {calendarOpen && (
+                  <div className="twineline-calendar" aria-label="Choose a day">
+                    <div className="twineline-calendar-header">
                       <button
-                        key={`${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`}
                         type="button"
-                        className={`twineline-calendar-day${sameCalendarDay(day, selectedDay) ? " is-selected" : ""}${sameCalendarDay(day, new Date(countdownNow)) ? " is-today" : ""}`}
-                        aria-label={day.toDateString()}
-                        aria-pressed={sameCalendarDay(day, selectedDay)}
-                        onClick={() => selectCalendarDay(day)}
+                        className="twineline-calendar-nav"
+                        aria-label="Previous month"
+                        onClick={() => setCalendarMonth((month) => shiftMonth(month, -1))}
                       >
-                        {day.getDate()}
+                        ‹
                       </button>
-                    ) : (
-                      <span key={`empty-${index}`} className="twineline-calendar-day is-empty" />
-                    ),
-                  )}
+                      <button
+                        type="button"
+                        className="twineline-calendar-month"
+                        aria-label="Close calendar"
+                        onClick={closeCalendar}
+                      >
+                        <span>{calendarMonthLabel}</span>
+                        <span className="twineline-date-chevron" aria-hidden="true">
+                          ∧
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="twineline-calendar-nav"
+                        aria-label="Next month"
+                        onClick={() => setCalendarMonth((month) => shiftMonth(month, 1))}
+                      >
+                        ›
+                      </button>
+                    </div>
+                    <div className="twineline-calendar-weekdays" aria-hidden="true">
+                      {WEEKDAY_BUTTONS.map(({ id, label, name }) => (
+                        <span key={`${id}-${name}`}>{label}</span>
+                      ))}
+                    </div>
+                    <div className="twineline-calendar-grid">
+                      {calendarDays.map((day, index) =>
+                        day ? (
+                          <button
+                            key={`${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`}
+                            type="button"
+                            className={`twineline-calendar-day${sameCalendarDay(day, selectedDay) ? " is-selected" : ""}${sameCalendarDay(day, new Date(countdownNow)) ? " is-today" : ""}`}
+                            aria-label={day.toDateString()}
+                            aria-pressed={sameCalendarDay(day, selectedDay)}
+                            onClick={() => selectCalendarDay(day)}
+                          >
+                            {day.getDate()}
+                          </button>
+                        ) : (
+                          <span key={`empty-${index}`} className="twineline-calendar-day is-empty" />
+                        ),
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div
+                  className="twineline-schedule"
+                  aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
+                >
+                  <div className="twineline-schedule-track-wrap">
+                    <DayScheduleTrack
+                      segments={scheduleSegments}
+                      timelineMinutes={scheduleTimelineMinutes}
+                      elapsedPct={selectedDayElapsedPct}
+                      nowMin={selectedIsToday ? nowMinutes : undefined}
+                      windowStartMin={selectedDayWindowStartMinutes}
+                      windowEndMin={selectedDayPackEnd}
+                      focusedTaskId={focusedTaskId}
+                      isTaskHighlighted={isTaskHighlighted}
+                      isTaskPopping={isTaskPopping}
+                      onTaskSelect={(task) => {
+                        if (!task.id || isTaskPopping(task.id)) return;
+                        selectTimelineTask(task.id);
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
-            <div
-              className="twineline-schedule"
-              aria-label={`Timeline until ${formatTargetTimeLabel(selectedDayTargetTime)}`}
-            >
-              <div className="twineline-schedule-track-wrap">
-                <DayScheduleTrack
-                  segments={scheduleSegments}
-                  timelineMinutes={scheduleTimelineMinutes}
-                  elapsedPct={selectedDayElapsedPct}
-                  nowMin={selectedIsToday ? nowMinutes : undefined}
-                  windowStartMin={selectedDayWindowStartMinutes}
-                  windowEndMin={selectedDayPackEnd}
-                  focusedTaskId={focusedTaskId}
-                  isTaskHighlighted={isTaskHighlighted}
-                  isTaskPopping={isTaskPopping}
-                  onTaskSelect={(task) => {
-                    if (!task.id || isTaskPopping(task.id)) return;
-                    selectTimelineTask(task.id);
-                  }}
-                />
-              </div>
-            </div>
               </div>
               {showTimelineScrollTop && (
                 <div className="twineline-scroll-top-row">
@@ -6077,10 +6086,6 @@ function App() {
                     </div>
                   )}
                   {showOverdueToggle && renderOverflowSection()}
-                  {isTodayGroup &&
-                    activeView === "dayline" &&
-                    !calendarOpen &&
-                    renderCurrentFocus()}
                   {dayTasks.length > 0 && (
                     <div className="task-day-next">
                       {isTodayGroup && activeView === "dayline" && !calendarOpen && (
@@ -6187,10 +6192,6 @@ function App() {
                   </div>
                 )}
                 {showOverdueToggle && renderOverflowSection()}
-                {isTodayGroup &&
-                  activeView === "dayline" &&
-                  !calendarOpen &&
-                  renderCurrentFocus()}
                 <div
                   className="calendar-timeline-body"
                   style={{ height: Math.max(PX_PER_MINUTE, view.visibleDisplayPx) }}

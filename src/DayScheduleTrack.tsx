@@ -57,14 +57,6 @@ export function DayScheduleTrack({
   const windowEndPct =
     windowEndMin == null ? null : (windowEndMin / MINUTES_PER_DAY) * 100;
   const interactive = onTaskSelect != null;
-  const hourTicks = Array.from({ length: 25 }, (_, hour) => {
-    const leftPct = (hour / 24) * 100;
-    return {
-      hour,
-      leftPct,
-      major: hour % 6 === 0,
-    };
-  }).filter(({ leftPct }) => leftPct > elapsedPct);
 
   const blockElapsedPct = (segment: Extract<ScheduleSegment, { type: "task" }>) => {
     if (nowMin == null) return 0;
@@ -103,23 +95,6 @@ export function DayScheduleTrack({
               />
             </div>
           )}
-          {hourTicks.map(({ hour, leftPct, major }) => (
-            <span
-              key={hour}
-              className={[
-                "twineline-schedule-ruler-tick",
-                major ? "is-major" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              style={
-                {
-                  left: `${leftPct}%`,
-                  "--tick-pct": String(leftPct / 100),
-                } as CSSProperties
-              }
-            />
-          ))}
         </div>
         {windowStartPct != null && (
           <div
@@ -181,13 +156,21 @@ export function DayScheduleTrack({
                   aria-hidden="true"
                 />
               ) : null;
+            const blockStyle = {
+              flex: `0 0 ${widthPercent}%`,
+              ...(fillPct > 0 && elapsedFillColor != null
+                ? ({
+                    "--schedule-block-fill": elapsedFillColor,
+                  } as CSSProperties)
+                : null),
+            };
 
             if (!interactive) {
               return (
                 <div
                   key={taskId ?? `task-${index}`}
                   className={classNames}
-                  style={{ flex: `0 0 ${widthPercent}%` }}
+                  style={blockStyle}
                   title={`${segment.task.title} · ${segment.minutes}m`}
                 >
                   {elapsedFill}
@@ -201,7 +184,7 @@ export function DayScheduleTrack({
                 type="button"
                 data-schedule-task-id={taskId ?? undefined}
                 className={classNames}
-                style={{ flex: `0 0 ${widthPercent}%` }}
+                style={blockStyle}
                 title={`${segment.task.title} · ${segment.minutes}m`}
                 aria-label={`${segment.task.title}, ${segment.minutes} minutes`}
                 aria-pressed={
