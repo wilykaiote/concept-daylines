@@ -16,7 +16,6 @@ import {
   formatMetaAuto,
   hasMetaAuto,
   parseMetaAuto,
-  withMetaAuto,
   withoutMetaAuto,
   type ComposerDraft,
   type MetaAutoKey,
@@ -1929,7 +1928,7 @@ function App() {
   const [overdueSectionOpen, setOverdueSectionOpen] = useState(
     () => INITIAL_UI_SESSION?.overdueSectionOpen ?? true,
   );
-  const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(
+  const [homeOverdueSectionOpen] = useState(
     () => INITIAL_UI_SESSION?.homeOverdueSectionOpen ?? false,
   );
   const [planCompletedCounts, setPlanCompletedCounts] = useState(loadPlanCompletedCounts);
@@ -3924,51 +3923,6 @@ function App() {
       next.delete("schedule");
       return next;
     });
-  };
-
-  const setTaskAsCurrentFocus = (
-    task: ComposerDraft,
-    options?: {
-      locked?: boolean;
-      overflowBucket?: "overdue" | "deferred" | null;
-    },
-  ) => {
-    if (!task.id) return;
-    const focusDayKey = dayKey(toStartOfDay(new Date(countdownNowRef.current)));
-    const locked = options?.locked === true;
-    const overflowBucket = locked ? (options.overflowBucket ?? null) : null;
-    const nextFocus: CurrentFocus = {
-      dayKey: focusDayKey,
-      taskId: task.id,
-      locked,
-      overflowBucket,
-    };
-    setTasks((current) =>
-      current.map((item) =>
-        item.id === task.id
-          ? withMetaAuto(
-              {
-                ...item,
-                date: focusDayKey,
-                starts_at: null,
-                due_at: null,
-              },
-              "schedule",
-            )
-          : item,
-      ),
-    );
-    setCurrentFocus(nextFocus);
-    saveCurrentFocus(nextFocus);
-    setFocusedOverflowTaskIds(null);
-    setFocusedTaskId(task.id);
-    if (overflowBucket != null) {
-      overdueSectionOpenRef.current = false;
-      setOverdueSectionOpen(false);
-      homeOverdueSectionOpenRef.current = false;
-      setHomeOverdueSectionOpen(false);
-      persistUiSession();
-    }
   };
 
   const toggleCurrentFocusLock = () => {
