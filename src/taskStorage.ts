@@ -13,6 +13,7 @@ const DAY_SNOOZE_STORAGE_KEY = "twineline.daySnooze";
 const TASK_GAP_STORAGE_KEY = "twineline.taskGapMinutes";
 const LAST_AUTO_RESCHEDULE_DAY_KEY = "twineline.lastAutoRescheduleDay";
 const TODAY_WINDOW_BASELINE_KEY = "twineline.todayWindowBaseline";
+const TODAY_SOFT_PACK_PLAN_KEY = "twineline.todaySoftPackPlan";
 const CURRENT_FOCUS_KEY = "twineline.currentFocus";
 const PLAN_COMPLETED_COUNTS_KEY = "twineline.planCompletedCounts";
 const RECENT_LINK_IDS_KEY = "twineline.recentLinkIds";
@@ -386,6 +387,59 @@ export function loadTodayWindowBaseline(): TodayWindowBaseline | null {
 export function saveTodayWindowBaseline(baseline: TodayWindowBaseline): void {
   try {
     localStorage.setItem(TODAY_WINDOW_BASELINE_KEY, JSON.stringify(baseline));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export type SoftPackPlacement = {
+  taskId: string;
+  startMin: number;
+  endMin: number;
+};
+
+/** Frozen soft-pack geometry for a calendar day + applied window. */
+export type TodaySoftPackPlan = {
+  dayKey: string;
+  windowSig: string;
+  placements: SoftPackPlacement[];
+};
+
+export function loadTodaySoftPackPlan(): TodaySoftPackPlan | null {
+  try {
+    const raw = localStorage.getItem(TODAY_SOFT_PACK_PLAN_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const value = parsed as Record<string, unknown>;
+    if (typeof value.dayKey !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.dayKey)) {
+      return null;
+    }
+    if (typeof value.windowSig !== "string") return null;
+    if (!Array.isArray(value.placements)) return null;
+    const placements: SoftPackPlacement[] = [];
+    for (const entry of value.placements) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const row = entry as Record<string, unknown>;
+      if (typeof row.taskId !== "string" || row.taskId.length === 0) continue;
+      if (typeof row.startMin !== "number" || !Number.isFinite(row.startMin)) continue;
+      if (typeof row.endMin !== "number" || !Number.isFinite(row.endMin)) continue;
+      if (row.endMin <= row.startMin) continue;
+      placements.push({
+        taskId: row.taskId,
+        startMin: Math.round(row.startMin),
+        endMin: Math.round(row.endMin),
+      });
+    }
+    return { dayKey: value.dayKey, windowSig: value.windowSig, placements };
+  } catch {
+    return null;
+  }
+}
+
+export function saveTodaySoftPackPlan(plan: TodaySoftPackPlan): void {
+  try {
+    localStorage.setItem(TODAY_SOFT_PACK_PLAN_KEY, JSON.stringify(plan));
   } catch {
     // Ignore quota / private-mode write failures.
   }

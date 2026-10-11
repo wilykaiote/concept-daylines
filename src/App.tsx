@@ -47,6 +47,7 @@ import {
   loadPlanCompletedCounts,
   incrementPlanCompletedCount,
   loadTodayWindowBaseline,
+  loadTodaySoftPackPlan,
   loadUiSession,
   loadWindowStartOverrides,
   loadWindowStartTime,
@@ -70,6 +71,7 @@ import {
   saveTasks,
   saveCollections,
   saveTodayWindowBaseline,
+  saveTodaySoftPackPlan,
   saveWindowStartOverrides,
   saveWindowStartTime,
   shiftMonth,
@@ -78,6 +80,7 @@ import {
   toStartOfDay,
   WEEKDAY_BUTTONS,
   type CurrentFocus,
+  type TodaySoftPackPlan,
   type TodayWindowBaseline,
   type UiSession,
   type UiSessionViewId,
@@ -1951,6 +1954,9 @@ function App() {
   const [todayWindowBaseline, setTodayWindowBaseline] = useState<TodayWindowBaseline | null>(() =>
     loadTodayWindowBaseline(),
   );
+  const [todaySoftPackPlan, setTodaySoftPackPlan] = useState<TodaySoftPackPlan | null>(() =>
+    loadTodaySoftPackPlan(),
+  );
   const composerRef = useRef<HTMLFormElement>(null);
   const composerFieldRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -2162,6 +2168,11 @@ function App() {
   const focusLocked = currentFocus?.dayKey === todayKeyStr && currentFocus.locked === true;
   /** Only a locked focus is force-pinned so packing cannot push it to overflow. */
   const pinnedFocusId = focusLocked ? todayFocusId : null;
+  const frozenSoftPlacements =
+    todaySoftPackPlan?.dayKey === todayKeyStr &&
+    todaySoftPackPlan.windowSig === appliedTodayWindowSig
+      ? todaySoftPackPlan.placements
+      : [];
   const calendarTasksLayout = layoutCalendarTasks(
     tasksForCalendar,
     new Date(countdownNow),
@@ -2170,9 +2181,33 @@ function App() {
     getWindowStartTimeForDay,
     baselineIds,
     pinnedFocusId,
+    frozenSoftPlacements,
   );
   const calendarTaskLayout = calendarTasksLayout.days;
-  const overdueTasks = calendarTasksLayout.overdueTasks;
+  const todayLayoutForOverflow = calendarTaskLayout.find(
+    (day) => day.dayKey === todayKeyStr,
+  );
+  const fullyOvertakenSoftTasks = (todayLayoutForOverflow?.scheduleBlocks ?? [])
+    .filter((block) => {
+      const end = block.packEndMin ?? block.endMin;
+      if (end > nowMinutes) return false;
+      const task = block.task;
+      return (
+        parseTimeOfDay(task.starts_at) == null && parseTimeOfDay(task.due_at) == null
+      );
+    })
+    .map((block) => block.task);
+  const layoutOverdueIds = new Set(
+    calendarTasksLayout.overdueTasks
+      .map((task) => task.id)
+      .filter((id): id is string => id != null),
+  );
+  const overdueTasks = [
+    ...calendarTasksLayout.overdueTasks,
+    ...fullyOvertakenSoftTasks.filter(
+      (task) => task.id != null && !layoutOverdueIds.has(task.id),
+    ),
+  ];
   const deferredTasks = calendarTasksLayout.deferredTasks;
   const overflowTasks = [...overdueTasks, ...deferredTasks];
   const overflowTaskCount = overflowTasks.length;
@@ -2209,28 +2244,11 @@ function App() {
     selectedDayLayout?.packEndMin ??
     packWindowEndMinutes(selectedDayTargetTime, selectedDayWindowStartMinutes);
   const selectedIsToday = sameCalendarDay(selectedDay, todayStart);
-  const overflowScheduleIds = new Set(
-    [...overdueTasks, ...deferredTasks]
-      .map((task) => task.id)
-      .filter((id): id is string => id != null),
-  );
-  // Pinned-from-overflow focus still belongs in Overflow — keep it off the track.
-  const overflowPinnedFocusId =
-    currentFocus?.dayKey === todayKeyStr &&
-    currentFocus.locked === true &&
-    (currentFocus.overflowBucket === "overdue" ||
-      currentFocus.overflowBucket === "deferred")
-      ? currentFocus.taskId
-      : null;
+  // Keep overtaken day tasks on the twineline; Overflow list is separate.
   const selectedScheduleBlocks = (
     selectedDayLayout?.scheduleBlocks ?? selectedDayLayout?.blocks ?? []
   )
-    .filter(
-      (block) =>
-        !block.overdue &&
-        (block.taskId == null || !overflowScheduleIds.has(block.taskId)) &&
-        (overflowPinnedFocusId == null || block.taskId !== overflowPinnedFocusId),
-    )
+    .filter((block) => !block.overdue)
     .map((block) => ({
       startMin: block.packStartMin ?? block.startMin,
       endMin: block.packEndMin ?? block.endMin,
@@ -2238,43 +2256,45 @@ function App() {
       overdue: false as const,
     }));
   const todayLayout = calendarLayoutByKey.get(dayKey(todayStart));
-  const todayFocusBlock =
-    todayLayout?.blocks.find((block) => !block.overdue) ?? null;
+  const todayPlanBlocks = [...(todayLayout?.scheduleBlocks ?? [])]
+    .filter((block) => !block.overdue)
+    .sort(
+      (a, b) =>
+        (a.packStartMin ?? a.startMin) - (b.packStartMin ?? b.startMin) ||
+        (a.packEndMin ?? a.endMin) - (b.packEndMin ?? b.endMin),
+    );
+  const overtakenFocusBlock =
+    todayPlanBlocks.find((block) => {
+      const start = block.packStartMin ?? block.startMin;
+      const end = block.packEndMin ?? block.endMin;
+      return start <= nowMinutes && end > nowMinutes;
+    }) ?? null;
+  const upNextPlanBlocks = todayPlanBlocks.filter((block) => {
+    const start = block.packStartMin ?? block.startMin;
+    return start > nowMinutes;
+  });
   const pinnedFocusTask =
     todayFocusId != null
       ? (tasks.find((task) => task.id === todayFocusId) ?? null)
       : null;
-  const todayFocusTask = pinnedFocusTask ?? todayFocusBlock?.task ?? null;
-  const currentFocusTaskId = todayFocusTask?.id ?? null;
-  const todayFocusLayoutBlock =
-    currentFocusTaskId != null
-      ? (todayLayout?.blocks.find(
-          (block) => !block.overdue && block.taskId === currentFocusTaskId,
-        ) ?? null)
-      : null;
-  const focusTaskInOverflow =
-    currentFocusTaskId != null &&
-    overflowTasks.some((task) => task.id === currentFocusTaskId);
-  // Packed schedule start of the next focus / Up-next task — Free time ends when
-  // now begins overtaking that block (not latest-feasible must-start slack).
+  const todayFocusTask = overtakenFocusBlock?.task ?? pinnedFocusTask ?? null;
+  const todayFocusLayoutBlock = overtakenFocusBlock;
   const focusPackedStartMin =
-    todayFocusLayoutBlock != null && !focusTaskInOverflow
-      ? (todayFocusLayoutBlock.packStartMin ?? todayFocusLayoutBlock.startMin)
+    upNextPlanBlocks.length > 0
+      ? (upNextPlanBlocks[0].packStartMin ?? upNextPlanBlocks[0].startMin)
       : null;
+  // Free time: nothing currently overtaken, but Up next remains.
   const focusFreeTimeMode =
-    !focusLocked &&
-    focusPackedStartMin != null &&
-    focusPackedStartMin > nowMinutes;
-  const todayOpenBlockCount = (todayLayout?.blocks ?? []).filter(
-    (block) => !block.overdue,
-  ).length;
-  // No pin + nothing left for Up next (0–1 open tasks) → end-of-day idle.
-  const focusEndOfDayIdle =
-    !focusLocked && !focusFreeTimeMode && todayOpenBlockCount <= 1;
-  // Before Rest: prompt to clear rescheduling overflow (midnight logic).
+    overtakenFocusBlock == null && focusPackedStartMin != null;
+  // No Up next left → Reschedule if Overflow has work, else Rest.
   const focusRescheduleOverflowMode =
-    focusEndOfDayIdle && overdueTasks.length > 0;
-  const focusRestMode = focusEndOfDayIdle && overdueTasks.length === 0;
+    overtakenFocusBlock == null &&
+    upNextPlanBlocks.length === 0 &&
+    overflowTaskCount > 0;
+  const focusRestMode =
+    overtakenFocusBlock == null &&
+    upNextPlanBlocks.length === 0 &&
+    overflowTaskCount === 0;
   const tomorrowStart = addDays(todayStart, 1);
   const nextDayWindowStartMin = packWindowStartMinutes(
     getWindowStartTimeForDay(tomorrowStart),
@@ -2368,45 +2388,12 @@ function App() {
       : null;
   const nowSkyColor = daySkyColorAtMinutes(nowMinutes);
 
-  // When overflow is pinned as Current focus, an in-progress schedule task may
-  // sit in Up next — attach the live countdown there instead.
-  const upNextOverrunBlock =
-    overflowPinnedFocusId != null
-      ? ((todayLayout?.scheduleBlocks ?? todayLayout?.blocks ?? []).find(
-          (block) => {
-            if (block.overdue || block.taskId == null) return false;
-            if (block.taskId === overflowPinnedFocusId) return false;
-            const start = block.packStartMin ?? block.startMin;
-            const end = block.packEndMin ?? block.endMin;
-            return start <= nowMinutes && end > nowMinutes;
-          },
-        ) ?? null)
-      : null;
-  const upNextCountdownTaskId = upNextOverrunBlock?.taskId ?? null;
-  const upNextCountdownTotalMs =
-    upNextOverrunBlock != null
-      ? Math.max(1, taskDurationMinutes(upNextOverrunBlock.task) * 60_000)
-      : null;
-  const upNextCountdownTargetMin =
-    upNextOverrunBlock != null
-      ? (upNextOverrunBlock.packEndMin ?? upNextOverrunBlock.endMin)
-      : null;
-  const upNextCountdownMs =
-    upNextCountdownTargetMin != null
-      ? todayStart.getTime() + upNextCountdownTargetMin * 60_000 - countdownNow
-      : null;
-  const upNextCountdownProgress =
-    upNextCountdownMs != null && upNextCountdownTotalMs != null
-      ? Math.min(1, Math.max(0, upNextCountdownMs / upNextCountdownTotalMs))
-      : null;
-  const upNextCountdownLabel =
-    upNextCountdownMs != null
-      ? `- ${formatCountdown(upNextCountdownMs, { hideZeroHours: true })}`
-      : null;
-  const showFocusCountdownOnCurrent =
-    upNextCountdownTaskId == null && focusCountdownLabel != null;
-  const showFocusCountdownBarOnCurrent =
-    upNextCountdownTaskId == null && focusCountdownProgress != null;
+  // Overtaken work lives in Current focus; Up next only lists not-yet-started.
+  const upNextCountdownTaskId: string | null = null;
+  const upNextCountdownProgress: number | null = null;
+  const upNextCountdownLabel: string | null = null;
+  const showFocusCountdownOnCurrent = focusCountdownLabel != null;
+  const showFocusCountdownBarOnCurrent = focusCountdownProgress != null;
   const dayElapsedPct = Math.min(
     100,
     Math.max(0, (nowMinutes / MINUTES_PER_DAY) * 100),
@@ -4431,6 +4418,49 @@ function App() {
     todayWindowBaseline,
   ]);
 
+  // Persist frozen soft-pack geometry for today (invalidates with day / window).
+  useEffect(() => {
+    const nextPlacements = calendarTasksLayout.todaySoftPlacements;
+    const livingIds = new Set(
+      tasks.map((task) => task.id).filter((id): id is string => typeof id === "string"),
+    );
+    const placements = nextPlacements.filter((row) => livingIds.has(row.taskId));
+    if (
+      todaySoftPackPlan == null ||
+      todaySoftPackPlan.dayKey !== todayKeyStr ||
+      todaySoftPackPlan.windowSig !== appliedTodayWindowSig
+    ) {
+      const next: TodaySoftPackPlan = {
+        dayKey: todayKeyStr,
+        windowSig: appliedTodayWindowSig,
+        placements,
+      };
+      setTodaySoftPackPlan(next);
+      saveTodaySoftPackPlan(next);
+      return;
+    }
+    const prevKey = todaySoftPackPlan.placements
+      .map((row) => `${row.taskId}:${row.startMin}-${row.endMin}`)
+      .join("|");
+    const nextKey = placements
+      .map((row) => `${row.taskId}:${row.startMin}-${row.endMin}`)
+      .join("|");
+    if (prevKey === nextKey) return;
+    const next: TodaySoftPackPlan = {
+      dayKey: todayKeyStr,
+      windowSig: appliedTodayWindowSig,
+      placements,
+    };
+    setTodaySoftPackPlan(next);
+    saveTodaySoftPackPlan(next);
+  }, [
+    todayKeyStr,
+    appliedTodayWindowSig,
+    calendarTasksLayout.todaySoftPlacements,
+    tasks,
+    todaySoftPackPlan,
+  ]);
+
   const todayKey = dayKey(todayStart);
   useEffect(() => {
     setDaySnoozed(loadDaySnooze(todayKey));
@@ -5974,19 +6004,11 @@ function App() {
             {timelineDays.map((day) => {
               const seenTaskIds = new Set<string>();
               const isTodayGroup = day.dayKey === todayKey;
-              const dayTasks = day.blocks.filter((block) => {
+              const dayTasks = (
+                isTodayGroup ? upNextPlanBlocks : day.blocks
+              ).filter((block) => {
                 const id = block.taskId ?? block.key;
                 if (seenTaskIds.has(id)) return false;
-                if (
-                  isTodayGroup &&
-                  !focusFreeTimeMode &&
-                  !focusRestMode &&
-                  !focusRescheduleOverflowMode &&
-                  currentFocusTaskId != null &&
-                  block.taskId === currentFocusTaskId
-                ) {
-                  return false;
-                }
                 seenTaskIds.add(id);
                 return true;
               });
