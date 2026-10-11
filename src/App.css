@@ -1552,16 +1552,26 @@
   );
 }
 
+/* Starts after task-row pop + pause (0.58s). 0–25% ≈ green hold, then balloon. */
 @keyframes schedule-balloon-pop {
-  0% {
+  0%,
+  25% {
+    background: #22a06b;
+    --schedule-block-edge: color-mix(in srgb, #22a06b 55%, #000);
     transform: scale(1);
     opacity: 1;
     filter: blur(0);
     box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, #22a06b 55%, var(--border)),
-      0 0 0 0 color-mix(in srgb, #22a06b 35%, transparent);
+      0 0 0 1px
+        color-mix(
+          in srgb,
+          color-mix(in srgb, #22a06b 55%, #000) 28%,
+          transparent
+        ),
+      0 0 0 2px color-mix(in srgb, var(--bg) 70%, transparent);
   }
-  30% {
+  45% {
+    background: #22a06b;
     transform: scale(1.55);
     opacity: 1;
     filter: blur(0);
@@ -1569,7 +1579,8 @@
       inset 0 0 0 1px color-mix(in srgb, #22a06b 55%, transparent),
       0 0 0 4px color-mix(in srgb, #22a06b 22%, transparent);
   }
-  55% {
+  65% {
+    background: #22a06b;
     transform: scale(1.8);
     opacity: 0.85;
     filter: blur(0.3px);
@@ -1577,13 +1588,15 @@
       inset 0 0 0 1px transparent,
       0 0 0 8px color-mix(in srgb, #22a06b 10%, transparent);
   }
-  78% {
+  82% {
+    background: #22a06b;
     transform: scale(0.35);
     opacity: 0.35;
     filter: blur(0.8px);
     box-shadow: none;
   }
   100% {
+    background: #22a06b;
     transform: scale(0);
     opacity: 0;
     filter: blur(1.4px);
@@ -1591,14 +1604,16 @@
   }
 }
 
+@keyframes schedule-block-elapsed-complete {
+  to {
+    background: #22a06b;
+    width: 100%;
+  }
+}
+
 .twineline-schedule-block.is-popping {
-  /* Complete green first, then the same balloon leave. */
-  background: #22a06b !important;
-  --schedule-block-edge: color-mix(in srgb, #22a06b 55%, #000);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--schedule-block-edge) 28%, transparent),
-    0 0 0 2px color-mix(in srgb, var(--bg) 70%, transparent);
-  animation: schedule-balloon-pop 0.42s cubic-bezier(0.16, 0.95, 0.3, 1.35) 0.14s
+  /* Wait for CompactTaskRow balloon + pause, then green + leave. */
+  animation: schedule-balloon-pop 0.56s cubic-bezier(0.16, 0.95, 0.3, 1.35) 0.58s
     forwards;
   transform-origin: center center;
   pointer-events: none;
@@ -1607,8 +1622,7 @@
 }
 
 .twineline-schedule-block.is-popping .twineline-schedule-block-elapsed {
-  background: #22a06b !important;
-  width: 100% !important;
+  animation: schedule-block-elapsed-complete 0.01s linear 0.58s forwards;
 }
 
 .twineline-schedule-block.is-highlighted,

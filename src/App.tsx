@@ -1085,8 +1085,11 @@ function isLinkingToolComposeKind(kind: ComposeKind): kind is LinkingToolCompose
 }
 
 const LINKING_TOOL_HINT = "Linking";
-/** Green hold on schedule blocks + balloon pop (delay + animation). */
-const TASK_POP_MS = 560;
+/** Row balloon first, short pause, then schedule green hold + balloon. */
+const TASK_ROW_POP_MS = 420;
+const SCHEDULE_POP_GAP_MS = 160;
+const SCHEDULE_POP_MS = 560;
+const TASK_POP_MS = TASK_ROW_POP_MS + SCHEDULE_POP_GAP_MS + SCHEDULE_POP_MS;
 
 const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
 const HOME_TAB = { id: "home", label: "Home", Icon: HomeIcon } as const;
