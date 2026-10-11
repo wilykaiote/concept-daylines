@@ -654,6 +654,43 @@ function PinIcon({ filled = false }: { filled?: boolean }) {
   );
 }
 
+function StopwatchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="13.5" r="7" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M12 13.5V10M9.5 3.5h5M12 3.5v2.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function AlarmIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6.5 9.5a5.5 5.5 0 0 1 11 0c0 4.2 1.5 5.5 1.5 5.5H5s1.5-1.3 1.5-5.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10.2 18.2a1.8 1.8 0 0 0 3.6 0M12 4V2.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function FoodIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -919,8 +956,8 @@ const COMPOSE_KINDS = [
   },
   { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
   { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ShoppingBagIcon },
-  { id: "log", label: "Log", placeholder: "What happened?", Icon: LogIcon },
   { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
+  { id: "log", label: "Log", placeholder: "What happened?", Icon: LogIcon },
   {
     id: "assistant",
     label: "AI Assistant",
@@ -3984,6 +4021,28 @@ function App() {
     );
   };
 
+  const renderCurrentFocusControls = (taskTitle?: string | null) => (
+    <div className="task-current-focus-controls">
+      <button
+        type="button"
+        className="task-current-focus-tool"
+        aria-label="Stopwatch"
+        title="Stopwatch"
+      >
+        <StopwatchIcon />
+      </button>
+      <button
+        type="button"
+        className="task-current-focus-tool"
+        aria-label="Alarm"
+        title="Alarm"
+      >
+        <AlarmIcon />
+      </button>
+      {renderCurrentFocusLockButton(taskTitle)}
+    </div>
+  );
+
   const runAutomaticOverflowReschedule = () => {
     setTasks((current) =>
       rescheduleOverdueTasksForNewDay(
@@ -4120,7 +4179,7 @@ function App() {
               </span>
             )}
           </p>
-          {renderCurrentFocusLockButton(todayFocusTask.title)}
+          {renderCurrentFocusControls(todayFocusTask.title)}
         </div>
         {focusFreeTimeMode ? (
           renderFocusStatusBox("Free time")
@@ -4218,12 +4277,6 @@ function App() {
                           editTask(task);
                         }}
                         isCurrentFocus={todayFocusTask?.id === task.id}
-                        onSetFocus={() =>
-                          setTaskAsCurrentFocus(task, {
-                            locked: true,
-                            overflowBucket: "overdue",
-                          })
-                        }
                       />
                     ))}
                   </ul>
@@ -4251,12 +4304,6 @@ function App() {
                           editTask(task);
                         }}
                         isCurrentFocus={todayFocusTask?.id === task.id}
-                        onSetFocus={() =>
-                          setTaskAsCurrentFocus(task, {
-                            locked: true,
-                            overflowBucket: "deferred",
-                          })
-                        }
                       />
                     ))}
                   </ul>
@@ -5524,7 +5571,7 @@ function App() {
             )}
             focusLockControl={
               todayFocusTask != null
-                ? renderCurrentFocusLockButton(todayFocusTask.title)
+                ? renderCurrentFocusControls(todayFocusTask.title)
                 : null
             }
             focusFreeTime={focusFreeTimeMode}
@@ -6390,6 +6437,15 @@ function App() {
             >
               <CloseIcon />
             </button>
+            {(composeKind === "task" ||
+              composeKind === "item" ||
+              composeKind === "event") && (
+              <div className="app-composer-focus-controls">
+                {renderCurrentFocusControls(
+                  editingTaskId != null ? content : null,
+                )}
+              </div>
+            )}
             {showComposerTaskRowChrome ? (
               <div className={`task-row is-${composerScheduleKind} app-composer-task-row`}>
                 <div className="task-row-primary">

@@ -2156,6 +2156,48 @@
   padding: 4px 2px 0;
 }
 
+.task-current-focus-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.task-current-focus-tool {
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  opacity: 0.72;
+  cursor: pointer;
+}
+
+.task-current-focus-tool svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.task-current-focus-tool:hover,
+.task-current-focus-tool:focus-visible {
+  color: var(--accent);
+  background: var(--accent-bg);
+  opacity: 1;
+}
+
+.task-current-focus-tool:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .task-current-focus-label-row .task-row-focus-lock {
   flex: 0 0 28px;
   align-self: center;
@@ -3846,8 +3888,8 @@
 }
 
 .app-tray-tab svg {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
 }
 
@@ -3887,8 +3929,8 @@
 }
 
 .app-tray-more-button svg {
-  width: 16px;
-  height: 16px;
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
 }
 
@@ -4114,6 +4156,37 @@
 
 .app-composer-field .twineline-save-prompt {
   margin: 8px 8px 4px;
+}
+
+.app-composer-focus-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  padding: 2px 40px 6px 8px;
+  box-sizing: border-box;
+  /* Match Current focus tools — escape composer field chrome palette. */
+  --text: #6b6375;
+  --text-h: #08060d;
+  --accent: #aa3bff;
+  --accent-bg: rgba(170, 59, 255, 0.1);
+  color: var(--text);
+}
+
+/* Beat .app-composer svg { 24px } so these match Current focus (16px). */
+.app-composer .app-composer-focus-controls .task-current-focus-tool svg,
+.app-composer .app-composer-focus-controls .task-row-focus-lock svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .app-composer-focus-controls {
+    --text: #9ca3af;
+    --text-h: #f3f4f6;
+    --accent: #c084fc;
+    --accent-bg: rgba(192, 132, 252, 0.15);
+  }
 }
 
 .app-composer-collapse {
