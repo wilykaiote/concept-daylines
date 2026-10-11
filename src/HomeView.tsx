@@ -84,6 +84,7 @@ type HomeViewProps = {
   onCompletePlanTask: (taskId: string) => void;
   onEditPlanTask: (taskId: string) => void;
   focusTask: ComposerDraft | null;
+  focusTasks?: readonly ComposerDraft[];
   renderFocusTask: (task: ComposerDraft) => ReactNode;
   focusLockControl?: ReactNode;
   focusFreeTime?: boolean;
@@ -107,6 +108,7 @@ export function HomeView({
   onCompletePlanTask,
   onEditPlanTask,
   focusTask,
+  focusTasks = [],
   renderFocusTask,
   focusLockControl,
   focusFreeTime = false,
@@ -118,6 +120,12 @@ export function HomeView({
   focusCountdownBarColor = null,
 }: HomeViewProps) {
   const planTiles = plans.length > 0 ? plans : [...PLACEHOLDER_PLANS];
+  const overtakenFocusTasks =
+    focusTasks.length > 0
+      ? focusTasks
+      : focusTask != null
+        ? [focusTask]
+        : [];
   const showFocusCountdownBar =
     typeof focusCountdownProgress === "number" &&
     Number.isFinite(focusCountdownProgress);
@@ -257,7 +265,7 @@ export function HomeView({
                   </div>
                   {renderFocusStatusBox("Rest")}
                 </div>
-              ) : focusTask != null ? (
+              ) : focusFreeTime ? (
                 <div className="home-focus-current">
                   <div className="task-current-focus-label-row">
                     <p className="task-current-focus-label">
@@ -270,11 +278,24 @@ export function HomeView({
                     </p>
                     {focusLockControl}
                   </div>
-                  {focusFreeTime ? (
-                    renderFocusStatusBox("Free time")
-                  ) : (
-                    <ul className="task-day-tasks home-focus-task">{renderFocusTask(focusTask)}</ul>
-                  )}
+                  {renderFocusStatusBox("Free time")}
+                </div>
+              ) : overtakenFocusTasks.length > 0 ? (
+                <div className="home-focus-current">
+                  <div className="task-current-focus-label-row">
+                    <p className="task-current-focus-label">
+                      Current focus
+                      {focusCountdownLabel != null && (
+                        <span className="task-current-focus-countdown" aria-live="polite">
+                          {focusCountdownLabel}
+                        </span>
+                      )}
+                    </p>
+                    {focusLockControl}
+                  </div>
+                  <ul className="task-day-tasks home-focus-task">
+                    {overtakenFocusTasks.map((task) => renderFocusTask(task))}
+                  </ul>
                 </div>
               ) : (
                 <p className="home-focus-empty">No focus task right now</p>

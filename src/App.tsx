@@ -2263,12 +2263,13 @@ function App() {
         (a.packStartMin ?? a.startMin) - (b.packStartMin ?? b.startMin) ||
         (a.packEndMin ?? a.endMin) - (b.packEndMin ?? b.endMin),
     );
-  const overtakenFocusBlock =
-    todayPlanBlocks.find((block) => {
-      const start = block.packStartMin ?? block.startMin;
-      const end = block.packEndMin ?? block.endMin;
-      return start <= nowMinutes && end > nowMinutes;
-    }) ?? null;
+  // Overtaken = plan window contains now (not day-history of past ends).
+  const overtakenPlanBlocks = todayPlanBlocks.filter((block) => {
+    const start = block.packStartMin ?? block.startMin;
+    const end = block.packEndMin ?? block.endMin;
+    return start <= nowMinutes && end > nowMinutes;
+  });
+  const overtakenFocusBlock = overtakenPlanBlocks[0] ?? null;
   const upNextPlanBlocks = todayPlanBlocks.filter((block) => {
     const start = block.packStartMin ?? block.startMin;
     return start > nowMinutes;
@@ -2283,16 +2284,17 @@ function App() {
     upNextPlanBlocks.length > 0
       ? (upNextPlanBlocks[0].packStartMin ?? upNextPlanBlocks[0].startMin)
       : null;
+  const nothingCurrentlyOvertaken = overtakenPlanBlocks.length === 0;
   // Free time: nothing currently overtaken, but Up next remains.
   const focusFreeTimeMode =
-    overtakenFocusBlock == null && focusPackedStartMin != null;
+    nothingCurrentlyOvertaken && focusPackedStartMin != null;
   // No Up next left → Reschedule if Overflow has work, else Rest.
   const focusRescheduleOverflowMode =
-    overtakenFocusBlock == null &&
+    nothingCurrentlyOvertaken &&
     upNextPlanBlocks.length === 0 &&
     overflowTaskCount > 0;
   const focusRestMode =
-    overtakenFocusBlock == null &&
+    nothingCurrentlyOvertaken &&
     upNextPlanBlocks.length === 0 &&
     overflowTaskCount === 0;
   const tomorrowStart = addDays(todayStart, 1);
@@ -2386,6 +2388,22 @@ function App() {
     focusCountdownTotalMs != null
       ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
       : null;
+  // Per currently-overtaken task: remaining/duration from frozen pack start.
+  const overtakenCountdownByTaskId = new Map<string, number>();
+  if (!focusLocked) {
+    for (const block of overtakenPlanBlocks) {
+      const taskId = block.task.id;
+      if (taskId == null) continue;
+      const durationMs = Math.max(1, taskDurationMinutes(block.task) * 60_000);
+      const startMin = block.packStartMin ?? block.startMin;
+      const elapsedMs = countdownNow - (todayStart.getTime() + startMin * 60_000);
+      const remainingMs = Math.max(0, durationMs - elapsedMs);
+      overtakenCountdownByTaskId.set(
+        taskId,
+        Math.min(1, Math.max(0, remainingMs / durationMs)),
+      );
+    }
+  }
   const nowSkyColor = daySkyColorAtMinutes(nowMinutes);
 
   // Overtaken work lives in Current focus; Up next only lists not-yet-started.
@@ -4147,7 +4165,26 @@ function App() {
         </div>
       );
     }
-    if (!todayFocusTask?.id) return null;
+    if (focusFreeTimeMode) {
+      return (
+        <div className="task-current-focus">
+          <div className="task-current-focus-label-row">
+            <p className="task-current-focus-label">
+              Current focus
+              {showFocusCountdownOnCurrent && (
+                <span className="task-current-focus-countdown" aria-live="polite">
+                  {focusCountdownLabel}
+                </span>
+              )}
+            </p>
+            {todayFocusTask != null &&
+              renderCurrentFocusControls(todayFocusTask.title)}
+          </div>
+          {renderFocusStatusBox("Free time")}
+        </div>
+      );
+    }
+    if (overtakenPlanBlocks.length === 0) return null;
     return (
       <div className="task-current-focus">
         <div className="task-current-focus-label-row">
@@ -4159,37 +4196,38 @@ function App() {
               </span>
             )}
           </p>
-          {renderCurrentFocusControls(todayFocusTask.title)}
+          {todayFocusTask != null &&
+            renderCurrentFocusControls(todayFocusTask.title)}
         </div>
-        {focusFreeTimeMode ? (
-          renderFocusStatusBox("Free time")
-        ) : (
-          <ul className="task-day-tasks task-current-focus-tasks">
-            <CompactTaskRow
-              key={todayFocusTask.id}
-              task={todayFocusTask}
-              overdue={false}
-              editing={editingTaskId === todayFocusTask.id}
-              highlighted={isTaskHighlighted(todayFocusTask.id)}
-              popping={isTaskPopping(todayFocusTask.id)}
-              now={new Date(countdownNow)}
-              parentTitle={parentTitleFor(todayFocusTask.parent_id)}
-              isCurrentFocus
-              countdownProgress={
-                showFocusCountdownBarOnCurrent ? focusCountdownProgress : null
-              }
-              countdownBarColor={
-                showFocusCountdownBarOnCurrent ? nowSkyColor : null
-              }
-              onComplete={() => requestCompleteTask(todayFocusTask.id)}
-              onEdit={() => {
-                setFocusedOverflowTaskIds(null);
-                setFocusedTaskId(todayFocusTask.id!);
-                editTask(todayFocusTask);
-              }}
-            />
-          </ul>
-        )}
+        <ul className="task-day-tasks task-current-focus-tasks">
+          {overtakenPlanBlocks.map((block) => {
+            const task = block.task;
+            const taskId = task.id;
+            if (taskId == null) return null;
+            const rowProgress = overtakenCountdownByTaskId.get(taskId) ?? null;
+            return (
+              <CompactTaskRow
+                key={taskId}
+                task={task}
+                overdue={false}
+                editing={editingTaskId === taskId}
+                highlighted={isTaskHighlighted(taskId)}
+                popping={isTaskPopping(taskId)}
+                now={new Date(countdownNow)}
+                parentTitle={parentTitleFor(task.parent_id)}
+                isCurrentFocus
+                countdownProgress={rowProgress}
+                countdownBarColor={rowProgress != null ? nowSkyColor : null}
+                onComplete={() => requestCompleteTask(taskId)}
+                onEdit={() => {
+                  setFocusedOverflowTaskIds(null);
+                  setFocusedTaskId(taskId);
+                  editTask(task);
+                }}
+              />
+            );
+          })}
+        </ul>
       </div>
     );
   };
@@ -5563,35 +5601,39 @@ function App() {
               </span>
             }
             focusTask={todayFocusTask}
-            renderFocusTask={(task) => (
-              <CompactTaskRow
-                key={task.id ?? task.title}
-                task={task}
-                overdue={false}
-                editing={editingTaskId === task.id}
-                highlighted={isTaskHighlighted(task.id)}
-                popping={isTaskPopping(task.id)}
-                now={new Date(countdownNow)}
-                parentTitle={parentTitleFor(task.parent_id)}
-                onComplete={() => requestCompleteTask(task.id)}
-                onEdit={() => {
-                  if (task.id) {
-                    setFocusedOverflowTaskIds(null);
-                    setFocusedTaskId(task.id);
-                  }
-                  editTask(task);
-                }}
-                isCurrentFocus={todayFocusTask?.id === task.id}
-                countdownProgress={
-                  todayFocusTask?.id === task.id ? focusCountdownProgress : null
-                }
-                countdownBarColor={
-                  todayFocusTask?.id === task.id && focusCountdownProgress != null
-                    ? nowSkyColor
-                    : null
-                }
-              />
-            )}
+            focusTasks={overtakenPlanBlocks
+              .map((block) => block.task)
+              .filter((task) => task.id != null)}
+            renderFocusTask={(task) => {
+              const taskId = task.id;
+              const rowProgress =
+                taskId != null
+                  ? (overtakenCountdownByTaskId.get(taskId) ?? null)
+                  : null;
+              return (
+                <CompactTaskRow
+                  key={taskId ?? task.title}
+                  task={task}
+                  overdue={false}
+                  editing={editingTaskId === taskId}
+                  highlighted={isTaskHighlighted(taskId)}
+                  popping={isTaskPopping(taskId)}
+                  now={new Date(countdownNow)}
+                  parentTitle={parentTitleFor(task.parent_id)}
+                  onComplete={() => requestCompleteTask(taskId)}
+                  onEdit={() => {
+                    if (taskId) {
+                      setFocusedOverflowTaskIds(null);
+                      setFocusedTaskId(taskId);
+                    }
+                    editTask(task);
+                  }}
+                  isCurrentFocus
+                  countdownProgress={rowProgress}
+                  countdownBarColor={rowProgress != null ? nowSkyColor : null}
+                />
+              );
+            }}
             focusLockControl={
               todayFocusTask != null
                 ? renderCurrentFocusControls(todayFocusTask.title)
@@ -6076,14 +6118,19 @@ function App() {
                             isCurrentFocus={todayFocusTask?.id === block.taskId}
                             countdownProgress={
                               block.taskId != null &&
-                              block.taskId === upNextCountdownTaskId
-                                ? upNextCountdownProgress
-                                : null
+                              overtakenCountdownByTaskId.has(block.taskId)
+                                ? (overtakenCountdownByTaskId.get(block.taskId) ??
+                                  null)
+                                : block.taskId != null &&
+                                    block.taskId === upNextCountdownTaskId
+                                  ? upNextCountdownProgress
+                                  : null
                             }
                             countdownBarColor={
                               block.taskId != null &&
-                              block.taskId === upNextCountdownTaskId &&
-                              upNextCountdownProgress != null
+                              (overtakenCountdownByTaskId.has(block.taskId) ||
+                                (block.taskId === upNextCountdownTaskId &&
+                                  upNextCountdownProgress != null))
                                 ? nowSkyColor
                                 : null
                             }
