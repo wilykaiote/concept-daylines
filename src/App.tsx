@@ -5602,55 +5602,15 @@ function App() {
                 />
               </span>
             }
-            focusTask={todayFocusTask}
-            focusTasks={overtakenPlanBlocks
-              .map((block) => block.task)
-              .filter((task) => task.id != null)}
-            renderFocusTask={(task) => {
-              const taskId = task.id;
-              const rowProgress =
-                taskId != null
-                  ? (overtakenCountdownByTaskId.get(taskId) ?? null)
-                  : null;
-              return (
-                <CompactTaskRow
-                  key={taskId ?? task.title}
-                  task={task}
-                  overdue={false}
-                  editing={editingTaskId === taskId}
-                  highlighted={isTaskHighlighted(taskId)}
-                  popping={isTaskPopping(taskId)}
-                  now={new Date(countdownNow)}
-                  parentTitle={parentTitleFor(task.parent_id)}
-                  onComplete={() => requestCompleteTask(taskId)}
-                  onEdit={() => {
-                    if (taskId) {
-                      setFocusedOverflowTaskIds(null);
-                      setFocusedTaskId(taskId);
-                    }
-                    editTask(task);
-                  }}
-                  isCurrentFocus
-                  countdownProgress={rowProgress}
-                  countdownBarColor={rowProgress != null ? nowSkyColor : null}
-                />
-              );
-            }}
-            focusLockControl={
-              todayFocusTask != null
-                ? renderCurrentFocusControls(todayFocusTask.title)
+            focusPlanId={
+              todayFocusTask?.parent_id != null &&
+              tasks.some(
+                (task) =>
+                  task.id === todayFocusTask.parent_id &&
+                  isPlanTaskType(task.type),
+              )
+                ? todayFocusTask.parent_id
                 : null
-            }
-            focusFreeTime={focusFreeTimeMode}
-            focusRest={focusRestMode}
-            focusRescheduleOverflow={focusRescheduleOverflowMode}
-            onAutomaticOverflowReschedule={runAutomaticOverflowReschedule}
-            focusCountdownLabel={focusCountdownLabel}
-            focusCountdownProgress={
-              showFocusCountdownBarOnCurrent ? focusCountdownProgress : null
-            }
-            focusCountdownBarColor={
-              showFocusCountdownBarOnCurrent ? nowSkyColor : null
             }
             plans={tasks
               .filter((task) => isPlanTaskType(task.type) && task.id != null)

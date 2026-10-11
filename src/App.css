@@ -114,10 +114,17 @@
   min-width: 0;
 }
 
-.home-top-main .home-focus-current,
-.home-top-main .home-focus-empty {
+.home-top-main .home-focus-plan {
   width: 100%;
   margin: 0;
+}
+
+.home-focus-plan .home-plan-card.is-focus-plan {
+  border-radius: 16px;
+}
+
+.home-focus-plan .home-plan-next-kicker {
+  letter-spacing: 0.06em;
 }
 
 .home-wheel-key-col {
@@ -911,7 +918,7 @@
   width: 100%;
   max-height: none;
   margin: 0;
-  padding: calc(12px + var(--safe-top)) var(--space) 0;
+  padding: calc(6px + var(--safe-top)) var(--space) 10px;
   opacity: 1;
   overflow: hidden;
   background: var(--bg);
@@ -2513,6 +2520,16 @@
   margin-top: 2px;
   width: 18px;
   height: 18px;
+}
+
+/* Overflow bin: complete ring uses overtaken/day-sky orange. */
+.task-overdue-tasks .task-complete.is-soft,
+.task-overdue-tasks .task-complete.is-anchored {
+  border-color: #c45e18;
+}
+
+.task-overdue-tasks .task-complete.is-checked {
+  border-color: #22a06b;
 }
 
 .task-list.is-compact .task-row-title,
@@ -5934,9 +5951,10 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  /* Match .task-day-group so overflow + Current focus don't jump on view toggle. */
+  gap: 6px;
   box-sizing: border-box;
-  padding: 4px 0 16px;
+  padding: 4px 0 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
 }
 
@@ -5962,7 +5980,8 @@
   border-radius: 4px;
 }
 
-.calendar-timeline-day > .task-day-label-row {
+/* Day labels only — do not shrink .task-day-overflow-row (keeps toggle/focus stable). */
+.calendar-timeline-day > .task-day-label-row:not(.task-day-overflow-row) {
   padding-top: 6px;
 }
 
@@ -5972,7 +5991,7 @@
 }
 
 .calendar-timeline-day > .task-overdue-scroll-block {
-  margin: 0 0 4px;
+  margin: 2px 0 0;
 }
 
 .calendar-timeline-body {

@@ -1,6 +1,5 @@
 import { type ReactNode } from "react";
 import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
-import type { ComposerDraft } from "./composer";
 
 type HomePlanTask = {
   id: string;
@@ -19,6 +18,21 @@ type HomePlanTile = {
 };
 
 const PLACEHOLDER_PLANS: HomePlanTile[] = [
+  {
+    id: "placeholder-nutrition",
+    title: "Nutrition",
+    completedCount: 1,
+    taskCount: 4,
+    nextUpTask: {
+      id: "ph-nutrition-1",
+      title: "Prep lunch",
+      scheduleKind: "soft",
+    },
+    tasks: [
+      { id: "ph-nutrition-2", title: "Fill water bottle", scheduleKind: "soft" },
+      { id: "ph-nutrition-3", title: "Evening protein", scheduleKind: "anchored" },
+    ],
+  },
   {
     id: "placeholder-focus",
     title: "Deep Focus",
@@ -56,21 +70,23 @@ const PLACEHOLDER_PLANS: HomePlanTile[] = [
     nextUpTask: null,
     tasks: [],
   },
-  {
-    id: "placeholder-fuel",
-    title: "Fuel Plan",
-    completedCount: 1,
-    taskCount: 5,
-    nextUpTask: {
-      id: "ph-fuel-1",
-      title: "Prep lunch",
-      scheduleKind: "soft",
-    },
-    tasks: [
-      { id: "ph-fuel-2", title: "Fill water bottle", scheduleKind: "soft" },
-    ],
-  },
 ];
+
+function pickFocusPlan(
+  plans: readonly HomePlanTile[],
+  preferredPlanId: string | null,
+): HomePlanTile {
+  if (preferredPlanId != null) {
+    const preferred = plans.find((plan) => plan.id === preferredPlanId);
+    if (preferred != null) return preferred;
+  }
+  const named = plans.find((plan) =>
+    /nutrition|fuel|food|meal/i.test(plan.title),
+  );
+  if (named != null) return named;
+  const withNext = plans.find((plan) => plan.nextUpTask != null);
+  return withNext ?? plans[0]!;
+}
 
 type HomeViewProps = {
   wheelLabel: string;
@@ -80,20 +96,11 @@ type HomeViewProps = {
   windowEndMin: number;
   wheelCountdown: ReactNode;
   plans: HomePlanTile[];
+  /** Plan to feature in the header (e.g. parent of today's focus task). */
+  focusPlanId?: string | null;
   onSelectPlan: (planId: string) => void;
   onCompletePlanTask: (taskId: string) => void;
   onEditPlanTask: (taskId: string) => void;
-  focusTask: ComposerDraft | null;
-  focusTasks?: readonly ComposerDraft[];
-  renderFocusTask: (task: ComposerDraft) => ReactNode;
-  focusLockControl?: ReactNode;
-  focusFreeTime?: boolean;
-  focusRest?: boolean;
-  focusRescheduleOverflow?: boolean;
-  onAutomaticOverflowReschedule?: () => void;
-  focusCountdownLabel?: string | null;
-  focusCountdownProgress?: number | null;
-  focusCountdownBarColor?: string | null;
 };
 
 export function HomeView({
@@ -104,31 +111,15 @@ export function HomeView({
   windowEndMin,
   wheelCountdown,
   plans,
+  focusPlanId = null,
   onSelectPlan,
   onCompletePlanTask,
   onEditPlanTask,
-  focusTask,
-  focusTasks = [],
-  renderFocusTask,
-  focusLockControl,
-  focusFreeTime = false,
-  focusRest = false,
-  focusRescheduleOverflow = false,
-  onAutomaticOverflowReschedule,
-  focusCountdownLabel = null,
-  focusCountdownProgress = null,
-  focusCountdownBarColor = null,
 }: HomeViewProps) {
   const planTiles = plans.length > 0 ? plans : [...PLACEHOLDER_PLANS];
-  const overtakenFocusTasks =
-    focusTasks.length > 0
-      ? focusTasks
-      : focusTask != null
-        ? [focusTask]
-        : [];
-  const showFocusCountdownBar =
-    typeof focusCountdownProgress === "number" &&
-    Number.isFinite(focusCountdownProgress);
+  const focusPlan = pickFocusPlan(planTiles, focusPlanId);
+  const gridPlans = planTiles.filter((plan) => plan.id !== focusPlan.id);
+
   const renderPlanTaskRow = (task: HomePlanTask) => (
     <li key={task.id} className="home-plan-task">
       <button
@@ -163,73 +154,64 @@ export function HomeView({
       </button>
     </li>
   );
-  const renderFocusStatusBox = (title: "Rest" | "Free time") => (
-    <div
-      className={`task-current-focus-free-time${showFocusCountdownBar ? " has-countdown" : ""}`}
-      aria-label={title}
-    >
-      {showFocusCountdownBar && (
-        <div
-          className="task-row-countdown"
-          aria-hidden="true"
-          style={
-            focusCountdownBarColor != null
-              ? { background: focusCountdownBarColor }
-              : undefined
-          }
-        >
-          <div
-            className="task-row-countdown-fill"
-            style={{
-              width: `${Math.min(1, Math.max(0, focusCountdownProgress)) * 100}%`,
-            }}
-          />
-        </div>
-      )}
-      <p className="task-current-focus-free-time-title">{title}</p>
-    </div>
-  );
-  const renderFocusRescheduleOverflowBox = () => (
-    <div
-      className={`task-current-focus-free-time task-current-focus-reschedule${showFocusCountdownBar ? " has-countdown" : ""}`}
-      aria-label="Reschedule Overflow"
-    >
-      {showFocusCountdownBar && (
-        <div
-          className="task-row-countdown"
-          aria-hidden="true"
-          style={
-            focusCountdownBarColor != null
-              ? { background: focusCountdownBarColor }
-              : undefined
-          }
-        >
-          <div
-            className="task-row-countdown-fill"
-            style={{
-              width: `${Math.min(1, Math.max(0, focusCountdownProgress)) * 100}%`,
-            }}
-          />
-        </div>
-      )}
-      <p className="task-current-focus-free-time-title">Reschedule Overflow:</p>
-      <div className="task-current-focus-reschedule-actions">
+
+  const renderPlanCard = (plan: HomePlanTile, featured = false) => {
+    const taskCount = Math.max(0, plan.taskCount);
+    const completedCount = Math.min(taskCount, Math.max(0, plan.completedCount));
+    const segmentCount = Math.max(1, taskCount);
+    return (
+      <div
+        key={plan.id}
+        className={`home-plan-card${featured ? " is-focus-plan" : ""}`}
+      >
         <button
           type="button"
-          className="task-current-focus-reschedule-btn is-automatic"
-          onClick={onAutomaticOverflowReschedule}
+          className="home-plan-app"
+          onClick={() => onSelectPlan(plan.id)}
         >
-          Automatic
+          <span className="home-plan-app-label">{plan.title}</span>
+          <div
+            className="home-plan-progress"
+            aria-label={`${completedCount} of ${taskCount} tasks completed`}
+          >
+            <div className="home-plan-progress-bar" aria-hidden="true">
+              {Array.from({ length: segmentCount }, (_, index) => (
+                <span
+                  key={index}
+                  className={`home-plan-progress-seg${
+                    taskCount > 0 && index < completedCount ? " is-done" : ""
+                  }`}
+                />
+              ))}
+            </div>
+            <span className="home-plan-progress-count">
+              {completedCount} / {taskCount}
+            </span>
+          </div>
         </button>
-        <button
-          type="button"
-          className="task-current-focus-reschedule-btn is-manual"
-        >
-          Manual
-        </button>
+        <div className="home-plan-next">
+          <span className="home-plan-next-kicker">
+            {featured ? "Current plan" : "Next up"}
+          </span>
+          {plan.nextUpTask != null ? (
+            <ul
+              className="home-plan-tasks is-next-up"
+              aria-label={`${plan.title} next up`}
+            >
+              {renderPlanTaskRow(plan.nextUpTask)}
+            </ul>
+          ) : (
+            <p className="home-plan-next-empty">Nothing queued</p>
+          )}
+        </div>
+        {!featured && plan.tasks.length > 0 && (
+          <ul className="home-plan-tasks" aria-label={`${plan.title} tasks`}>
+            {plan.tasks.map((task) => renderPlanTaskRow(task))}
+          </ul>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="home-view">
@@ -237,69 +219,9 @@ export function HomeView({
         <header className="home-header">
           <div className="home-top-row">
             <div className="home-top-main">
-              {focusRescheduleOverflow ? (
-                <div className="home-focus-current">
-                  <div className="task-current-focus-label-row">
-                    <p className="task-current-focus-label">
-                      Current focus
-                      {focusCountdownLabel != null && (
-                        <span className="task-current-focus-countdown" aria-live="polite">
-                          {focusCountdownLabel}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  {renderFocusRescheduleOverflowBox()}
-                </div>
-              ) : focusRest ? (
-                <div className="home-focus-current">
-                  <div className="task-current-focus-label-row">
-                    <p className="task-current-focus-label">
-                      Current focus
-                      {focusCountdownLabel != null && (
-                        <span className="task-current-focus-countdown" aria-live="polite">
-                          {focusCountdownLabel}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                  {renderFocusStatusBox("Rest")}
-                </div>
-              ) : focusFreeTime ? (
-                <div className="home-focus-current">
-                  <div className="task-current-focus-label-row">
-                    <p className="task-current-focus-label">
-                      Current focus
-                      {focusCountdownLabel != null && (
-                        <span className="task-current-focus-countdown" aria-live="polite">
-                          {focusCountdownLabel}
-                        </span>
-                      )}
-                    </p>
-                    {focusLockControl}
-                  </div>
-                  {renderFocusStatusBox("Free time")}
-                </div>
-              ) : overtakenFocusTasks.length > 0 ? (
-                <div className="home-focus-current">
-                  <div className="task-current-focus-label-row">
-                    <p className="task-current-focus-label">
-                      Current focus
-                      {focusCountdownLabel != null && (
-                        <span className="task-current-focus-countdown" aria-live="polite">
-                          {focusCountdownLabel}
-                        </span>
-                      )}
-                    </p>
-                    {focusLockControl}
-                  </div>
-                  <ul className="task-day-tasks home-focus-task">
-                    {overtakenFocusTasks.map((task) => renderFocusTask(task))}
-                  </ul>
-                </div>
-              ) : (
-                <p className="home-focus-empty">No focus task right now</p>
-              )}
+              <div className="home-focus-plan" aria-label="Current focus plan">
+                {renderPlanCard(focusPlan, true)}
+              </div>
             </div>
           </div>
         </header>
@@ -307,58 +229,7 @@ export function HomeView({
 
       <div className="home-plans" aria-label="Plans">
         <div className="home-plans-grid">
-          {planTiles.map((plan) => {
-            const taskCount = Math.max(0, plan.taskCount);
-            const completedCount = Math.min(
-              taskCount,
-              Math.max(0, plan.completedCount),
-            );
-            const segmentCount = Math.max(1, taskCount);
-            return (
-              <div key={plan.id} className="home-plan-card">
-                <button
-                  type="button"
-                  className="home-plan-app"
-                  onClick={() => onSelectPlan(plan.id)}
-                >
-                  <span className="home-plan-app-label">{plan.title}</span>
-                  <div
-                    className="home-plan-progress"
-                    aria-label={`${completedCount} of ${taskCount} tasks completed`}
-                  >
-                    <div className="home-plan-progress-bar" aria-hidden="true">
-                      {Array.from({ length: segmentCount }, (_, index) => (
-                        <span
-                          key={index}
-                          className={`home-plan-progress-seg${
-                            taskCount > 0 && index < completedCount ? " is-done" : ""
-                          }`}
-                        />
-                      ))}
-                    </div>
-                    <span className="home-plan-progress-count">
-                      {completedCount} / {taskCount}
-                    </span>
-                  </div>
-                </button>
-                <div className="home-plan-next">
-                  <span className="home-plan-next-kicker">Next up</span>
-                  {plan.nextUpTask != null ? (
-                    <ul className="home-plan-tasks is-next-up" aria-label={`${plan.title} next up`}>
-                      {renderPlanTaskRow(plan.nextUpTask)}
-                    </ul>
-                  ) : (
-                    <p className="home-plan-next-empty">Nothing queued</p>
-                  )}
-                </div>
-                {plan.tasks.length > 0 && (
-                  <ul className="home-plan-tasks" aria-label={`${plan.title} tasks`}>
-                    {plan.tasks.map((task) => renderPlanTaskRow(task))}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
+          {gridPlans.map((plan) => renderPlanCard(plan))}
         </div>
       </div>
 
