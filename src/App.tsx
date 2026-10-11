@@ -2013,6 +2013,12 @@ function App() {
     mode: "rest" | "reschedule" | "free" | null;
     totalMs: number;
   }>({ mode: null, totalMs: 0 });
+  /** Frozen pack/focus start for active Current focus task countdown (not Free/Rest). */
+  const focusTaskCountdownAnchorRef = useRef<{
+    taskId: string;
+    startedAtMs: number;
+    durationMs: number;
+  } | null>(null);
   const [tasksCompact, setTasksCompact] = useState(true);
   const [outsideExpandedByDay, setOutsideExpandedByDay] = useState<
     Record<string, OutsideExpandedFlags>
@@ -2281,18 +2287,49 @@ function App() {
     nowMinutes < todayWindowStartMinutes
       ? todayStart.getTime() + todayWindowStartMinutes * 60_000
       : nextDayWindowStartMs;
+  // Free time still counts down to packed start. Active task countdown uses a
+  // frozen pack/focus start so soft re-packing cannot reset remaining time.
+  const focusTaskCountdownActive =
+    !focusRestMode &&
+    !focusRescheduleOverflowMode &&
+    !focusFreeTimeMode &&
+    todayFocusTask?.id != null &&
+    todayFocusLayoutBlock != null;
+  if (focusTaskCountdownActive && todayFocusTask.id != null) {
+    const durationMs = Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000);
+    const packStartMin =
+      todayFocusLayoutBlock.packStartMin ?? todayFocusLayoutBlock.startMin;
+    const packStartMs = todayStart.getTime() + packStartMin * 60_000;
+    const anchor = focusTaskCountdownAnchorRef.current;
+    if (anchor == null || anchor.taskId !== todayFocusTask.id) {
+      focusTaskCountdownAnchorRef.current = {
+        taskId: todayFocusTask.id,
+        startedAtMs: Math.min(packStartMs, countdownNow),
+        durationMs,
+      };
+    } else if (anchor.durationMs !== durationMs) {
+      focusTaskCountdownAnchorRef.current = { ...anchor, durationMs };
+    }
+  } else if (focusTaskCountdownAnchorRef.current != null) {
+    focusTaskCountdownAnchorRef.current = null;
+  }
   const focusCountdownTargetMin =
     focusRestMode || focusRescheduleOverflowMode
       ? null
       : focusFreeTimeMode
         ? focusPackedStartMin
-        : (todayFocusLayoutBlock?.endMin ?? null);
+        : null;
+  const focusTaskCountdownMs = (() => {
+    const anchor = focusTaskCountdownAnchorRef.current;
+    if (!focusTaskCountdownActive || anchor == null) return null;
+    return Math.max(0, anchor.durationMs - (countdownNow - anchor.startedAtMs));
+  })();
   const focusCountdownMs =
     focusRestMode || focusRescheduleOverflowMode
       ? restCountdownTargetMs - countdownNow
-      : focusCountdownTargetMin != null
+      : focusFreeTimeMode && focusCountdownTargetMin != null
         ? todayStart.getTime() + focusCountdownTargetMin * 60_000 - countdownNow
-        : null;
+        : focusTaskCountdownMs;
   const focusCountdownLabel =
     !focusLocked && focusCountdownMs != null
       ? `- ${formatCountdown(focusCountdownMs, { hideZeroHours: true })}`
@@ -2318,9 +2355,11 @@ function App() {
   const focusCountdownTotalMs =
     focusStatusMode != null
       ? focusStatusCountdownTotalRef.current.totalMs
-      : todayFocusTask != null && todayFocusLayoutBlock != null
-        ? Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000)
-        : null;
+      : focusTaskCountdownAnchorRef.current != null
+        ? focusTaskCountdownAnchorRef.current.durationMs
+        : todayFocusTask != null && todayFocusLayoutBlock != null
+          ? Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000)
+          : null;
   const focusCountdownProgress =
     !focusLocked &&
     focusCountdownMs != null &&
