@@ -92,7 +92,6 @@ import {
   formatHourLabel,
   formatMinutesLabel,
   layoutCalendarTasks,
-  latestFocusFreeStartMin,
   taskDurationMinutes,
   minutesFromMidnight,
   MINUTES_PER_DAY,
@@ -2173,22 +2172,16 @@ function App() {
   const focusTaskInOverflow =
     currentFocusTaskId != null &&
     overflowTasks.some((task) => task.id === currentFocusTaskId);
-  const focusLatestStartMin =
-    todayFocusTask != null && !focusTaskInOverflow
-      ? latestFocusFreeStartMin(
-          todayFocusTask,
-          todayPackEnd,
-          nowMinutes,
-          todayLayout?.blocks ?? [],
-          taskGapMinutes,
-        )
+  // Packed schedule start of the next focus / Up-next task — Free time ends when
+  // now begins overtaking that block (not latest-feasible must-start slack).
+  const focusPackedStartMin =
+    todayFocusLayoutBlock != null && !focusTaskInOverflow
+      ? (todayFocusLayoutBlock.packStartMin ?? todayFocusLayoutBlock.startMin)
       : null;
-  // Free time until the next focus/Up-next task must start (latest feasible),
-  // not until packing's earliest start (which is usually "now").
   const focusFreeTimeMode =
     !focusLocked &&
-    focusLatestStartMin != null &&
-    focusLatestStartMin > nowMinutes;
+    focusPackedStartMin != null &&
+    focusPackedStartMin > nowMinutes;
   const todayOpenBlockCount = (todayLayout?.blocks ?? []).filter(
     (block) => !block.overdue,
   ).length;
@@ -2205,15 +2198,21 @@ function App() {
   );
   const nextDayWindowStartMs =
     tomorrowStart.getTime() + nextDayWindowStartMin * 60_000;
+  // Morning Rest (before today's window): count to today's window start.
+  // Evening / in-window Rest: count to next day's window start.
+  const restCountdownTargetMs =
+    nowMinutes < todayWindowStartMinutes
+      ? todayStart.getTime() + todayWindowStartMinutes * 60_000
+      : nextDayWindowStartMs;
   const focusCountdownTargetMin =
     focusRestMode || focusRescheduleOverflowMode
       ? null
       : focusFreeTimeMode
-        ? focusLatestStartMin
+        ? focusPackedStartMin
         : (todayFocusLayoutBlock?.endMin ?? null);
   const focusCountdownMs =
     focusRestMode || focusRescheduleOverflowMode
-      ? nextDayWindowStartMs - countdownNow
+      ? restCountdownTargetMs - countdownNow
       : focusCountdownTargetMin != null
         ? todayStart.getTime() + focusCountdownTargetMin * 60_000 - countdownNow
         : null;
