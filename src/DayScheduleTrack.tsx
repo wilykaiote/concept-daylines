@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { MINUTES_PER_DAY, parseTaskDate, parseTimeOfDay } from "./calendarTimeline";
 import type { ComposerDraft } from "./composer";
-import { daySkyCssStops } from "./daySky";
+import { daySkyColorAtMinutes, daySkyCssStops } from "./daySky";
 import type { ScheduleSegment } from "./schedule";
 
 const SCHEDULE_DAY_SKY = daySkyCssStops();
@@ -26,6 +26,8 @@ export type DayScheduleTrackProps = {
   timelineMinutes: number;
   /** 0–100 portion of the day that has elapsed. */
   elapsedPct?: number;
+  /** Absolute minutes from midnight — drives in-block elapsed fill. */
+  nowMin?: number;
   windowStartMin?: number;
   windowEndMin?: number;
   className?: string;
@@ -40,6 +42,7 @@ export function DayScheduleTrack({
   segments,
   timelineMinutes,
   elapsedPct = 0,
+  nowMin,
   windowStartMin,
   windowEndMin,
   className,
@@ -62,6 +65,13 @@ export function DayScheduleTrack({
       major: hour % 6 === 0,
     };
   }).filter(({ leftPct }) => leftPct > elapsedPct);
+
+  const blockElapsedPct = (segment: Extract<ScheduleSegment, { type: "task" }>) => {
+    if (nowMin == null) return 0;
+    const span = segment.endMin - segment.startMin;
+    if (!(span > 0)) return 0;
+    return Math.min(1, Math.max(0, (nowMin - segment.startMin) / span)) * 100;
+  };
 
   return (
     <div
@@ -146,14 +156,31 @@ export function DayScheduleTrack({
             const kind = scheduleBlockKind(segment.task, segment.overdue);
             const highlighted = isTaskHighlighted?.(taskId) ?? false;
             const popping = isTaskPopping?.(taskId) ?? false;
+            const fillPct = blockElapsedPct(segment);
+            const elapsedFillColor =
+              nowMin != null ? daySkyColorAtMinutes(nowMin) : null;
             const classNames = [
               "twineline-schedule-block",
               `is-${kind}`,
+              fillPct > 0 ? "has-elapsed" : "",
               highlighted ? "is-highlighted" : "",
               popping ? "is-popping" : "",
             ]
               .filter(Boolean)
               .join(" ");
+            const elapsedFill =
+              fillPct > 0 ? (
+                <span
+                  className="twineline-schedule-block-elapsed"
+                  style={{
+                    width: `${fillPct}%`,
+                    ...(elapsedFillColor != null
+                      ? { background: elapsedFillColor }
+                      : null),
+                  }}
+                  aria-hidden="true"
+                />
+              ) : null;
 
             if (!interactive) {
               return (
@@ -162,7 +189,9 @@ export function DayScheduleTrack({
                   className={classNames}
                   style={{ flex: `0 0 ${widthPercent}%` }}
                   title={`${segment.task.title} · ${segment.minutes}m`}
-                />
+                >
+                  {elapsedFill}
+                </div>
               );
             }
 
@@ -183,7 +212,9 @@ export function DayScheduleTrack({
                   if (!taskId || popping) return;
                   onTaskSelect(segment.task);
                 }}
-              />
+              >
+                {elapsedFill}
+              </button>
             );
           })}
         </div>

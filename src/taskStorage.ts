@@ -15,7 +15,57 @@ const LAST_AUTO_RESCHEDULE_DAY_KEY = "twineline.lastAutoRescheduleDay";
 const TODAY_WINDOW_BASELINE_KEY = "twineline.todayWindowBaseline";
 const CURRENT_FOCUS_KEY = "twineline.currentFocus";
 const RECENT_LINK_IDS_KEY = "twineline.recentLinkIds";
+const UI_SESSION_KEY = "twineline.uiSession";
 const MAX_RECENT_LINK_IDS = 40;
+const DEFAULT_TIMELINE_DAY_COUNT = 31;
+const MIN_TIMELINE_DAY_COUNT = 14;
+const MAX_TIMELINE_DAY_COUNT = 366;
+
+/** Valid tray / more-menu view ids (must match App NAV_ITEMS). */
+export const UI_SESSION_VIEW_IDS = [
+  "dayline",
+  "home",
+  "discover",
+  "notes",
+  "collections",
+  "plans",
+  "tasks",
+  "lists",
+  "groceries",
+  "nutrition",
+  "fitness",
+  "recipes",
+  "logs",
+  "profile",
+  "settings",
+] as const;
+
+export type UiSessionViewId = (typeof UI_SESSION_VIEW_IDS)[number];
+
+export type UiSession = {
+  activeView: UiSessionViewId;
+  scrollByView: Partial<Record<UiSessionViewId, number>>;
+  timelineDayCount?: number;
+  /** Timeline overflow section expanded. */
+  overdueSectionOpen?: boolean;
+  /** Home overflow section expanded. */
+  homeOverdueSectionOpen?: boolean;
+};
+
+function isUiSessionViewId(value: unknown): value is UiSessionViewId {
+  return (
+    typeof value === "string" &&
+    (UI_SESSION_VIEW_IDS as readonly string[]).includes(value)
+  );
+}
+
+function clampTimelineDayCount(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_TIMELINE_DAY_COUNT;
+  return Math.min(
+    MAX_TIMELINE_DAY_COUNT,
+    Math.max(MIN_TIMELINE_DAY_COUNT, Math.floor(value)),
+  );
+}
 const DEFAULT_TARGET_TIME = "17:00";
 const DEFAULT_WINDOW_START_TIME = "06:00";
 const DEFAULT_TASK_GAP_MINUTES = 15;
@@ -403,6 +453,92 @@ export function clearCurrentFocusStorage(): void {
   }
 }
 
+export function loadUiSession(): UiSession | null {
+  try {
+    const raw = localStorage.getItem(UI_SESSION_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const value = parsed as Record<string, unknown>;
+    if (!isUiSessionViewId(value.activeView)) return null;
+    const scrollByView: Partial<Record<UiSessionViewId, number>> = {};
+    if (value.scrollByView && typeof value.scrollByView === "object" && !Array.isArray(value.scrollByView)) {
+      for (const [key, scrollTop] of Object.entries(
+        value.scrollByView as Record<string, unknown>,
+      )) {
+        if (
+          isUiSessionViewId(key) &&
+          typeof scrollTop === "number" &&
+          Number.isFinite(scrollTop) &&
+          scrollTop >= 0
+        ) {
+          scrollByView[key] = Math.floor(scrollTop);
+        }
+      }
+    }
+    const timelineDayCount =
+      typeof value.timelineDayCount === "number" && Number.isFinite(value.timelineDayCount)
+        ? clampTimelineDayCount(value.timelineDayCount)
+        : undefined;
+    return {
+      activeView: value.activeView,
+      scrollByView,
+      timelineDayCount,
+      overdueSectionOpen:
+        typeof value.overdueSectionOpen === "boolean"
+          ? value.overdueSectionOpen
+          : undefined,
+      homeOverdueSectionOpen:
+        typeof value.homeOverdueSectionOpen === "boolean"
+          ? value.homeOverdueSectionOpen
+          : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function saveUiSession(session: UiSession): void {
+  try {
+    const scrollByView: Partial<Record<UiSessionViewId, number>> = {};
+    for (const [key, scrollTop] of Object.entries(session.scrollByView)) {
+      if (
+        isUiSessionViewId(key) &&
+        typeof scrollTop === "number" &&
+        Number.isFinite(scrollTop) &&
+        scrollTop >= 0
+      ) {
+        scrollByView[key] = Math.floor(scrollTop);
+      }
+    }
+    const payload: UiSession = {
+      activeView: isUiSessionViewId(session.activeView) ? session.activeView : "home",
+      scrollByView,
+    };
+    if (
+      typeof session.timelineDayCount === "number" &&
+      Number.isFinite(session.timelineDayCount)
+    ) {
+      payload.timelineDayCount = clampTimelineDayCount(session.timelineDayCount);
+    }
+    if (typeof session.overdueSectionOpen === "boolean") {
+      payload.overdueSectionOpen = session.overdueSectionOpen;
+    }
+    if (typeof session.homeOverdueSectionOpen === "boolean") {
+      payload.homeOverdueSectionOpen = session.homeOverdueSectionOpen;
+    }
+    localStorage.setItem(UI_SESSION_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export {
+  DEFAULT_TIMELINE_DAY_COUNT,
+  MIN_TIMELINE_DAY_COUNT,
+  MAX_TIMELINE_DAY_COUNT,
+};
+
 /** Most-recently linked target ids (newest first). */
 export function loadRecentLinkIds(): string[] {
   try {
@@ -606,7 +742,8 @@ export function formatTwinelineDateLabel(
   else if (diffDays === -1) label = `${stamp} - Yesterday`;
   else label = stamp;
   if (options?.weekday) {
-    label = `${label} - ${WEEKDAY_BUTTONS[selected.getDay()]!.name}`;
+    const weekday = WEEKDAY_BUTTONS[selected.getDay()]!.name.slice(0, 3).toUpperCase();
+    label = `${label} - ${weekday}`;
   }
   return label;
 }

@@ -2,7 +2,15 @@ import type { ComposerDraft } from "./composer";
 
 export type ScheduleSegment =
   | { type: "gap"; minutes: number }
-  | { type: "task"; minutes: number; task: ComposerDraft; overdue?: boolean };
+  | {
+      type: "task";
+      minutes: number;
+      /** Absolute start/end on the day (minutes from midnight). */
+      startMin: number;
+      endMin: number;
+      task: ComposerDraft;
+      overdue?: boolean;
+    };
 
 export type ScheduleLayout = {
   /** Minutes the visible lane represents (countdown remaining / day window). */
@@ -62,6 +70,8 @@ export function buildScheduleLayoutForWindow(
     segments.push({
       type: "task",
       minutes: block.end - block.start,
+      startMin: block.start,
+      endMin: block.end,
       task: block.task,
       overdue: block.overdue,
     });
@@ -131,12 +141,21 @@ export function buildScheduleLayout(
   const slack = Math.max(0, timelineMinutes - usedMinutes);
   const gapMinutes = slack / (fitted.length + 1);
   const segments: ScheduleSegment[] = [];
+  let cursor = 0;
 
   for (const item of fitted) {
     if (gapMinutes > 0) {
       segments.push({ type: "gap", minutes: gapMinutes });
+      cursor += gapMinutes;
     }
-    segments.push({ type: "task", minutes: item.minutes, task: item.task });
+    segments.push({
+      type: "task",
+      minutes: item.minutes,
+      startMin: cursor,
+      endMin: cursor + item.minutes,
+      task: item.task,
+    });
+    cursor += item.minutes;
   }
   if (gapMinutes > 0) {
     segments.push({ type: "gap", minutes: gapMinutes });

@@ -9,6 +9,7 @@ import { PlansView } from "./PlansView";
 import { ListsView } from "./ListsView";
 import { DayScheduleTrack } from "./DayScheduleTrack";
 import { type DayWheelSlice } from "./DayWheelChart";
+import { daySkyColorAtMinutes } from "./daySky";
 import { TwinelineCountdownButton } from "./TwinelineCountdownButton";
 import {
   buildComposerDraft,
@@ -45,10 +46,14 @@ import {
   loadCollections,
   loadCurrentFocus,
   loadTodayWindowBaseline,
+  loadUiSession,
   loadWindowStartOverrides,
   loadWindowStartTime,
   clearCurrentFocusStorage,
   saveCurrentFocus,
+  saveUiSession,
+  DEFAULT_TIMELINE_DAY_COUNT,
+  MAX_TIMELINE_DAY_COUNT,
   MAX_TASK_GAP_MINUTES,
   MIN_TASK_GAP_MINUTES,
   msUntilTargetTime,
@@ -73,6 +78,8 @@ import {
   WEEKDAY_BUTTONS,
   type CurrentFocus,
   type TodayWindowBaseline,
+  type UiSession,
+  type UiSessionViewId,
 } from "./taskStorage";
 import { buildScheduleLayoutForWindow } from "./schedule";
 import {
@@ -84,6 +91,7 @@ import {
   formatMinutesLabel,
   layoutCalendarTasks,
   latestFocusFreeStartMin,
+  taskDurationMinutes,
   minutesFromMidnight,
   MINUTES_PER_DAY,
   packWindowEndMinutes,
@@ -1009,6 +1017,11 @@ const COLLECTIONS_TAB = { id: "collections", label: "Collections", Icon: Collect
 const PLANS_TAB = { id: "plans", label: "Plans", Icon: PlansIcon } as const;
 
 const TRAY_TABS = [HOME_TAB, DISCOVER_TAB] as const;
+/** Left→right tray order for horizontal swipe navigation. */
+const MAIN_SWIPE_VIEWS = ["home", "dayline", "discover"] as const;
+type MainSwipeView = (typeof MAIN_SWIPE_VIEWS)[number];
+const MAIN_SWIPE_THRESHOLD_PX = 56;
+const MAIN_SWIPE_MAX_SLOPE = 0.75;
 
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
@@ -1140,6 +1153,8 @@ function CompactTaskRow({
   now,
   parentTitle,
   isCurrentFocus = false,
+  countdownProgress = null,
+  countdownBarColor = null,
   onComplete,
   onEdit,
   onSetFocus,
@@ -1152,6 +1167,8 @@ function CompactTaskRow({
   now: Date;
   parentTitle?: string | null;
   isCurrentFocus?: boolean;
+  countdownProgress?: number | null;
+  countdownBarColor?: string | null;
   onComplete: () => void;
   onEdit: () => void;
   onSetFocus?: () => void;
@@ -1195,11 +1212,32 @@ function CompactTaskRow({
   const parentAuto = hasMetaAuto(task, "parent");
   const recurringAuto = hasMetaAuto(task, "recurring");
 
+  const showCountdownBar =
+    typeof countdownProgress === "number" && Number.isFinite(countdownProgress);
+
   return (
     <li data-task-id={task.id ?? undefined} className="task-row-shell">
       <div
-        className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}`}
+        className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}${showCountdownBar ? " has-countdown" : ""}`}
       >
+        {showCountdownBar && (
+          <div
+            className="task-row-countdown"
+            aria-hidden="true"
+            style={
+              countdownBarColor != null
+                ? { background: countdownBarColor }
+                : undefined
+            }
+          >
+            <div
+              className="task-row-countdown-fill"
+              style={{
+                width: `${Math.min(1, Math.max(0, countdownProgress)) * 100}%`,
+              }}
+            />
+          </div>
+        )}
         <div
           className="task-row-primary"
           onClick={(event) => {
@@ -1330,6 +1368,15 @@ function CompactTaskRow({
 const NAV_ITEMS = [DAYLINE_TAB, ...TRAY_TABS, NOTES_TAB, COLLECTIONS_TAB, PLANS_TAB, ...MORE_OPTIONS] as const;
 
 type ActiveView = (typeof NAV_ITEMS)[number]["id"];
+
+const INITIAL_UI_SESSION = loadUiSession();
+
+function isActiveView(value: string | null | undefined): value is ActiveView {
+  return (
+    typeof value === "string" &&
+    NAV_ITEMS.some((item) => item.id === value)
+  );
+}
 
 const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   dayline: "task",
@@ -1742,7 +1789,11 @@ function App() {
   const [taskGapInput, setTaskGapInput] = useState(() => String(loadTaskGapMinutes()));
   const [composeKind, setComposeKind] = useState<ComposeKind>("task");
   const aiEnabled = false;
-  const [activeView, setActiveView] = useState<ActiveView>("home");
+  const [activeView, setActiveView] = useState<ActiveView>(() =>
+    isActiveView(INITIAL_UI_SESSION?.activeView)
+      ? INITIAL_UI_SESSION.activeView
+      : "home",
+  );
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [tasks, setTasks] = useState<ComposerDraft[]>(() => {
@@ -1788,8 +1839,16 @@ function App() {
   );
   const [selectedDay, setSelectedDay] = useState(() => toStartOfDay(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [overdueSectionOpen, setOverdueSectionOpen] = useState(true);
-  const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(false);
+  const [overdueSectionOpen, setOverdueSectionOpen] = useState(
+    () => INITIAL_UI_SESSION?.overdueSectionOpen ?? true,
+  );
+  const [homeOverdueSectionOpen, setHomeOverdueSectionOpen] = useState(
+    () => INITIAL_UI_SESSION?.homeOverdueSectionOpen ?? false,
+  );
+  const overdueSectionOpenRef = useRef(overdueSectionOpen);
+  overdueSectionOpenRef.current = overdueSectionOpen;
+  const homeOverdueSectionOpenRef = useRef(homeOverdueSectionOpen);
+  homeOverdueSectionOpenRef.current = homeOverdueSectionOpen;
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [timePickerDay, setTimePickerDay] = useState(() => toStartOfDay(new Date()));
   const [timePickerBaseline, setTimePickerBaseline] = useState<{
@@ -1816,10 +1875,45 @@ function App() {
   const twinelineHeaderRef = useRef<HTMLElement>(null);
   const twinelineSlideRef = useRef<HTMLDivElement>(null);
   const lastScrollTopRef = useRef(0);
-  const viewScrollTopRef = useRef<Partial<Record<ActiveView, number>>>({});
-  const pendingViewScrollTopRef = useRef<number | null>(null);
+  const viewScrollTopRef = useRef<Partial<Record<ActiveView, number>>>(
+    (() => {
+      const scrollByView: Partial<Record<ActiveView, number>> = {};
+      if (!INITIAL_UI_SESSION?.scrollByView) return scrollByView;
+      for (const [key, scrollTop] of Object.entries(INITIAL_UI_SESSION.scrollByView)) {
+        if (isActiveView(key) && typeof scrollTop === "number") {
+          scrollByView[key] = scrollTop;
+        }
+      }
+      return scrollByView;
+    })(),
+  );
+  const initialViewScrollTop =
+    viewScrollTopRef.current[
+      isActiveView(INITIAL_UI_SESSION?.activeView)
+        ? INITIAL_UI_SESSION.activeView
+        : "home"
+    ] ?? 0;
+  const pendingViewScrollTopRef = useRef<number | null>(
+    initialViewScrollTop > 0 ? initialViewScrollTop : null,
+  );
+  const sessionScrollRestoreRef = useRef<number | null>(
+    initialViewScrollTop > 0 ? initialViewScrollTop : null,
+  );
+  const uiSessionSaveTimerRef = useRef<number | null>(null);
   const activeViewRef = useRef(activeView);
   activeViewRef.current = activeView;
+  const collapsedRef = useRef(collapsed);
+  collapsedRef.current = collapsed;
+  const searchOpenRef = useRef(searchOpen);
+  searchOpenRef.current = searchOpen;
+  const moreMenuOpenRef = useRef(moreMenuOpen);
+  moreMenuOpenRef.current = moreMenuOpen;
+  const mainSwipeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    armed: boolean;
+  } | null>(null);
   const chromeHiddenRef = useRef(false);
   const chromeLockRef = useRef(false);
   const chromeCooldownUntilRef = useRef(0);
@@ -1832,7 +1926,14 @@ function App() {
     Record<string, OutsideExpandedFlags>
   >({});
   const [timelineRangeStart, setTimelineRangeStart] = useState(() => toStartOfDay(new Date()));
-  const [timelineDayCount, setTimelineDayCount] = useState(31);
+  const [timelineDayCount, setTimelineDayCount] = useState(() => {
+    const saved = INITIAL_UI_SESSION?.timelineDayCount;
+    return typeof saved === "number" && Number.isFinite(saved)
+      ? saved
+      : DEFAULT_TIMELINE_DAY_COUNT;
+  });
+  const timelineDayCountRef = useRef(timelineDayCount);
+  timelineDayCountRef.current = timelineDayCount;
   const [showTimelineScrollTop, setShowTimelineScrollTop] = useState(false);
   const timelineScrollSyncLockRef = useRef(false);
   const timelineScrollTopBtnVisibleRef = useRef(false);
@@ -2010,15 +2111,25 @@ function App() {
     selectedDayLayout?.packEndMin ??
     packWindowEndMinutes(selectedDayTargetTime, selectedDayWindowStartMinutes);
   const selectedIsToday = sameCalendarDay(selectedDay, todayStart);
-  const selectedDayBlocks = (selectedDayLayout?.blocks ?? [])
-    .filter((block) => !block.overdue)
+  const overflowScheduleIds = new Set(
+    [...overdueTasks, ...deferredTasks]
+      .map((task) => task.id)
+      .filter((id): id is string => id != null),
+  );
+  const selectedScheduleBlocks = (
+    selectedDayLayout?.scheduleBlocks ?? selectedDayLayout?.blocks ?? []
+  )
+    .filter(
+      (block) =>
+        !block.overdue &&
+        (block.taskId == null || !overflowScheduleIds.has(block.taskId)),
+    )
     .map((block) => ({
-      startMin: block.startMin,
-      endMin: block.endMin,
+      startMin: block.packStartMin ?? block.startMin,
+      endMin: block.packEndMin ?? block.endMin,
       task: block.task,
       overdue: false as const,
     }));
-  const selectedScheduleBlocks = selectedDayBlocks;
   const todayLayout = calendarLayoutByKey.get(dayKey(todayStart));
   const todayFocusBlock =
     todayLayout?.blocks.find((block) => !block.overdue) ?? null;
@@ -2064,6 +2175,19 @@ function App() {
     !focusLocked && focusCountdownMs != null
       ? `- ${formatCountdown(focusCountdownMs, { hideZeroHours: true })}`
       : null;
+  // Use task duration (stable), not packed start→end — packing can slide startMin
+  // forward mid-task and snap remaining/total back to ~1.
+  const focusCountdownTotalMs =
+    !focusFreeTimeMode && todayFocusTask != null && todayFocusLayoutBlock != null
+      ? Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000)
+      : null;
+  const focusCountdownProgress =
+    !focusLocked &&
+    focusCountdownMs != null &&
+    focusCountdownTotalMs != null
+      ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
+      : null;
+  const nowSkyColor = daySkyColorAtMinutes(nowMinutes);
   const dayElapsedPct = Math.min(
     100,
     Math.max(0, (nowMinutes / MINUTES_PER_DAY) * 100),
@@ -2151,6 +2275,7 @@ function App() {
         packBandTopPx: null,
         packBandHeightPx: null,
         blocks: [],
+        scheduleBlocks: [],
         hourMarkers,
       };
     });
@@ -2255,10 +2380,14 @@ function App() {
 
   const openOverflowForActiveView = () => {
     if (activeViewRef.current === "home") {
+      homeOverdueSectionOpenRef.current = true;
       setHomeOverdueSectionOpen(true);
+      persistUiSession();
       return;
     }
+    overdueSectionOpenRef.current = true;
     setOverdueSectionOpen(true);
+    persistUiSession();
   };
 
   const timePickerIsDirty =
@@ -3274,6 +3403,32 @@ function App() {
 
   const taskTimeValue = taskTimeMode === "starts_at" ? taskStartsAt : taskDueAt;
 
+  const persistUiSession = (view: ActiveView = activeViewRef.current) => {
+    const scrollByView = { ...viewScrollTopRef.current } as Partial<
+      Record<UiSessionViewId, number>
+    >;
+    const session: UiSession = {
+      activeView: view as UiSessionViewId,
+      scrollByView,
+      overdueSectionOpen: overdueSectionOpenRef.current,
+      homeOverdueSectionOpen: homeOverdueSectionOpenRef.current,
+    };
+    if (view === "dayline" || timelineDayCountRef.current !== DEFAULT_TIMELINE_DAY_COUNT) {
+      session.timelineDayCount = timelineDayCountRef.current;
+    }
+    saveUiSession(session);
+  };
+
+  const schedulePersistUiSession = (view: ActiveView = activeViewRef.current) => {
+    if (uiSessionSaveTimerRef.current != null) {
+      window.clearTimeout(uiSessionSaveTimerRef.current);
+    }
+    uiSessionSaveTimerRef.current = window.setTimeout(() => {
+      uiSessionSaveTimerRef.current = null;
+      persistUiSession(view);
+    }, 200);
+  };
+
   const switchActiveView = (id: ActiveView) => {
     const previous = activeViewRef.current;
     if (id !== previous) {
@@ -3282,12 +3437,14 @@ function App() {
         viewScrollTopRef.current[previous] = main.scrollTop;
       }
       pendingViewScrollTopRef.current = viewScrollTopRef.current[id] ?? 0;
+      sessionScrollRestoreRef.current = null;
       // Drop Timeline scroll queues on tab change so restore uses saved scrollTop.
       pendingTimelineScrollDayRef.current = null;
       pendingViewScrollTaskIdRef.current = null;
       pendingViewPreserveChromeRef.current = false;
       setFocusedTaskId(null);
       setFocusedOverflowTaskIds(null);
+      persistUiSession(id);
     }
     setActiveView(id);
   };
@@ -3299,6 +3456,8 @@ function App() {
     }
     setMoreMenuOpen(false);
   };
+  const selectViewRef = useRef(selectView);
+  selectViewRef.current = selectView;
 
   const closeSearch = () => {
     setSearchOpen(false);
@@ -3721,6 +3880,10 @@ function App() {
               now={new Date(countdownNow)}
               parentTitle={parentTitleFor(todayFocusTask.parent_id)}
               isCurrentFocus
+              countdownProgress={focusCountdownProgress}
+              countdownBarColor={
+                focusCountdownProgress != null ? nowSkyColor : null
+              }
               onComplete={() => requestCompleteTask(todayFocusTask.id)}
               onEdit={() => {
                 setFocusedOverflowTaskIds(null);
@@ -3760,7 +3923,14 @@ function App() {
             aria-expanded={overdueSectionOpen}
             aria-controls="task-overdue-list"
             aria-label="Overflow tasks"
-            onClick={() => setOverdueSectionOpen((open) => !open)}
+            onClick={() => {
+              setOverdueSectionOpen((open) => {
+                const next = !open;
+                overdueSectionOpenRef.current = next;
+                persistUiSession();
+                return next;
+              });
+            }}
           >
             <span className="task-overdue-toggle-action">
               <span className="task-overdue-toggle-reschedule">
@@ -4084,7 +4254,58 @@ function App() {
     if (!main) return;
     main.scrollTop = top;
     lastScrollTopRef.current = top;
+    if (activeView === "dayline" && top > 0) {
+      sessionScrollRestoreRef.current = top;
+    }
   }, [activeView]);
+
+  // Re-apply session scroll after Timeline content grows tall enough.
+  useLayoutEffect(() => {
+    if (activeView !== "dayline") return;
+    const target = sessionScrollRestoreRef.current;
+    if (target == null || target <= 0) return;
+    const main = mainRef.current;
+    if (!main) return;
+    const maxScroll = Math.max(0, main.scrollHeight - main.clientHeight);
+    if (maxScroll + 1 < target) {
+      // Content still too short — grow range so deep restore can land.
+      if (timelineDayCount >= MAX_TIMELINE_DAY_COUNT) {
+        main.scrollTop = maxScroll;
+        lastScrollTopRef.current = maxScroll;
+        viewScrollTopRef.current.dayline = maxScroll;
+        sessionScrollRestoreRef.current = null;
+        return;
+      }
+      setTimelineDayCount((count) => Math.min(MAX_TIMELINE_DAY_COUNT, count + 14));
+      return;
+    }
+    main.scrollTop = target;
+    lastScrollTopRef.current = target;
+    viewScrollTopRef.current.dayline = target;
+    if (Math.abs(main.scrollTop - target) <= 2) {
+      sessionScrollRestoreRef.current = null;
+    }
+  }, [
+    activeView,
+    tasksCompact,
+    timelineDayCount,
+    timelineDays.length,
+    calendarLayoutSpanKey,
+    overflowDisplayCount,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (uiSessionSaveTimerRef.current != null) {
+        window.clearTimeout(uiSessionSaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeViewRef.current !== "dayline") return;
+    schedulePersistUiSession("dayline");
+  }, [timelineDayCount]);
 
   // Composer sits above app-main; forward wheel so page scroll works over the tray/FAB.
   useEffect(() => {
@@ -4111,6 +4332,73 @@ function App() {
     return () => composer.removeEventListener("wheel", onWheel);
   }, []);
 
+  // Horizontal swipe on main content cycles Home ↔ Timeline ↔ Discover.
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+
+    const isMainSwipeView = (id: string): id is MainSwipeView =>
+      (MAIN_SWIPE_VIEWS as readonly string[]).includes(id);
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      if (!collapsedRef.current || searchOpenRef.current || moreMenuOpenRef.current) return;
+      if (!isMainSwipeView(activeViewRef.current)) return;
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(
+          "input, textarea, select, [contenteditable='true'], .app-overlay-menu, .app-attach-menu",
+        )
+      ) {
+        return;
+      }
+      mainSwipeRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        armed: true,
+      };
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      const gesture = mainSwipeRef.current;
+      if (gesture == null || gesture.pointerId !== event.pointerId) return;
+      mainSwipeRef.current = null;
+      if (!gesture.armed) return;
+      if (!collapsedRef.current || searchOpenRef.current || moreMenuOpenRef.current) return;
+      const current = activeViewRef.current;
+      if (!isMainSwipeView(current)) return;
+
+      const dx = event.clientX - gesture.startX;
+      const dy = event.clientY - gesture.startY;
+      if (Math.abs(dx) < MAIN_SWIPE_THRESHOLD_PX) return;
+      if (Math.abs(dy) > Math.abs(dx) * MAIN_SWIPE_MAX_SLOPE) return;
+
+      const index = MAIN_SWIPE_VIEWS.indexOf(current);
+      if (index < 0) return;
+      // Swipe left → next tab; swipe right → previous tab.
+      const nextIndex = dx < 0 ? index + 1 : index - 1;
+      if (nextIndex < 0 || nextIndex >= MAIN_SWIPE_VIEWS.length) return;
+      selectViewRef.current(MAIN_SWIPE_VIEWS[nextIndex]);
+    };
+
+    const onPointerCancel = (event: PointerEvent) => {
+      const gesture = mainSwipeRef.current;
+      if (gesture == null || gesture.pointerId !== event.pointerId) return;
+      mainSwipeRef.current = null;
+    };
+
+    main.addEventListener("pointerdown", onPointerDown, { passive: true });
+    main.addEventListener("pointerup", onPointerUp, { passive: true });
+    main.addEventListener("pointercancel", onPointerCancel, { passive: true });
+    return () => {
+      main.removeEventListener("pointerdown", onPointerDown);
+      main.removeEventListener("pointerup", onPointerUp);
+      main.removeEventListener("pointercancel", onPointerCancel);
+    };
+  }, []);
+
   useEffect(() => {
     const main = mainRef.current;
     if (!main) return;
@@ -4121,6 +4409,8 @@ function App() {
       const top = main.scrollTop;
       const delta = top - lastScrollTopRef.current;
       lastScrollTopRef.current = top;
+      viewScrollTopRef.current[activeViewRef.current] = top;
+      schedulePersistUiSession(activeViewRef.current);
 
       if (activeView === "dayline") {
         const today = toStartOfDay(new Date(countdownNowRef.current));
@@ -4980,6 +5270,14 @@ function App() {
                   editTask(task);
                 }}
                 isCurrentFocus={todayFocusTask?.id === task.id}
+                countdownProgress={
+                  todayFocusTask?.id === task.id ? focusCountdownProgress : null
+                }
+                countdownBarColor={
+                  todayFocusTask?.id === task.id && focusCountdownProgress != null
+                    ? nowSkyColor
+                    : null
+                }
               />
             )}
             focusLockControl={
@@ -5017,7 +5315,14 @@ function App() {
             deferredTasks={deferredTasks}
             overdueTasks={overdueTasks}
             overdueOpen={homeOverdueSectionOpen}
-            onOverdueToggle={() => setHomeOverdueSectionOpen((open) => !open)}
+            onOverdueToggle={() => {
+              setHomeOverdueSectionOpen((open) => {
+                const next = !open;
+                homeOverdueSectionOpenRef.current = next;
+                persistUiSession();
+                return next;
+              });
+            }}
             renderDeferredTask={(task, index) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
@@ -5347,6 +5652,7 @@ function App() {
                   segments={scheduleSegments}
                   timelineMinutes={scheduleTimelineMinutes}
                   elapsedPct={selectedDayElapsedPct}
+                  nowMin={selectedIsToday ? nowMinutes : undefined}
                   windowStartMin={selectedDayWindowStartMinutes}
                   windowEndMin={selectedDayPackEnd}
                   focusedTaskId={focusedTaskId}
@@ -5452,11 +5758,11 @@ function App() {
                       </button>
                     </div>
                   )}
+                  {showOverdueToggle && renderOverflowSection()}
                   {isTodayGroup &&
                     activeView === "dayline" &&
                     !calendarOpen &&
                     renderCurrentFocus()}
-                  {showOverdueToggle && renderOverflowSection()}
                   {dayTasks.length > 0 && (
                     <div className="task-day-next">
                       {isTodayGroup && activeView === "dayline" && !calendarOpen && (
@@ -5534,11 +5840,11 @@ function App() {
                     </button>
                   </div>
                 )}
+                {showOverdueToggle && renderOverflowSection()}
                 {isTodayGroup &&
                   activeView === "dayline" &&
                   !calendarOpen &&
                   renderCurrentFocus()}
-                {showOverdueToggle && renderOverflowSection()}
                 <div
                   className="calendar-timeline-body"
                   style={{ height: Math.max(PX_PER_MINUTE, view.visibleDisplayPx) }}

@@ -1090,11 +1090,18 @@
 }
 
 .twineline-countdown-remaining {
-  font-size: 0.95rem;
+  color: var(--text);
+  font-size: 0.8rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   line-height: 1;
+}
+
+.twineline-countdown-button:hover .twineline-countdown-remaining,
+.twineline-countdown-button:focus-visible .twineline-countdown-remaining,
+.twineline-countdown-button.is-open .twineline-countdown-remaining {
+  color: var(--accent);
 }
 
 .twineline-countdown-button.is-rest .twineline-countdown-remaining {
@@ -1398,8 +1405,10 @@
 .twineline-schedule-block {
   position: relative;
   z-index: 2;
+  align-self: center;
   box-sizing: border-box;
   min-width: 4px;
+  height: 16px;
   margin: 0;
   padding: 0;
   border: 1px solid transparent;
@@ -1408,10 +1417,22 @@
   box-shadow: none;
   cursor: pointer;
   isolation: isolate;
+  overflow: hidden;
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
     box-shadow 0.15s ease;
+}
+
+.twineline-schedule-block-elapsed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: #c45e18;
+  transition: width 200ms linear, background 200ms linear;
 }
 
 .twineline-schedule-block.is-anchored {
@@ -1535,11 +1556,12 @@
   border: 0;
   background: transparent;
   color: var(--text-h);
-  font: inherit;
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
   text-align: left;
+  text-transform: uppercase;
   cursor: pointer;
 }
 
@@ -1569,7 +1591,7 @@
 }
 
 .task-day-overflow-row {
-  padding-top: 2px;
+  padding-top: 12px;
 }
 
 .task-day-overflow-row .task-overdue-toggle {
@@ -2041,7 +2063,7 @@
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 10px 2px 0;
+  padding: 4px 2px 0;
 }
 
 .task-current-focus-label-row .task-row-focus-lock {
@@ -2166,6 +2188,7 @@
 }
 
 .task-row {
+  position: relative;
   display: flex;
   flex-direction: row;
   align-items: stretch;
@@ -2176,6 +2199,29 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
+}
+
+.task-row.has-countdown {
+  overflow: hidden;
+}
+
+.task-row-countdown {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: flex-end;
+  height: 3px;
+  background: #c45e18;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.task-row-countdown-fill {
+  height: 100%;
+  background: color-mix(in srgb, var(--border) 70%, var(--bg-raised));
+  transform-origin: right center;
 }
 
 .task-row-primary {
@@ -5685,11 +5731,12 @@
   border: 0;
   background: transparent;
   color: var(--text-h);
-  font: inherit;
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
   text-align: left;
+  text-transform: uppercase;
   cursor: pointer;
 }
 

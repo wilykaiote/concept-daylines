@@ -16,9 +16,12 @@ export type CalendarTaskBlock = {
   taskId: string | null;
   title: string;
   task: ComposerDraft;
-  /** Minutes from midnight on this day. */
+  /** Minutes from midnight on this day (may be clipped to visible start). */
   startMin: number;
   endMin: number;
+  /** Unclipped packed range (absolute minutes from midnight). */
+  packStartMin: number;
+  packEndMin: number;
   /** Offset within the day's visible strip (after visibleStartMin). */
   topPx: number;
   heightPx: number;
@@ -44,6 +47,8 @@ export type CalendarDayLayout = {
   packBandTopPx: number | null;
   packBandHeightPx: number | null;
   blocks: CalendarTaskBlock[];
+  /** Unclipped non-overdue blocks for the twineline schedule (includes past). */
+  scheduleBlocks: CalendarTaskBlock[];
   hourMarkers: Array<{ hour: number; label: string; topPx: number }>;
 };
 
@@ -287,6 +292,8 @@ function pushBlock(
     task,
     startMin,
     endMin,
+    packStartMin: startMin,
+    packEndMin: endMin,
     overdue,
   });
   byDay.set(key, list);
@@ -883,9 +890,26 @@ export function layoutCalendarTasks(
     const visibleMinutes = Math.max(1, MINUTES_PER_DAY - visibleStartMin);
     const rawBlocks = byDay.get(key) ?? [];
     const blocks: CalendarTaskBlock[] = [];
+    const scheduleBlocks: CalendarTaskBlock[] = [];
     const packEnd = getPackEnd(d);
 
     for (const block of rawBlocks) {
+      const packStartMin = block.packStartMin ?? block.startMin;
+      const packEndMin = block.packEndMin ?? block.endMin;
+      if (!block.overdue && packEndMin > packStartMin) {
+        scheduleBlocks.push({
+          ...block,
+          startMin: packStartMin,
+          endMin: packEndMin,
+          packStartMin,
+          packEndMin,
+          topPx: (packStartMin - visibleStartMin) * PX_PER_MINUTE,
+          heightPx: Math.max(
+            MIN_BLOCK_HEIGHT_PX,
+            (packEndMin - packStartMin) * PX_PER_MINUTE,
+          ),
+        });
+      }
       if (block.endMin <= visibleStartMin) continue;
       const startMin = Math.max(block.startMin, visibleStartMin);
       const endMin = block.endMin;
@@ -894,17 +918,22 @@ export function layoutCalendarTasks(
         ...block,
         startMin,
         endMin,
+        packStartMin,
+        packEndMin,
         topPx: (startMin - visibleStartMin) * PX_PER_MINUTE,
         heightPx: Math.max(MIN_BLOCK_HEIGHT_PX, (endMin - startMin) * PX_PER_MINUTE),
       });
     }
 
-    blocks.sort(
-      (a, b) =>
-        a.startMin - b.startMin ||
-        a.endMin - b.endMin ||
-        (a.taskId ?? a.key).localeCompare(b.taskId ?? b.key),
-    );
+    const byTaskKey = (
+      a: CalendarTaskBlock,
+      b: CalendarTaskBlock,
+    ) =>
+      a.startMin - b.startMin ||
+      a.endMin - b.endMin ||
+      (a.taskId ?? a.key).localeCompare(b.taskId ?? b.key);
+    blocks.sort(byTaskKey);
+    scheduleBlocks.sort(byTaskKey);
 
     layouts.push({
       date: d,
@@ -913,6 +942,7 @@ export function layoutCalendarTasks(
       visibleMinutes,
       ...buildPackWindowMarkers(d, now, packEnd, visibleStartMin, getWindowStart(d)),
       blocks,
+      scheduleBlocks,
       hourMarkers: buildHourMarkers(visibleStartMin),
     });
   }
@@ -926,6 +956,7 @@ export function layoutCalendarTasks(
       visibleMinutes: Math.max(1, MINUTES_PER_DAY - visibleStartMin),
       ...buildPackWindowMarkers(todayStart, now, getPackEnd(todayStart), visibleStartMin, getWindowStart(todayStart)),
       blocks: [],
+      scheduleBlocks: [],
       hourMarkers: buildHourMarkers(visibleStartMin),
     });
   }
