@@ -1956,7 +1956,7 @@ function App() {
   const pendingViewScrollTaskIdRef = useRef<string | null>(null);
   const pendingViewPreserveChromeRef = useRef(false);
   const pendingViewChromeHiddenRef = useRef(false);
-  const trayRef = useRef<HTMLDivElement>(null);
+  const trayRef = useRef<HTMLElement>(null);
   const searchFieldRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchButtonRef = useRef<HTMLButtonElement>(null);
@@ -4368,6 +4368,12 @@ function App() {
     return () => window.clearInterval(id);
   }, [activeView]);
 
+  const applyChromeHiddenClass = (hidden: boolean) => {
+    const hideChrome = hidden && collapsedRef.current && !searchOpenRef.current;
+    composerRef.current?.classList.toggle("is-chrome-hidden", hideChrome);
+    trayRef.current?.classList.toggle("is-chrome-hidden", hideChrome);
+  };
+
   const setChromeHidden = (hidden: boolean) => {
     if (chromeHiddenRef.current === hidden) return;
     chromeHiddenRef.current = hidden;
@@ -4375,12 +4381,7 @@ function App() {
 
     // Keep the twineline countdown chrome visible; only hide the collapsed tray.
     twinelineChromeRef.current?.classList.remove("is-chrome-hidden");
-
-    const composer = composerRef.current;
-    const hideComposer = hidden && collapsed && !searchOpen;
-    if (composer) {
-      composer.classList.toggle("is-chrome-hidden", hideComposer);
-    }
+    applyChromeHiddenClass(hidden);
   };
 
   useEffect(() => {
@@ -4450,14 +4451,15 @@ function App() {
     schedulePersistUiSession("dayline");
   }, [timelineDayCount]);
 
-  // Composer sits above app-main; forward wheel so page scroll works over the tray/FAB.
+  // Tray/FAB sit above app-main; forward wheel so page scroll still works over them.
   useEffect(() => {
     const composer = composerRef.current;
+    const tray = trayRef.current;
     const main = mainRef.current;
-    if (!composer || !main) return;
+    if (!main) return;
 
     const onWheel = (event: WheelEvent) => {
-      if (!composer.classList.contains("is-collapsed")) return;
+      if (composer != null && !composer.classList.contains("is-collapsed")) return;
       let dy = event.deltaY;
       let dx = event.deltaX;
       if (event.deltaMode === 1) {
@@ -4471,8 +4473,12 @@ function App() {
       main.scrollBy({ top: dy, left: dx });
     };
 
-    composer.addEventListener("wheel", onWheel, { passive: true });
-    return () => composer.removeEventListener("wheel", onWheel);
+    composer?.addEventListener("wheel", onWheel, { passive: true });
+    tray?.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      composer?.removeEventListener("wheel", onWheel);
+      tray?.removeEventListener("wheel", onWheel);
+    };
   }, []);
 
   // Horizontal swipe on main content cycles Home ↔ Timeline ↔ Discover.
@@ -4754,9 +4760,7 @@ function App() {
     if (!collapsed || searchOpen || moreMenuOpen) {
       setChromeHidden(false);
     } else {
-      const composer = composerRef.current;
-      const hideComposer = chromeHiddenRef.current && activeView === "dayline";
-      composer?.classList.toggle("is-chrome-hidden", hideComposer);
+      applyChromeHiddenClass(chromeHiddenRef.current && activeView === "dayline");
     }
   }, [collapsed, searchOpen, moreMenuOpen, activeView]);
 
@@ -6079,6 +6083,149 @@ function App() {
         ))}
       </main>
 
+      <nav
+        ref={trayRef}
+        className={`app-tray${!collapsed ? " is-composer-open" : ""}${searchOpen ? " is-search-open" : ""}`}
+        aria-label="Main"
+      >
+        <div className="app-tray-tabs ui-glass" aria-hidden={!collapsed || searchOpen}>
+          {[HOME_TAB, null, DISCOVER_TAB].map((tab) => {
+            if (!tab) {
+              return (
+                <button
+                  key="dayline"
+                  type="button"
+                  className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
+                  onClick={() => selectView("dayline")}
+                  tabIndex={collapsed && !searchOpen ? 0 : -1}
+                  aria-label={DAYLINE_TAB.label}
+                >
+                  <DaylineIcon />
+                </button>
+              );
+            }
+            const { id, label, Icon } = tab;
+            return (
+              <button
+                key={id}
+                type="button"
+                className={`app-tray-tab${activeView === id ? " is-active" : ""}`}
+                onClick={() => {
+                  setMoreMenuOpen(false);
+                  selectView(id);
+                }}
+                tabIndex={collapsed && !searchOpen ? 0 : -1}
+                aria-label={label}
+              >
+                <Icon />
+              </button>
+            );
+          })}
+          <div className="app-tray-more">
+            <ComposerOverlayMenu
+              open={moreMenuOpen && !searchOpen}
+              anchorRef={moreButtonRef}
+              menuRef={moreMenuRef}
+              align="end"
+              className="app-tray-more-menu"
+              aria-label="More..."
+            >
+              <LoopingScrollList
+                open={moreMenuOpen && !searchOpen}
+                className="app-tray-more-loop"
+                scrollOffsetRef={moreMenuScrollOffsetRef}
+                defaultAnchor="search"
+                defaultAnchorAlign="end"
+                anchorRef={moreButtonRef}
+              >
+                {(copy) => (
+                  <>
+                    {moreMenuItems.map(({ id, label, Icon }) => (
+                      <button
+                        key={`${copy}-${id}`}
+                        type="button"
+                        className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
+                        role="menuitem"
+                        tabIndex={copy === 1 ? 0 : -1}
+                        onClick={() => selectView(id)}
+                      >
+                        <Icon />
+                        <span>{label}</span>
+                      </button>
+                    ))}
+                    <button
+                      key={`${copy}-search`}
+                      type="button"
+                      className="app-attach-menu-item app-tray-more-search"
+                      role="menuitem"
+                      tabIndex={copy === 1 ? 0 : -1}
+                      data-loop-anchor="search"
+                      onClick={openSearch}
+                    >
+                      <SearchIcon />
+                      <span>Search</span>
+                    </button>
+                    <div
+                      key={`${copy}-seam`}
+                      className="app-tray-more-loop-seam"
+                      role="separator"
+                      aria-label="End of menu"
+                    />
+                  </>
+                )}
+              </LoopingScrollList>
+            </ComposerOverlayMenu>
+            <button
+              ref={moreButtonRef}
+              type="button"
+              className={`app-tray-more-button${
+                moreButtonActive ? " is-active" : moreMenuPending ? " is-menu-open" : ""
+              }`}
+              onClick={() => {
+                setMoreMenuOpen((open) => !open);
+              }}
+              aria-label="More..."
+              aria-expanded={moreMenuOpen}
+              aria-haspopup="menu"
+              tabIndex={collapsed && !searchOpen ? 0 : -1}
+            >
+              <span className="app-tray-more-divider" aria-hidden="true" />
+              <MoreIcon />
+            </button>
+          </div>
+        </div>
+        <div
+          ref={searchFieldRef}
+          className="app-tray-search-field"
+          aria-hidden={!searchOpen}
+        >
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search..."
+            autoComplete="off"
+            enterKeyHint="search"
+            tabIndex={searchOpen ? 0 : -1}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") closeSearch();
+            }}
+          />
+          {searchOpen && (
+            <button
+              ref={searchButtonRef}
+              type="button"
+              className="app-tray-search-close"
+              aria-label="Close search"
+              onClick={closeSearch}
+            >
+              <CloseIcon />
+            </button>
+          )}
+        </div>
+      </nav>
+
       <form
         ref={composerRef}
         className={`app-composer${collapsed ? " is-collapsed" : ""}${attachMenuOpen ? " is-attach-open" : ""}${searchOpen ? " is-search-open" : ""}`}
@@ -6103,145 +6250,6 @@ function App() {
           }
         }}
       >
-        <div className="app-tray" ref={trayRef}>
-          <div className="app-tray-tabs ui-glass" aria-hidden={!collapsed || searchOpen}>
-            {[HOME_TAB, null, DISCOVER_TAB].map((tab) => {
-              if (!tab) {
-                return (
-              <button
-                    key="dayline"
-                type="button"
-                    className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
-                    onClick={() => selectView("dayline")}
-                tabIndex={collapsed && !searchOpen ? 0 : -1}
-                    aria-label={DAYLINE_TAB.label}
-              >
-                    <DaylineIcon />
-              </button>
-                );
-              }
-              const { id, label, Icon } = tab;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  className={`app-tray-tab${activeView === id ? " is-active" : ""}`}
-                  onClick={() => {
-                    setMoreMenuOpen(false);
-                    selectView(id);
-                  }}
-                  tabIndex={collapsed && !searchOpen ? 0 : -1}
-                  aria-label={label}
-                >
-                  <Icon />
-                </button>
-              );
-            })}
-            <div className="app-tray-more">
-              <ComposerOverlayMenu
-                open={moreMenuOpen && !searchOpen}
-                anchorRef={moreButtonRef}
-                menuRef={moreMenuRef}
-                align="end"
-                className="app-tray-more-menu"
-                aria-label="More..."
-              >
-                <LoopingScrollList
-                  open={moreMenuOpen && !searchOpen}
-                  className="app-tray-more-loop"
-                  scrollOffsetRef={moreMenuScrollOffsetRef}
-                  defaultAnchor="search"
-                  defaultAnchorAlign="end"
-                  anchorRef={moreButtonRef}
-                >
-                  {(copy) => (
-                    <>
-                {moreMenuItems.map(({ id, label, Icon }) => (
-                  <button
-                          key={`${copy}-${id}`}
-                    type="button"
-                    className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
-                    role="menuitem"
-                          tabIndex={copy === 1 ? 0 : -1}
-                    onClick={() => selectView(id)}
-                  >
-                    <Icon />
-                    <span>{label}</span>
-                  </button>
-                ))}
-                      <button
-                        key={`${copy}-search`}
-                        type="button"
-                        className="app-attach-menu-item app-tray-more-search"
-                        role="menuitem"
-                        tabIndex={copy === 1 ? 0 : -1}
-                        data-loop-anchor="search"
-                        onClick={openSearch}
-                      >
-                        <SearchIcon />
-                        <span>Search</span>
-                      </button>
-                      <div
-                        key={`${copy}-seam`}
-                        className="app-tray-more-loop-seam"
-                        role="separator"
-                        aria-label="End of menu"
-                      />
-                    </>
-                  )}
-                </LoopingScrollList>
-              </ComposerOverlayMenu>
-              <button
-                ref={moreButtonRef}
-                type="button"
-                className={`app-tray-more-button${
-                  moreButtonActive ? " is-active" : moreMenuPending ? " is-menu-open" : ""
-                }`}
-                onClick={() => {
-                  setMoreMenuOpen((open) => !open);
-                }}
-                aria-label="More..."
-                aria-expanded={moreMenuOpen}
-                aria-haspopup="menu"
-                tabIndex={collapsed && !searchOpen ? 0 : -1}
-              >
-                <span className="app-tray-more-divider" aria-hidden="true" />
-                <MoreIcon />
-              </button>
-            </div>
-          </div>
-          <div
-            ref={searchFieldRef}
-            className="app-tray-search-field"
-            aria-hidden={!searchOpen}
-          >
-            <input
-              ref={searchInputRef}
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search..."
-              autoComplete="off"
-              enterKeyHint="search"
-              tabIndex={searchOpen ? 0 : -1}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") closeSearch();
-              }}
-            />
-            {searchOpen && (
-          <button
-            ref={searchButtonRef}
-            type="button"
-                className="app-tray-search-close"
-                aria-label="Close search"
-                onClick={closeSearch}
-              >
-                <CloseIcon />
-          </button>
-            )}
-          </div>
-        </div>
-
         <div className="app-composer-dock">
           {activeView === "dayline" && collapsed && !searchOpen && (
             <button

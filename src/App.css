@@ -2986,6 +2986,7 @@
   z-index: 10;
   display: flex;
   align-items: flex-end;
+  justify-content: flex-end;
   flex-shrink: 0;
   min-width: 0;
   max-width: 100%;
@@ -2995,19 +2996,27 @@
   transform: translate3d(0, 0, 0);
   transition: transform 0.2s ease;
   will-change: transform;
-}
-
-/* Hide the tray on scroll, but keep the Add FAB pinned in place. */
-.app-composer.is-collapsed.is-chrome-hidden {
   pointer-events: none;
 }
 
-.app-composer.is-collapsed.is-chrome-hidden .app-tray {
-  opacity: 0;
-  visibility: hidden;
+.app-composer > * {
+  pointer-events: auto;
+}
+
+/* Collapsed: hug FAB (+ view toggle); no full-width hit target. */
+.app-composer.is-collapsed {
+  inset-inline: auto;
+  right: 0;
+  width: auto;
+  max-width: none;
+  justify-content: flex-end;
+  align-items: flex-end;
+}
+
+/* Keep FAB clickable when chrome-hide disables the composer shell. */
+.app-composer.is-collapsed.is-chrome-hidden,
+.app-composer.is-collapsed.is-chrome-hidden > * {
   pointer-events: none;
-  transform: translateY(12px);
-  transition-delay: 0s;
 }
 
 .app-composer.is-collapsed.is-chrome-hidden .app-composer-fab.app-composer-fab--toggle,
@@ -3015,63 +3024,53 @@
   pointer-events: auto;
 }
 
-.app-composer.is-collapsed {
-  justify-content: stretch;
-  align-items: flex-end;
-}
-
-.app-composer.is-collapsed.is-search-open {
-  justify-content: stretch;
-}
-
 .app-tray {
   position: absolute;
   left: var(--space);
-  right: calc(var(--space) + var(--tap) + 10px);
-  height: auto;
-  min-height: var(--tray-pill);
-  z-index: 1;
+  right: calc(var(--space) + var(--fab-size) + 10px);
+  bottom: 0;
+  z-index: 9;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
+  height: auto;
+  min-height: var(--tray-pill);
+  padding: 4px 0 calc(12px + var(--safe-bottom));
+  box-sizing: content-box;
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+  pointer-events: none;
   transition:
     right 0.28s ease,
     left 0.28s ease,
     opacity 0.25s ease 0.1s,
     transform 0.28s ease 0.1s,
-    visibility 0.25s ease 0.1s,
-    max-width 0.28s ease;
+    visibility 0.25s ease 0.1s;
 }
 
-.app-composer.is-collapsed .app-tray {
-  position: relative;
-  left: auto;
-  right: auto;
-  flex: 1 1 auto;
-  max-width: calc(100% - var(--fab-size) - 10px);
-  justify-content: flex-end;
+.app-tray > * {
+  pointer-events: auto;
 }
 
-.app-composer.is-collapsed.is-search-open .app-tray {
-  flex: 1;
-  max-width: calc(100% - var(--fab-size) - 10px);
+.app-tray.is-search-open {
+  right: calc(var(--space) + var(--fab-size) + 10px);
 }
 
-.app-composer.is-search-open .app-tray {
-  right: var(--space);
-}
-
-.app-composer:not(.is-collapsed) .app-tray {
+.app-tray.is-composer-open,
+.app-tray.is-chrome-hidden {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transform: translateY(10px);
+  transform: translateY(12px);
   transition-delay: 0s;
+}
+
+.app-tray.is-composer-open > *,
+.app-tray.is-chrome-hidden > * {
+  pointer-events: none;
 }
 
 .ui-glass {
@@ -3119,7 +3118,7 @@
     margin 0.28s ease;
 }
 
-.app-composer.is-search-open .app-tray-tabs {
+.app-tray.is-search-open .app-tray-tabs {
   max-width: 0;
   margin: 0;
   padding: 0;
@@ -3145,7 +3144,7 @@
     transform 0.28s ease;
 }
 
-.app-composer.is-search-open .app-tray-search-field {
+.app-tray.is-search-open .app-tray-search-field {
   max-width: 100%;
   opacity: 1;
   pointer-events: auto;
@@ -3818,6 +3817,14 @@
 .app-composer.is-search-open .app-composer-field {
   opacity: 0;
   pointer-events: none;
+}
+
+.app-composer:not(.is-collapsed) {
+  pointer-events: none;
+}
+
+.app-composer:not(.is-collapsed) > * {
+  pointer-events: auto;
 }
 
 .app-composer:not(.is-collapsed) .app-composer-dock {
