@@ -3521,13 +3521,6 @@
   position: fixed;
 }
 
-.app-tray-more-menu-divider {
-  height: 1px;
-  margin: 6px 12px;
-  background: var(--border);
-  flex-shrink: 0;
-}
-
 .app-loop-scroll-shell {
   position: relative;
   isolation: isolate;
@@ -4902,6 +4895,8 @@
   min-width: 0;
   padding: 0 8px;
   gap: 8px;
+  justify-content: center;
+  text-align: center;
 }
 
 .app-compose-kind-menu-span {
@@ -4913,6 +4908,13 @@
   margin: 6px 12px;
   background: var(--border);
   flex-shrink: 0;
+}
+
+.app-compose-kind-menu-divider-half {
+  width: 50%;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
 }
 
 .app-compose-kind-menu-divider-vert {

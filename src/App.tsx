@@ -340,6 +340,21 @@ function CalendarIcon() {
   );
 }
 
+function DayvisionIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3.5v17"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeDasharray="2.2 3.2"
+      />
+    </svg>
+  );
+}
+
 function CheckIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -348,6 +363,32 @@ function CheckIcon() {
         fill="none"
         stroke="currentColor"
         strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** Square checkbox with check — list item. */
+function ListItemIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect
+        x="4"
+        y="4"
+        width="16"
+        height="16"
+        rx="2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M8 12.2 10.8 15 16.2 9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -468,19 +509,27 @@ function MenuBarsIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
-        d="M9 7h11M9 12h11M9 17h11"
+        d="M4.5 6.5H20"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
       />
+      <rect x="3.95" y="10.95" width="3.1" height="3.1" rx="0.4" fill="currentColor" />
       <path
-        d="m4 7 1.2 1.2L7.5 6M4 12l1.2 1.2L7.5 11M4 17l1.2 1.2L7.5 16"
+        d="M11.5 12.5H20"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
-        strokeLinejoin="round"
+      />
+      <rect x="3.95" y="16.95" width="3.1" height="3.1" rx="0.4" fill="currentColor" />
+      <path
+        d="M11.5 18.5H20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
       />
     </svg>
   );
@@ -557,21 +606,21 @@ function PlansIcon() {
         strokeWidth="1.8"
         strokeLinecap="round"
       />
+      <circle cx="5.5" cy="12.5" r="1.55" fill="currentColor" />
       <path
-        d="m4.5 12.5 1.4 1.4L9 10.8M11.5 12.5H20"
+        d="M11.5 12.5H20"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
+      <circle cx="5.5" cy="18.5" r="1.55" fill="currentColor" />
       <path
-        d="m4.5 18.5 1.4 1.4L9 16.8M11.5 18.5H20"
+        d="M11.5 18.5H20"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
     </svg>
   );
@@ -966,13 +1015,19 @@ const COMPOSE_KINDS = [
     Icon: MenuBarsIcon,
   },
   {
+    id: "calendar",
+    label: "Dayvision",
+    placeholder: "Name this dayvision...",
+    Icon: DayvisionIcon,
+  },
+  {
     id: "event",
     label: "Event",
     placeholder: "What's the event?",
     Icon: CalendarIcon,
   },
   { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
-  { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ShoppingBagIcon },
+  { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ListItemIcon },
   { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
   { id: "log", label: "Entry", placeholder: "What happened?", Icon: LogIcon },
   {
@@ -984,7 +1039,13 @@ const COMPOSE_KINDS = [
 ] as const;
 
 /** Kept for view-specific compose; hidden from the compose-type menu. */
-const CONTAINER_QUICK_ADD_KIND_IDS = ["plan", "collection", "list", "notebook"] as const;
+const CONTAINER_QUICK_ADD_KIND_IDS = [
+  "plan",
+  "collection",
+  "list",
+  "notebook",
+  "calendar",
+] as const;
 type ContainerQuickAddKind = (typeof CONTAINER_QUICK_ADD_KIND_IDS)[number];
 
 function isContainerQuickAddKind(kind: string): kind is ContainerQuickAddKind {
@@ -997,6 +1058,7 @@ const CONTAINER_COMPOSE_KIND_IDS = [
   "notebook",
   "plan",
   "list",
+  "calendar",
 ] as const;
 type ContainerComposeKind = (typeof CONTAINER_COMPOSE_KIND_IDS)[number];
 
@@ -1016,6 +1078,7 @@ function isContainerTaskType(type: string | null | undefined): boolean {
   return (
     type === "list" ||
     type === "notebook" ||
+    type === "calendar" ||
     isPlanTaskType(type) ||
     isCollectionTaskType(type)
   );
@@ -1031,7 +1094,7 @@ const LINK_ITEM_TYPE_ITEMS = [
   { id: "task", label: "Tasks", Icon: TasksListIcon },
   { id: "note", label: "Notes", Icon: NotesIcon },
   { id: "event", label: "Events", Icon: CalendarIcon },
-  { id: "item", label: "Items", Icon: ShoppingBagIcon },
+  { id: "item", label: "Items", Icon: ListItemIcon },
 ] as const;
 
 const LINK_CONTAINER_TYPE_ITEMS = [
@@ -1042,6 +1105,7 @@ const LINK_CONTAINER_TYPE_ITEMS = [
 
 const COMPOSE_CONTAINER_TYPE_ITEMS = [
   { id: "collection", label: "Collection", Icon: CollectionOrbitIcon },
+  { id: "calendar", label: "Dayvision", Icon: DayvisionIcon },
   { id: "notebook", label: "Notebook", Icon: NotebookIcon },
   { id: "plan", label: "Plan", Icon: PlansIcon },
   { id: "list", label: "List", Icon: MenuBarsIcon },
@@ -1063,9 +1127,10 @@ function defaultLinkPickerType(composeKind: string): LinkPickerType {
   return isLinkPickerType(composeKind) ? composeKind : "all";
 }
 
-/** Compose-type menu: Collection (top) · left/right columns · AI Assistant (bottom). */
+/** Compose-type menu: Collection (top) · left/right columns · Entry · AI Assistant (bottom). */
 const COMPOSE_KIND_MENU_TOP = COMPOSE_KINDS.find((kind) => kind.id === "collection")!;
-const COMPOSE_KIND_MENU_LEFT_IDS = ["notebook", "list", "plan"] as const;
+/** Left column top→bottom: Dayvision, Notebook, List, Plan (Plan nearest the composer). */
+const COMPOSE_KIND_MENU_LEFT_IDS = ["calendar", "notebook", "list", "plan"] as const;
 const COMPOSE_KIND_MENU_RIGHT_IDS = ["event", "note", "item", "task"] as const;
 const COMPOSE_KIND_MENU_LEFT = COMPOSE_KIND_MENU_LEFT_IDS.map(
   (id) => COMPOSE_KINDS.find((kind) => kind.id === id)!,
@@ -1128,7 +1193,7 @@ const MAIN_SWIPE_MAX_SLOPE = 0.75;
 
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: TasksListIcon },
-  { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
+  { id: "lists", label: "Lists", Icon: MenuBarsIcon },
   { id: "groceries", label: "Groceries", Icon: FoodIcon },
   { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
   { id: "fitness", label: "Fitness", Icon: FitnessIcon },
@@ -1138,15 +1203,31 @@ const MORE_OPTIONS = [
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ] as const;
 
-/** More menu: Collections (top) · Notes / Lists / Plans / Tasks · Search (bottom). */
+/** More menu mirrors compose-kind layout; only these views are wired. */
 const TEND_MENU_TOP = COLLECTIONS_TAB;
-const TEND_MENU_MID = [
-  NOTES_TAB,
-  { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
-  PLANS_TAB,
-  { id: "tasks", label: "Tasks", Icon: TasksListIcon },
+const TEND_MENU_LISTS = { id: "lists", label: "Lists", Icon: MenuBarsIcon } as const;
+const TEND_MENU_TASKS = { id: "tasks", label: "Tasks", Icon: TasksListIcon } as const;
+/** Left column (compose layout): Dayvisions · Notebooks · Lists · Plans. */
+const TEND_MENU_LEFT = [
+  { id: "calendar", label: "Dayvisions", Icon: DayvisionIcon, view: null },
+  { id: "notebook", label: "Notebooks", Icon: NotebookIcon, view: null },
+  { id: "lists", label: "Lists", Icon: MenuBarsIcon, view: "lists" as const },
+  { id: "plans", label: "Plans", Icon: PlansIcon, view: "plans" as const },
 ] as const;
-const TEND_MENU_ITEMS = [TEND_MENU_TOP, ...TEND_MENU_MID] as const;
+/** Right column (compose layout): Events · Notes · Items · Tasks. */
+const TEND_MENU_RIGHT = [
+  { id: "event", label: "Events", Icon: CalendarIcon, view: null },
+  { id: "notes", label: "Notes", Icon: NotesIcon, view: "notes" as const },
+  { id: "item", label: "Items", Icon: ListItemIcon, view: null },
+  { id: "tasks", label: "Tasks", Icon: TasksListIcon, view: "tasks" as const },
+] as const;
+const TEND_MENU_ITEMS = [
+  TEND_MENU_TOP,
+  NOTES_TAB,
+  TEND_MENU_LISTS,
+  PLANS_TAB,
+  TEND_MENU_TASKS,
+] as const;
 
 const PROFILE_MENU_NAME = "Kai";
 
@@ -2989,6 +3070,7 @@ function App() {
     plan: upsertContainerDraft,
     collection: upsertCollectionDraft,
     notebook: upsertContainerDraft,
+    calendar: upsertContainerDraft,
     event: (_draft) => {},
     list: upsertContainerDraft,
     note: (_draft) => {},
@@ -3037,7 +3119,9 @@ function App() {
     } else {
       setTasks((current) => [draft, ...current]);
     }
-    setLinkContainerType(linkQuickAddKind);
+    if (isLinkPickerType(linkQuickAddKind)) {
+      setLinkContainerType(linkQuickAddKind);
+    }
     if (linkRelation === "child") {
       const previousChildId = pendingChildId;
       setPendingChildId(draft.id);
@@ -6617,35 +6701,76 @@ function App() {
               anchorRef={moreButtonRef}
               menuRef={moreMenuRef}
               align="end"
-              className="app-tray-more-menu"
+              className="app-tray-more-menu app-compose-kind-menu"
               aria-label="More..."
             >
               <button
                 type="button"
-                className={`app-attach-menu-item${activeView === TEND_MENU_TOP.id ? " is-selected" : ""}`}
+                className={`app-attach-menu-item app-compose-kind-menu-span${activeView === TEND_MENU_TOP.id ? " is-selected" : ""}`}
                 role="menuitem"
                 onClick={() => selectView(TEND_MENU_TOP.id)}
               >
                 <TEND_MENU_TOP.Icon />
                 <span>{TEND_MENU_TOP.label}</span>
               </button>
-              <div className="app-tray-more-menu-divider" role="separator" />
-              {TEND_MENU_MID.map(({ id, label, Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
-                  role="menuitem"
-                  onClick={() => selectView(id)}
-                >
-                  <Icon />
-                  <span>{label}</span>
-                </button>
-              ))}
-              <div className="app-tray-more-menu-divider" role="separator" />
+              <div
+                className="app-compose-kind-menu-divider app-compose-kind-menu-divider-half"
+                role="separator"
+              />
+              <div className="app-compose-kind-menu-columns">
+                <div className="app-compose-kind-menu-column">
+                  {TEND_MENU_LEFT.map(({ id, label, Icon, view }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`app-attach-menu-item${view != null && activeView === view ? " is-selected" : ""}`}
+                      role="menuitem"
+                      onClick={() => {
+                        if (view != null) selectView(view);
+                        else setMoreMenuOpen(false);
+                      }}
+                    >
+                      <Icon />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+                <div
+                  className="app-compose-kind-menu-divider app-compose-kind-menu-divider-vert"
+                  role="separator"
+                />
+                <div className="app-compose-kind-menu-column">
+                  {TEND_MENU_RIGHT.map(({ id, label, Icon, view }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`app-attach-menu-item${view != null && activeView === view ? " is-selected" : ""}`}
+                      role="menuitem"
+                      onClick={() => {
+                        if (view != null) selectView(view);
+                        else setMoreMenuOpen(false);
+                      }}
+                    >
+                      <Icon />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="app-compose-kind-menu-divider" role="separator" />
               <button
                 type="button"
-                className="app-attach-menu-item app-tray-more-search"
+                className="app-attach-menu-item app-compose-kind-menu-span"
+                role="menuitem"
+                onClick={() => setMoreMenuOpen(false)}
+              >
+                <LogIcon />
+                <span>Entries</span>
+              </button>
+              <div className="app-compose-kind-menu-divider" role="separator" />
+              <button
+                type="button"
+                className="app-attach-menu-item app-compose-kind-menu-span app-tray-more-search"
                 role="menuitem"
                 onClick={openSearch}
               >
@@ -8226,7 +8351,10 @@ function App() {
                     <COMPOSE_KIND_MENU_TOP.Icon />
                     <span>{COMPOSE_KIND_MENU_TOP.label}</span>
                   </button>
-                  <div className="app-compose-kind-menu-divider" role="separator" />
+                  <div
+                    className="app-compose-kind-menu-divider app-compose-kind-menu-divider-half"
+                    role="separator"
+                  />
                   <div className="app-compose-kind-menu-columns">
                     <div className="app-compose-kind-menu-column">
                       {COMPOSE_KIND_MENU_LEFT.map(({ id, label, Icon }) => (
@@ -8248,22 +8376,6 @@ function App() {
                           <span>{label}</span>
                         </button>
                       ))}
-                      <button
-                        type="button"
-                        className={`app-attach-menu-item${composeKind === "log" ? " is-selected" : ""}`}
-                        role="menuitem"
-                        onClick={() => {
-                          clearComposerMetaAuto("type");
-                          setComposeKind("log");
-                          setComposeKindMenuOpen(false);
-                        }}
-                      >
-                        <span className="app-compose-kind-plus is-check" aria-hidden="true">
-                          <CheckIcon />
-                        </span>
-                        <LOG_COMPOSE_KIND.Icon />
-                        <span>{LOG_COMPOSE_KIND.label}</span>
-                      </button>
                     </div>
                     <div
                       className="app-compose-kind-menu-divider app-compose-kind-menu-divider-vert"
@@ -8291,6 +8403,23 @@ function App() {
                       ))}
                     </div>
                   </div>
+                  <div className="app-compose-kind-menu-divider" role="separator" />
+                  <button
+                    type="button"
+                    className={`app-attach-menu-item app-compose-kind-menu-span${composeKind === "log" ? " is-selected" : ""}`}
+                    role="menuitem"
+                    onClick={() => {
+                      clearComposerMetaAuto("type");
+                      setComposeKind("log");
+                      setComposeKindMenuOpen(false);
+                    }}
+                  >
+                    <span className="app-compose-kind-plus is-check" aria-hidden="true">
+                      <CheckIcon />
+                    </span>
+                    <LOG_COMPOSE_KIND.Icon />
+                    <span>{LOG_COMPOSE_KIND.label}</span>
+                  </button>
                   <div className="app-compose-kind-menu-divider" role="separator" />
                   <button
                     type="button"
