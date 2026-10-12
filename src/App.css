@@ -2500,6 +2500,20 @@
   transform-origin: right center;
 }
 
+/* At Risk: soft-colored elapsed fill grows from the left (opposite of Current focus). */
+.task-row-countdown.is-elapsed-fill {
+  justify-content: flex-start;
+  background: color-mix(in srgb, var(--border) 70%, var(--bg-raised));
+}
+
+.task-row-countdown.is-elapsed-fill .task-row-countdown-fill {
+  transform-origin: left center;
+}
+
+.task-day-at-risk {
+  margin-top: 0;
+}
+
 .task-row-primary {
   display: flex;
   flex-direction: column;

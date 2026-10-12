@@ -123,6 +123,13 @@ function isAnchoredTask(task: ComposerDraft): boolean {
   );
 }
 
+/** Timed = has clock time; soft = date-only or undated (slides on the timeline). */
+function isTimedTask(task: ComposerDraft): boolean {
+  return (
+    parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null
+  );
+}
+
 function buildDayWheelSlices(
   blocks: Array<{
     key: string;
@@ -1227,6 +1234,7 @@ function CompactTaskRow({
   isCurrentFocus = false,
   countdownProgress = null,
   countdownBarColor = null,
+  countdownElapsedFill = false,
   onComplete,
   onEdit,
   onSetFocus,
@@ -1241,6 +1249,8 @@ function CompactTaskRow({
   isCurrentFocus?: boolean;
   countdownProgress?: number | null;
   countdownBarColor?: string | null;
+  /** When true, progress is elapsed (fill grows from left) — At Risk bars. */
+  countdownElapsedFill?: boolean;
   onComplete: () => void;
   onEdit: () => void;
   onSetFocus?: () => void;
@@ -1276,7 +1286,8 @@ function CompactTaskRow({
             ? "LOG"
             : "TASK";
   const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
-  const scheduleAuto = hasMetaAuto(task, "schedule");
+  // Repeat tasks keep grey schedule text even when completion/Automatic moved the date.
+  const scheduleAuto = hasMetaAuto(task, "schedule") && !isRecurring;
   const urgencyAuto = hasMetaAuto(task, "urgency");
   const durationAuto = hasMetaAuto(task, "duration");
   const impactAuto = hasMetaAuto(task, "impact");
@@ -1294,18 +1305,23 @@ function CompactTaskRow({
       >
         {showCountdownBar && (
           <div
-            className="task-row-countdown"
+            className={`task-row-countdown${countdownElapsedFill ? " is-elapsed-fill" : ""}`}
             aria-hidden="true"
             style={
-              countdownBarColor != null
-                ? { background: countdownBarColor }
-                : undefined
+              countdownElapsedFill
+                ? undefined
+                : countdownBarColor != null
+                  ? { background: countdownBarColor }
+                  : undefined
             }
           >
             <div
               className="task-row-countdown-fill"
               style={{
                 width: `${Math.min(1, Math.max(0, countdownProgress)) * 100}%`,
+                ...(countdownElapsedFill && countdownBarColor != null
+                  ? { background: countdownBarColor }
+                  : undefined),
               }}
             />
           </div>
@@ -1951,11 +1967,20 @@ function App() {
   const [todaySoftPackPlan, setTodaySoftPackPlan] = useState<TodaySoftPackPlan | null>(() =>
     loadTodaySoftPackPlan(),
   );
+  /** Softs whose At Risk countdown expired — stay in Overflow until rescheduled. */
+  const [forcedOverflowIds, setForcedOverflowIds] = useState<Set<string>>(() => new Set());
   /** Undated ids released by Automatic this calendar day — baseline merge must not re-add. */
   const autoReleasedBaselineIdsRef = useRef<{ dayKey: string; ids: Set<string> }>({
     dayKey: "",
     ids: new Set(),
   });
+  /** Duration countdown anchor while a soft is At Risk. */
+  const atRiskCountdownAnchorRef = useRef<{
+    taskId: string;
+    dayKey: string;
+    startedAtMs: number;
+    durationMs: number;
+  } | null>(null);
   const composerRef = useRef<HTMLFormElement>(null);
   const composerFieldRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -2013,12 +2038,12 @@ function App() {
   selectedDayRef.current = selectedDay;
   const countdownNowRef = useRef(countdownNow);
   countdownNowRef.current = countdownNow;
-  /** Snapshot remaining ms when Rest / Free time begins so the bar can drain. */
+  /** Snapshot remaining ms when Rest / Break begins so the bar can drain. */
   const focusStatusCountdownTotalRef = useRef<{
-    mode: "rest" | "reschedule" | "free" | null;
+    mode: "rest" | "reschedule" | "break" | null;
     totalMs: number;
   }>({ mode: null, totalMs: 0 });
-  /** Frozen pack/focus start for active Current focus task countdown (not Free/Rest). */
+  /** Frozen pack/focus start for active timed Current focus countdown. */
   const focusTaskCountdownAnchorRef = useRef<{
     taskId: string;
     startedAtMs: number;
@@ -2145,7 +2170,7 @@ function App() {
   const nonContainerTasks = tasks.filter((task) => !isContainerTaskType(task.type));
   const tasksForCalendar = (
     daySnoozed ? nonContainerTasks.filter((task) => !isUndatedTask(task)) : nonContainerTasks
-  );
+  ).filter((task) => task.id == null || !forcedOverflowIds.has(task.id));
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const appliedTodayBegins = resolveWindowStartTime(
@@ -2167,11 +2192,7 @@ function App() {
   const focusLocked = currentFocus?.dayKey === todayKeyStr && currentFocus.locked === true;
   /** Only a locked focus is force-pinned so packing cannot push it to overflow. */
   const pinnedFocusId = focusLocked ? todayFocusId : null;
-  const frozenSoftPlacements =
-    todaySoftPackPlan?.dayKey === todayKeyStr &&
-    todaySoftPackPlan.windowSig === appliedTodayWindowSig
-      ? todaySoftPackPlan.placements
-      : [];
+  // Soft freeze pins disabled — softs slide from live now around timed anchors.
   const calendarTasksLayout = layoutCalendarTasks(
     tasksForCalendar,
     new Date(countdownNow),
@@ -2180,30 +2201,25 @@ function App() {
     getWindowStartTimeForDay,
     baselineIds,
     pinnedFocusId,
-    frozenSoftPlacements,
+    [],
   );
   const calendarTaskLayout = calendarTasksLayout.days;
   const todayLayoutForOverflow = calendarTaskLayout.find(
     (day) => day.dayKey === todayKeyStr,
   );
-  const fullyOvertakenSoftTasks = (todayLayoutForOverflow?.scheduleBlocks ?? [])
-    .filter((block) => {
-      const end = block.packEndMin ?? block.endMin;
-      if (end > nowMinutes) return false;
-      const task = block.task;
-      return (
-        parseTimeOfDay(task.starts_at) == null && parseTimeOfDay(task.due_at) == null
-      );
-    })
-    .map((block) => block.task);
+  const todayEndSlackMin = calendarTasksLayout.todayEndSlackMin;
+  const layoutAtRiskTask = calendarTasksLayout.atRiskTask;
   const layoutOverdueIds = new Set(
     calendarTasksLayout.overdueTasks
       .map((task) => task.id)
       .filter((id): id is string => id != null),
   );
+  const forcedOverflowTasks = nonContainerTasks.filter(
+    (task) => task.id != null && forcedOverflowIds.has(task.id),
+  );
   const overdueTasks = [
     ...calendarTasksLayout.overdueTasks,
-    ...fullyOvertakenSoftTasks.filter(
+    ...forcedOverflowTasks.filter(
       (task) => task.id != null && !layoutOverdueIds.has(task.id),
     ),
   ];
@@ -2305,33 +2321,65 @@ function App() {
     return start <= nowMinutes && end > nowMinutes;
   });
   const overtakenFocusBlock = overtakenPlanBlocks[0] ?? null;
-  const upNextPlanBlocks = todayPlanBlocks.filter((block) => {
+  const upNextPlanBlocksAll = todayPlanBlocks.filter((block) => {
     const start = block.packStartMin ?? block.startMin;
     return start > nowMinutes;
   });
+  const firstUpcomingSoftBlock =
+    upNextPlanBlocksAll.find((block) => !isTimedTask(block.task)) ?? null;
+  const firstUpcomingSoft = firstUpcomingSoftBlock?.task ?? null;
+  const atRiskTask =
+    layoutAtRiskTask != null &&
+    layoutAtRiskTask.id != null &&
+    !forcedOverflowIds.has(layoutAtRiskTask.id)
+      ? layoutAtRiskTask
+      : null;
   const pinnedFocusTask =
     todayFocusId != null
       ? (tasks.find((task) => task.id === todayFocusId) ?? null)
       : null;
-  const todayFocusTask = overtakenFocusBlock?.task ?? pinnedFocusTask ?? null;
-  const todayFocusLayoutBlock = overtakenFocusBlock;
-  const focusPackedStartMin =
-    upNextPlanBlocks.length > 0
-      ? (upNextPlanBlocks[0].packStartMin ?? upNextPlanBlocks[0].startMin)
-      : null;
   const nothingCurrentlyOvertaken = overtakenPlanBlocks.length === 0;
-  // Free time: nothing currently overtaken, but Up next remains.
-  const focusFreeTimeMode =
-    nothingCurrentlyOvertaken && focusPackedStartMin != null;
+  // Focus: overtaken task, else next soft while end-of-day slack remains.
+  const todayFocusTask =
+    overtakenFocusBlock?.task ??
+    (nothingCurrentlyOvertaken && todayEndSlackMin > 0
+      ? firstUpcomingSoft
+      : null) ??
+    pinnedFocusTask ??
+    null;
+  const focusPackedStartMin =
+    upNextPlanBlocksAll.length > 0
+      ? (upNextPlanBlocksAll[0].packStartMin ?? upNextPlanBlocksAll[0].startMin)
+      : null;
+  // Up next excludes At Risk soft and the soft already shown as Current focus.
+  const upNextPlanBlocks = upNextPlanBlocksAll.filter((block) => {
+    const id = block.task.id;
+    if (id == null) return true;
+    if (atRiskTask?.id === id) return false;
+    if (
+      nothingCurrentlyOvertaken &&
+      todayEndSlackMin > 0 &&
+      firstUpcomingSoft?.id === id
+    ) {
+      return false;
+    }
+    return true;
+  });
   // No Up next left → Reschedule if Overflow has work, else Rest.
   const focusRescheduleOverflowMode =
     nothingCurrentlyOvertaken &&
-    upNextPlanBlocks.length === 0 &&
+    upNextPlanBlocksAll.length === 0 &&
     overflowTaskCount > 0;
   const focusRestMode =
     nothingCurrentlyOvertaken &&
-    upNextPlanBlocks.length === 0 &&
+    upNextPlanBlocksAll.length === 0 &&
     overflowTaskCount === 0;
+  // Break: end slack gone and nothing overtaken (gap before next / idle flush day).
+  const focusBreakMode =
+    nothingCurrentlyOvertaken &&
+    todayEndSlackMin === 0 &&
+    !focusRescheduleOverflowMode &&
+    !focusRestMode;
   const tomorrowStart = addDays(todayStart, 1);
   const nextDayWindowStartMin = packWindowStartMinutes(
     getWindowStartTimeForDay(tomorrowStart),
@@ -2344,18 +2392,18 @@ function App() {
     nowMinutes < todayWindowStartMinutes
       ? todayStart.getTime() + todayWindowStartMinutes * 60_000
       : nextDayWindowStartMs;
-  // Free time still counts down to packed start. Active task countdown uses a
-  // frozen pack/focus start so soft re-packing cannot reset remaining time.
+  // Timed overtaken only — soft focus has no countdown.
+  const focusTaskIsTimed =
+    todayFocusTask != null && isTimedTask(todayFocusTask);
   const focusTaskCountdownActive =
-    !focusRestMode &&
-    !focusRescheduleOverflowMode &&
-    !focusFreeTimeMode &&
+    overtakenFocusBlock != null &&
+    focusTaskIsTimed &&
     todayFocusTask?.id != null &&
-    todayFocusLayoutBlock != null;
+    !focusLocked;
   if (focusTaskCountdownActive && todayFocusTask.id != null) {
     const durationMs = Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000);
     const packStartMin =
-      todayFocusLayoutBlock.packStartMin ?? todayFocusLayoutBlock.startMin;
+      overtakenFocusBlock.packStartMin ?? overtakenFocusBlock.startMin;
     const packStartMs = todayStart.getTime() + packStartMin * 60_000;
     const anchor = focusTaskCountdownAnchorRef.current;
     if (anchor == null || anchor.taskId !== todayFocusTask.id) {
@@ -2370,12 +2418,6 @@ function App() {
   } else if (focusTaskCountdownAnchorRef.current != null) {
     focusTaskCountdownAnchorRef.current = null;
   }
-  const focusCountdownTargetMin =
-    focusRestMode || focusRescheduleOverflowMode
-      ? null
-      : focusFreeTimeMode
-        ? focusPackedStartMin
-        : null;
   const focusTaskCountdownMs = (() => {
     const anchor = focusTaskCountdownAnchorRef.current;
     if (!focusTaskCountdownActive || anchor == null) return null;
@@ -2384,9 +2426,11 @@ function App() {
   const focusCountdownMs =
     focusRestMode || focusRescheduleOverflowMode
       ? restCountdownTargetMs - countdownNow
-      : focusFreeTimeMode && focusCountdownTargetMin != null
-        ? todayStart.getTime() + focusCountdownTargetMin * 60_000 - countdownNow
-        : focusTaskCountdownMs;
+      : focusBreakMode && focusPackedStartMin != null
+        ? todayStart.getTime() + focusPackedStartMin * 60_000 - countdownNow
+        : focusBreakMode
+          ? restCountdownTargetMs - countdownNow
+          : focusTaskCountdownMs;
   const focusCountdownLabel =
     !focusLocked && focusCountdownMs != null
       ? `- ${formatCountdown(focusCountdownMs, { hideZeroHours: true })}`
@@ -2395,8 +2439,8 @@ function App() {
     ? ("rest" as const)
     : focusRescheduleOverflowMode
       ? ("reschedule" as const)
-      : focusFreeTimeMode
-        ? ("free" as const)
+      : focusBreakMode
+        ? ("break" as const)
         : null;
   if (focusStatusMode != null && focusCountdownMs != null && focusCountdownMs > 0) {
     if (focusStatusCountdownTotalRef.current.mode !== focusStatusMode) {
@@ -2408,25 +2452,24 @@ function App() {
   } else if (focusStatusCountdownTotalRef.current.mode != null) {
     focusStatusCountdownTotalRef.current = { mode: null, totalMs: 0 };
   }
-  // Task: duration (stable). Rest / Free time: remaining when that mode began.
+  // Timed task: duration. Rest / Break: remaining when that mode began.
   const focusCountdownTotalMs =
     focusStatusMode != null
       ? focusStatusCountdownTotalRef.current.totalMs
       : focusTaskCountdownAnchorRef.current != null
         ? focusTaskCountdownAnchorRef.current.durationMs
-        : todayFocusTask != null && todayFocusLayoutBlock != null
-          ? Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000)
-          : null;
+        : null;
   const focusCountdownProgress =
     !focusLocked &&
     focusCountdownMs != null &&
     focusCountdownTotalMs != null
       ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
       : null;
-  // Per currently-overtaken task: remaining/duration from frozen pack start.
+  // Timed overtaken only: remaining/duration from pack start.
   const overtakenCountdownByTaskId = new Map<string, number>();
   if (!focusLocked) {
     for (const block of overtakenPlanBlocks) {
+      if (!isTimedTask(block.task)) continue;
       const taskId = block.task.id;
       if (taskId == null) continue;
       const durationMs = Math.max(1, taskDurationMinutes(block.task) * 60_000);
@@ -2439,14 +2482,53 @@ function App() {
       );
     }
   }
+
+  // At Risk duration countdown (elapsed fill); starts when task enters At Risk.
+  let atRiskCountdownProgress: number | null = null;
+  let atRiskCountdownMs: number | null = null;
+  if (atRiskTask?.id != null) {
+    const durationMs = Math.max(1, taskDurationMinutes(atRiskTask) * 60_000);
+    const anchor = atRiskCountdownAnchorRef.current;
+    if (
+      anchor == null ||
+      anchor.taskId !== atRiskTask.id ||
+      anchor.dayKey !== todayKeyStr
+    ) {
+      atRiskCountdownAnchorRef.current = {
+        taskId: atRiskTask.id,
+        dayKey: todayKeyStr,
+        startedAtMs: countdownNow,
+        durationMs,
+      };
+    } else if (anchor.durationMs !== durationMs) {
+      atRiskCountdownAnchorRef.current = { ...anchor, durationMs };
+    }
+    const live = atRiskCountdownAnchorRef.current!;
+    atRiskCountdownMs = Math.max(
+      0,
+      live.durationMs - (countdownNow - live.startedAtMs),
+    );
+    const elapsed = Math.min(
+      1,
+      Math.max(0, (countdownNow - live.startedAtMs) / live.durationMs),
+    );
+    atRiskCountdownProgress = elapsed;
+  } else {
+    atRiskCountdownAnchorRef.current = null;
+  }
+
   const nowSkyColor = daySkyColorAtMinutes(nowMinutes);
 
-  // Overtaken work lives in Current focus; Up next only lists not-yet-started.
   const upNextCountdownTaskId: string | null = null;
   const upNextCountdownProgress: number | null = null;
   const upNextCountdownLabel: string | null = null;
   const showFocusCountdownOnCurrent = focusCountdownLabel != null;
   const showFocusCountdownBarOnCurrent = focusCountdownProgress != null;
+  const showUpcomingSoftAsFocus =
+    nothingCurrentlyOvertaken &&
+    todayEndSlackMin > 0 &&
+    firstUpcomingSoft != null &&
+    todayFocusTask?.id === firstUpcomingSoft.id;
   const dayElapsedPct = Math.min(
     100,
     Math.max(0, (nowMinutes / MINUTES_PER_DAY) * 100),
@@ -3300,10 +3382,14 @@ function App() {
       ? "anchored"
       : "soft";
   const dueDateActivated = composerDate != null;
+  // Repeat tasks: green schedule icon + no orange auto chip (completion / Automatic).
   const scheduleIsGreen =
-    scheduleToolActivated || (dueDateActivated && !composerAutoRescheduled);
+    scheduleToolActivated ||
+    (dueDateActivated && (!composerAutoRescheduled || recurringActivated));
   const scheduleIsOrange =
-    !scheduleIsGreen && (composerAutoRescheduled || dueDateActivated);
+    !scheduleIsGreen &&
+    !recurringActivated &&
+    (composerAutoRescheduled || dueDateActivated);
   const dueDateButtonClassName = [
     "app-composer-tool",
     "app-composer-tool-accent",
@@ -3363,7 +3449,8 @@ function App() {
             ? "LOG"
             : "TASK";
   const composerScheduleAuto =
-    composerMetaAuto.has("schedule") || composerAutoRescheduled;
+    !composerIsRecurring &&
+    (composerMetaAuto.has("schedule") || composerAutoRescheduled);
   const composerUrgencyAuto = composerMetaAuto.has("urgency");
   const composerDurationAuto = composerMetaAuto.has("duration");
   const composerImpactAuto = composerMetaAuto.has("impact");
@@ -4134,11 +4221,22 @@ function App() {
           return nextPlan;
         });
       }
+      if (overflowIds.size > 0) {
+        setForcedOverflowIds((prev) => {
+          if (prev.size === 0) return prev;
+          let changed = false;
+          const nextSet = new Set(prev);
+          for (const id of overflowIds) {
+            if (nextSet.delete(id)) changed = true;
+          }
+          return changed ? nextSet : prev;
+        });
+      }
       return next;
     });
   };
 
-  const renderFocusStatusBox = (title: "Rest" | "Free time") => {
+  const renderFocusStatusBox = (title: "Rest" | "Break") => {
     const showBar =
       showFocusCountdownBarOnCurrent &&
       typeof focusCountdownProgress === "number" &&
@@ -4250,7 +4348,7 @@ function App() {
         </div>
       );
     }
-    if (focusFreeTimeMode) {
+    if (focusBreakMode) {
       return (
         <div className="task-current-focus">
           <div className="task-current-focus-label-row">
@@ -4262,14 +4360,18 @@ function App() {
                 </span>
               )}
             </p>
-            {todayFocusTask != null &&
-              renderCurrentFocusControls(todayFocusTask.title)}
           </div>
-          {renderFocusStatusBox("Free time")}
+          {renderFocusStatusBox("Break")}
         </div>
       );
     }
-    if (overtakenPlanBlocks.length === 0) return null;
+    const focusBlocks =
+      overtakenPlanBlocks.length > 0
+        ? overtakenPlanBlocks
+        : showUpcomingSoftAsFocus && firstUpcomingSoftBlock != null
+          ? [firstUpcomingSoftBlock]
+          : [];
+    if (focusBlocks.length === 0) return null;
     return (
       <div className="task-current-focus">
         <div className="task-current-focus-label-row">
@@ -4285,11 +4387,14 @@ function App() {
             renderCurrentFocusControls(todayFocusTask.title)}
         </div>
         <ul className="task-day-tasks task-current-focus-tasks">
-          {overtakenPlanBlocks.map((block) => {
+          {focusBlocks.map((block) => {
             const task = block.task;
             const taskId = task.id;
             if (taskId == null) return null;
-            const rowProgress = overtakenCountdownByTaskId.get(taskId) ?? null;
+            const timed = isTimedTask(task);
+            const rowProgress = timed
+              ? (overtakenCountdownByTaskId.get(taskId) ?? null)
+              : null;
             return (
               <CompactTaskRow
                 key={taskId}
@@ -4312,6 +4417,38 @@ function App() {
               />
             );
           })}
+        </ul>
+      </div>
+    );
+  };
+
+  const renderAtRiskSection = () => {
+    if (atRiskTask?.id == null || atRiskCountdownProgress == null) return null;
+    const taskId = atRiskTask.id;
+    return (
+      <div className="task-day-next task-day-at-risk">
+        <p className="task-current-focus-label">At risk</p>
+        <ul className="task-day-tasks">
+          <CompactTaskRow
+            key={taskId}
+            task={atRiskTask}
+            overdue={false}
+            editing={editingTaskId === taskId}
+            highlighted={isTaskHighlighted(taskId)}
+            popping={isTaskPopping(taskId)}
+            now={new Date(countdownNow)}
+            parentTitle={parentTitleFor(atRiskTask.parent_id)}
+            isCurrentFocus={false}
+            countdownProgress={atRiskCountdownProgress}
+            countdownBarColor="var(--day-kind-soft)"
+            countdownElapsedFill
+            onComplete={() => requestCompleteTask(taskId)}
+            onEdit={() => {
+              setFocusedOverflowTaskIds(null);
+              setFocusedTaskId(taskId);
+              editTask(atRiskTask);
+            }}
+          />
         </ul>
       </div>
     );
@@ -4633,6 +4770,24 @@ function App() {
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [activeView]);
+
+  // Clear forced At Risk → Overflow ids on calendar day change.
+  useEffect(() => {
+    setForcedOverflowIds((prev) => (prev.size === 0 ? prev : new Set()));
+  }, [todayKeyStr]);
+
+  // At Risk countdown expired → Overflow.
+  useEffect(() => {
+    if (atRiskTask?.id == null || atRiskCountdownMs == null) return;
+    if (atRiskCountdownMs > 0) return;
+    const expiredId = atRiskTask.id;
+    setForcedOverflowIds((prev) => {
+      if (prev.has(expiredId)) return prev;
+      const next = new Set(prev);
+      next.add(expiredId);
+      return next;
+    });
+  }, [atRiskTask?.id, atRiskCountdownMs]);
 
   const applyChromeHiddenClass = (hidden: boolean) => {
     const hideChrome = hidden && collapsedRef.current && !searchOpenRef.current;
@@ -6209,6 +6364,10 @@ function App() {
                       </ul>
                     </div>
                   )}
+                  {isTodayGroup &&
+                    activeView === "dayline" &&
+                    !calendarOpen &&
+                    renderAtRiskSection()}
                 </section>
               );
             })}

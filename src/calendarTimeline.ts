@@ -345,17 +345,14 @@ function placeTimedTask(
   pushBlock(byDay, scheduled, task, startMin, endMin, 0, false);
 }
 
-/** Soft packing cursor: window start (never live now) so days do not slide. */
+/** Soft packing cursor: live now on today so softs slide; window start on future days. */
 function softPackStartForDay(
   day: Date,
   now: Date,
   packEnd: number,
   windowStartMinutes: number,
 ): number {
-  const dayStart = toStartOfDay(day);
-  const today = toStartOfDay(now);
-  if (dayStart.getTime() < today.getTime()) return packEnd;
-  return Math.min(packEnd, windowStartMinutes);
+  return packStartForDay(day, now, packEnd, windowStartMinutes);
 }
 
 function occupiedIntervalsForDay(byDay: Map<string, PackBlock[]>, key: string): Interval[] {
@@ -457,8 +454,9 @@ function packSoftTasks(
   deferredTasks: ComposerDraft[],
   gapMinutes: number,
   todaySoftBaselineIds: ReadonlySet<string>,
-  frozenPlacements: ReadonlyMap<string, SoftPackPlacement>,
+  _frozenPlacements: ReadonlyMap<string, SoftPackPlacement>,
 ) {
+  void _frozenPlacements;
   const undatedQueue = [...undated].sort(compareSoftPriority);
   const dateOnlyQueues = new Map<string, ComposerDraft[]>();
   for (const [key, list] of dateOnlyByDay) {
@@ -503,36 +501,6 @@ function packSoftTasks(
     undatedTodayResolved = true;
   };
 
-  /**
-   * Frozen placements are today-only: claim undated or today's date-only softs.
-   * Never steal softs already dated for a future day (e.g. after Automatic).
-   */
-  const takeFrozenTaskById = (taskId: string): ComposerDraft | null => {
-    const undatedIdx = undatedQueue.findIndex((task) => task.id === taskId);
-    if (undatedIdx >= 0) {
-      return undatedQueue.splice(undatedIdx, 1)[0] ?? null;
-    }
-    const list = dateOnlyQueues.get(todayKey) ?? [];
-    const idx = list.findIndex((task) => task.id === taskId);
-    if (idx < 0) return null;
-    const [task] = list.splice(idx, 1);
-    dateOnlyQueues.set(todayKey, list);
-    return task ?? null;
-  };
-
-  const placementFits = (
-    placement: SoftPackPlacement,
-    packStart: number,
-    packEnd: number,
-    free: Interval[],
-  ) => {
-    if (placement.startMin < packStart || placement.endMin > packEnd) return false;
-    if (placement.endMin <= placement.startMin) return false;
-    return free.some(
-      (hole) => placement.startMin >= hole.start && placement.endMin <= hole.end,
-    );
-  };
-
   while (hasRemaining() && guard < 1000) {
     guard += 1;
     const key = dayKey(day);
@@ -561,40 +529,7 @@ function packSoftTasks(
       continue;
     }
 
-    // Honor frozen placements for today before first-fit (keeps spots stable).
-    if (isToday && frozenPlacements.size > 0) {
-      const frozenOrdered = [...frozenPlacements.values()].sort(
-        (a, b) => a.startMin - b.startMin || a.endMin - b.endMin,
-      );
-      for (const placement of frozenOrdered) {
-        const task = takeFrozenTaskById(placement.taskId);
-        if (!task) continue;
-        const minutes = taskDurationMinutes(task);
-        const durationMatches = placement.endMin - placement.startMin === minutes;
-        if (!durationMatches || !placementFits(placement, packStart, packEnd, free)) {
-          // Invalid vs timed occupancy or duration edit — re-queue for first-fit.
-          const kind = classifyTask(task);
-          if (kind === "undated") undatedQueue.push(task);
-          else {
-            const list = dateOnlyQueues.get(key) ?? [];
-            list.push(task);
-            dateOnlyQueues.set(key, list);
-          }
-          continue;
-        }
-        const overdue = isPlacementOverdue(task, day);
-        pushBlock(byDay, day, task, placement.startMin, placement.endMin, 0, overdue);
-        free = consumeFreeWithGap(
-          free,
-          { start: placement.startMin, end: placement.endMin },
-          gap,
-        );
-      }
-      undatedQueue.sort(compareSoftPriority);
-      const sameDay = dateOnlyQueues.get(key) ?? [];
-      sameDay.sort(compareSoftPriority);
-      dateOnlyQueues.set(key, sameDay);
-    }
+    // Freeze pins intentionally ignored — softs slide from live packStart around timed.
 
     const sameDayQueue = dateOnlyQueues.get(key) ?? [];
 
@@ -614,24 +549,15 @@ function packSoftTasks(
     }
     dateOnlyQueues.set(key, sameDayQueue);
 
-    // Priority 2: undated softs — today remaining time only, then spill non-baseline forward.
-    // Do not fill past morning holes (those read as overtaken Overflow).
+    // Priority 2: undated softs — today from live packStart, then spill non-baseline forward.
     if (isToday) {
-      const nowMin = minutesFromMidnight(now);
-      let undatedFree = free
-        .map((hole) => ({
-          start: Math.max(hole.start, nowMin),
-          end: hole.end,
-        }))
-        .filter((hole) => hole.end > hole.start);
       while (undatedQueue.length > 0) {
         const task = undatedQueue[0];
         const minutes = taskDurationMinutes(task);
-        const range = firstFitRange(undatedFree, minutes);
+        const range = firstFitRange(free, minutes);
         if (!range) break;
         undatedQueue.shift();
         pushBlock(byDay, day, task, range.start, range.end, 0, false);
-        undatedFree = consumeFreeWithGap(undatedFree, range, gap);
         free = consumeFreeWithGap(free, range, gap);
       }
       splitTodayUndatedLeftovers();
@@ -936,6 +862,10 @@ export type CalendarTasksLayout = {
   deferredTasks: ComposerDraft[];
   /** Soft placements on today after this pack (for persistence / freeze). */
   todaySoftPlacements: SoftPackPlacement[];
+  /** Minutes of free time after the last packed block before today's pack window end. */
+  todayEndSlackMin: number;
+  /** Soft with latest pack end when end slack is zero; otherwise null. */
+  atRiskTask: ComposerDraft | null;
 };
 
 /**
@@ -1286,29 +1216,43 @@ export function layoutCalendarTasks(
 
   const todayKey = dayKey(todayStart);
   const todaySoftPlacements: SoftPackPlacement[] = [];
-  for (const block of byDay.get(todayKey) ?? []) {
+  const todayRawBlocks = byDay.get(todayKey) ?? [];
+  let todayLastBlockEnd = 0;
+  let atRiskSoft: { task: ComposerDraft; endMin: number } | null = null;
+  for (const block of todayRawBlocks) {
+    if (block.overdue) continue;
+    const endMin = block.packEndMin ?? block.endMin;
+    if (endMin > todayLastBlockEnd) todayLastBlockEnd = endMin;
     if (!block.taskId) continue;
-    if (
+    const isTimed =
       parseTimeOfDay(block.task.starts_at) != null ||
-      parseTimeOfDay(block.task.due_at) != null
-    ) {
-      continue;
-    }
+      parseTimeOfDay(block.task.due_at) != null;
+    if (isTimed) continue;
     todaySoftPlacements.push({
       taskId: block.taskId,
       startMin: block.packStartMin ?? block.startMin,
-      endMin: block.packEndMin ?? block.endMin,
+      endMin,
     });
+    if (atRiskSoft == null || endMin >= atRiskSoft.endMin) {
+      atRiskSoft = { task: block.task, endMin };
+    }
   }
   todaySoftPlacements.sort(
     (a, b) => a.startMin - b.startMin || a.endMin - b.endMin || a.taskId.localeCompare(b.taskId),
   );
+
+  const todayPackEnd = getPackEnd(todayStart);
+  const todayEndSlackMin = Math.max(0, todayPackEnd - todayLastBlockEnd);
+  const atRiskTask =
+    todayEndSlackMin === 0 && atRiskSoft != null ? atRiskSoft.task : null;
 
   return {
     days: layouts,
     overdueTasks: sortOverdueTasks(overdueTasks),
     deferredTasks: [...deferredTasks].sort(compareSoftPriority),
     todaySoftPlacements,
+    todayEndSlackMin,
+    atRiskTask,
   };
 }
 
