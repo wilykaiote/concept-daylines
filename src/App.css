@@ -1827,8 +1827,70 @@
   padding-top: 12px;
 }
 
+.task-day-overflow-row:not(.task-day-notice-row) {
+  padding-top: 0;
+}
+
 .task-day-overflow-row .task-overdue-toggle {
   scroll-margin-top: calc(var(--twineline-chrome-height, 0px) + 8px);
+}
+
+.task-day-notice-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-timeline-notice {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.task-timeline-notice .task-overdue-toggle-action {
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: space-between;
+  cursor: default;
+}
+
+.task-timeline-notice-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 1.25rem;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.task-timeline-notice-dismiss:hover {
+  opacity: 0.75;
+}
+
+.task-timeline-notice-dismiss:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.task-timeline-notice.is-defer-only .task-overdue-toggle-action {
+  color: var(--text);
 }
 
 .task-overdue-section {
@@ -1949,7 +2011,10 @@
 }
 
 .task-overdue-toggle-reschedule {
-  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  color: var(--text-h);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1970,7 +2035,7 @@
   place-items: center;
   min-width: 1.85em;
   height: 1.85em;
-  margin-right: 0.2em;
+  margin: 0;
   padding: 0 0.4em;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
@@ -2009,7 +2074,7 @@
 
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-reschedule,
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-chevron {
-  color: var(--text);
+  color: var(--text-h);
 }
 
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-count {
@@ -4753,7 +4818,32 @@
 }
 
 .app-compose-kind-menu {
-  min-width: 168px;
+  min-width: 320px;
+  max-width: min(360px, calc(100vw - 24px));
+}
+
+.app-compose-kind-menu-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 6px;
+  min-width: 0;
+}
+
+.app-compose-kind-menu-column {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-compose-kind-menu-column .app-attach-menu-item {
+  min-width: 0;
+  padding: 0 8px;
+  gap: 8px;
+}
+
+.app-compose-kind-menu-span {
+  justify-content: center;
 }
 
 .app-compose-kind-menu-divider {
@@ -4884,10 +4974,40 @@
   display: block;
 }
 
+.app-composer-add .app-compose-add-plus.is-check {
+  right: 1px;
+  bottom: 1px;
+  width: 12px;
+  height: 12px;
+  font-size: 0;
+  line-height: 0;
+}
+
+.app-composer .app-composer-add .app-compose-add-plus.is-check svg {
+  width: 9px;
+  height: 9px;
+  display: block;
+}
+
+.app-compose-action .app-composer-add.is-ready .app-compose-add-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.app-compose-action .app-composer-add.is-ready .app-compose-add-icon > svg {
+  width: 28px;
+  height: 28px;
+}
+
 .app-composer-add.is-ready .app-compose-add-plus {
   background: var(--accent);
   color: #fff;
   box-shadow: none;
+}
+
+.app-composer-add.is-ready .app-compose-add-plus.is-check {
+  background: #fff;
+  color: var(--accent);
 }
 
 .app-composer-fab .app-compose-add-icon {

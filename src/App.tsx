@@ -399,6 +399,27 @@ function NotesIcon() {
   );
 }
 
+function NotebookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M6 4.5h11.5A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5H6.5A1.5 1.5 0 0 1 5 18V6A1.5 1.5 0 0 1 6.5 4.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 4.5v15M12 9h4M12 13h4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function LogIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -911,17 +932,19 @@ function ComposeAddIcon({
   badge = "plus",
 }: {
   Icon: () => ReactElement;
-  badge?: "plus" | "edit" | "none";
+  badge?: "plus" | "edit" | "check" | "none";
 }) {
   return (
     <span className="app-compose-add-icon">
       <Icon />
       {badge !== "none" && (
         <span
-          className={`app-compose-add-plus${badge === "edit" ? " is-edit" : ""}`}
+          className={`app-compose-add-plus${
+            badge === "edit" ? " is-edit" : badge === "check" ? " is-check" : ""
+          }`}
           aria-hidden="true"
         >
-          {badge === "edit" ? <EditIcon /> : "+"}
+          {badge === "edit" ? <EditIcon /> : badge === "check" ? <CheckIcon /> : "+"}
         </span>
       )}
     </span>
@@ -934,6 +957,12 @@ const COMPOSE_KINDS = [
     label: "Collection",
     placeholder: "Name this collection...",
     Icon: CollectionOrbitIcon,
+  },
+  {
+    id: "notebook",
+    label: "Notebook",
+    placeholder: "Name this notebook...",
+    Icon: NotebookIcon,
   },
   {
     id: "plan",
@@ -966,7 +995,7 @@ const COMPOSE_KINDS = [
 ] as const;
 
 /** Kept for view-specific compose; hidden from the compose-type menu. */
-const CONTAINER_QUICK_ADD_KIND_IDS = ["plan", "collection", "list"] as const;
+const CONTAINER_QUICK_ADD_KIND_IDS = ["plan", "collection", "list", "notebook"] as const;
 type ContainerQuickAddKind = (typeof CONTAINER_QUICK_ADD_KIND_IDS)[number];
 
 function isContainerQuickAddKind(kind: string): kind is ContainerQuickAddKind {
@@ -976,6 +1005,7 @@ function isContainerQuickAddKind(kind: string): kind is ContainerQuickAddKind {
 /** Named containers — not scheduled like tasks. */
 const CONTAINER_COMPOSE_KIND_IDS = [
   "collection",
+  "notebook",
   "plan",
   "list",
 ] as const;
@@ -994,7 +1024,12 @@ function isPlanTaskType(type: string | null | undefined): boolean {
 }
 
 function isContainerTaskType(type: string | null | undefined): boolean {
-  return type === "list" || isPlanTaskType(type) || isCollectionTaskType(type);
+  return (
+    type === "list" ||
+    type === "notebook" ||
+    isPlanTaskType(type) ||
+    isCollectionTaskType(type)
+  );
 }
 
 const LINK_ALL_TYPE_ITEM = {
@@ -1018,6 +1053,7 @@ const LINK_CONTAINER_TYPE_ITEMS = [
 
 const COMPOSE_CONTAINER_TYPE_ITEMS = [
   { id: "collection", label: "Collection", Icon: CollectionOrbitIcon },
+  { id: "notebook", label: "Notebook", Icon: NotebookIcon },
   { id: "plan", label: "Plan", Icon: PlansIcon },
   { id: "list", label: "List", Icon: MenuBarsIcon },
 ] as const;
@@ -1038,17 +1074,15 @@ function defaultLinkPickerType(composeKind: string): LinkPickerType {
   return isLinkPickerType(composeKind) ? composeKind : "all";
 }
 
-/** Top of compose-type menu: List / Collection / Plan. */
-const COMPOSE_KIND_MENU_LEAD_IDS = ["list", "collection", "plan"] as const;
-const COMPOSE_KIND_MENU_LEAD = COMPOSE_KIND_MENU_LEAD_IDS.map(
+/** Compose-type menu: Collection (top) · left/right columns · AI Assistant (bottom). */
+const COMPOSE_KIND_MENU_TOP = COMPOSE_KINDS.find((kind) => kind.id === "collection")!;
+const COMPOSE_KIND_MENU_LEFT_IDS = ["notebook", "list", "plan", "log"] as const;
+const COMPOSE_KIND_MENU_RIGHT_IDS = ["event", "note", "item", "task"] as const;
+const COMPOSE_KIND_MENU_LEFT = COMPOSE_KIND_MENU_LEFT_IDS.map(
   (id) => COMPOSE_KINDS.find((kind) => kind.id === id)!,
 );
-/** Remaining compose types (AI Assistant is rendered separately at the bottom). */
-const COMPOSE_KIND_MENU_ITEMS = COMPOSE_KINDS.filter(
-  (kind) =>
-    kind.id !== "assistant" &&
-    kind.id !== "collection" &&
-    !isContainerQuickAddKind(kind.id),
+const COMPOSE_KIND_MENU_RIGHT = COMPOSE_KIND_MENU_RIGHT_IDS.map(
+  (id) => COMPOSE_KINDS.find((kind) => kind.id === id)!,
 );
 const ASSISTANT_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "assistant")!;
 
@@ -1964,6 +1998,13 @@ function App() {
   );
   /** Softs whose At Risk countdown expired — stay in Overflow until rescheduled. */
   const [forcedOverflowIds, setForcedOverflowIds] = useState<Set<string>>(() => new Set());
+  type TimelineNotice = {
+    id: string;
+    kind: "overflow" | "recovered";
+    count: number;
+  };
+  const [timelineNotices, setTimelineNotices] = useState<TimelineNotice[]>([]);
+  const prevOverflowIdsRef = useRef<Set<string> | null>(null);
   /** Undated ids released by Automatic this calendar day — baseline merge must not re-add. */
   const autoReleasedBaselineIdsRef = useRef<{ dayKey: string; ids: Set<string> }>({
     dayKey: "",
@@ -3145,6 +3186,7 @@ function App() {
     task: upsertTaskDraft,
     plan: upsertContainerDraft,
     collection: upsertCollectionDraft,
+    notebook: upsertContainerDraft,
     event: (_draft) => {},
     list: upsertContainerDraft,
     note: (_draft) => {},
@@ -4461,6 +4503,51 @@ function App() {
     );
   };
 
+  const dismissTimelineNotice = (noticeId: string) => {
+    setTimelineNotices((current) => current.filter((notice) => notice.id !== noticeId));
+  };
+
+  const renderTimelineNotices = () => {
+    if (timelineNotices.length === 0) return null;
+    return (
+      <div className="task-day-label-row task-day-overflow-row task-day-notice-row">
+        {timelineNotices.map((notice) => {
+          const noun = notice.count === 1 ? "Task" : "Tasks";
+          return (
+            <div
+              key={notice.id}
+              className={`task-timeline-notice${overflowDeferOnly && notice.kind === "overflow" ? " is-defer-only" : ""}`}
+              role="status"
+            >
+              <span className="task-overdue-toggle-action">
+                <span className="task-overdue-toggle-reschedule">
+                  <span className="task-overdue-toggle-count">{notice.count}</span>{" "}
+                  {noun}{" "}
+                  {notice.kind === "overflow" ? (
+                    <>
+                      moved to{" "}
+                      <span className="task-overflow-notice-overflow">Overflow</span>.
+                    </>
+                  ) : (
+                    <>recovered.</>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  className="task-timeline-notice-dismiss"
+                  aria-label="Dismiss"
+                  onClick={() => dismissTimelineNotice(notice.id)}
+                >
+                  ×
+                </button>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   const renderOverflowSection = () => {
     if (overflowTaskCount <= 0) return null;
     return (
@@ -4484,9 +4571,8 @@ function App() {
           >
             <span className="task-overdue-toggle-action">
               <span className="task-overdue-toggle-reschedule">
-                <span className="task-overdue-toggle-count">{overflowTaskCount}</span>{" "}
-                {overflowTaskCount === 1 ? "task" : "tasks"} moved to{" "}
-                <span className="task-overflow-notice-overflow">Overflow</span>
+                <span className="task-overdue-toggle-count">{overflowTaskCount}</span>
+                OVERFLOW
               </span>
               <span className="task-overdue-toggle-chevron" aria-hidden="true">
                 {overdueSectionOpen ? "∨" : ">"}
@@ -4530,7 +4616,6 @@ function App() {
             </section>
           </div>
         )}
-        {activeView === "dayline" && !calendarOpen && renderCurrentFocus()}
       </>
     );
   };
@@ -4781,6 +4866,8 @@ function App() {
   // Clear forced At Risk → Overflow ids on calendar day change.
   useEffect(() => {
     setForcedOverflowIds((prev) => (prev.size === 0 ? prev : new Set()));
+    prevOverflowIdsRef.current = null;
+    setTimelineNotices([]);
   }, [todayKeyStr]);
 
   // At Risk countdown expired → Overflow.
@@ -4795,6 +4882,50 @@ function App() {
       return next;
     });
   }, [atRiskTask?.id, atRiskCountdownMs]);
+
+  // Emit dismissible notices when tasks enter or leave Overflow (still living = recovered).
+  useEffect(() => {
+    const currentIds = new Set(
+      overflowTasks
+        .map((task) => task.id)
+        .filter((id): id is string => id != null),
+    );
+    const prev = prevOverflowIdsRef.current;
+    prevOverflowIdsRef.current = currentIds;
+    if (prev == null) return;
+
+    let movedIn = 0;
+    let recovered = 0;
+    for (const id of currentIds) {
+      if (!prev.has(id)) movedIn += 1;
+    }
+    const livingIds = new Set(
+      tasks.map((task) => task.id).filter((id): id is string => id != null),
+    );
+    for (const id of prev) {
+      if (currentIds.has(id)) continue;
+      if (livingIds.has(id)) recovered += 1;
+    }
+
+    const nextNotices: TimelineNotice[] = [];
+    const stamp = Date.now();
+    if (movedIn > 0) {
+      nextNotices.push({
+        id: `overflow-${stamp}-${movedIn}`,
+        kind: "overflow",
+        count: movedIn,
+      });
+    }
+    if (recovered > 0) {
+      nextNotices.push({
+        id: `recovered-${stamp}-${recovered}`,
+        kind: "recovered",
+        count: recovered,
+      });
+    }
+    if (nextNotices.length === 0) return;
+    setTimelineNotices((current) => [...current, ...nextNotices]);
+  }, [overflowTasks, tasks]);
 
   const applyChromeHiddenClass = (hidden: boolean) => {
     const hideChrome = hidden && collapsedRef.current && !searchOpenRef.current;
@@ -6307,11 +6438,13 @@ function App() {
                       </button>
                     </div>
                   )}
-                  {showOverdueToggle && renderOverflowSection()}
                   {isTodayGroup &&
                     activeView === "dayline" &&
                     !calendarOpen &&
-                    !showOverdueToggle &&
+                    renderTimelineNotices()}
+                  {isTodayGroup &&
+                    activeView === "dayline" &&
+                    !calendarOpen &&
                     renderCurrentFocus()}
                   {dayTasks.length > 0 && (
                     <div className="task-day-next">
@@ -6375,6 +6508,7 @@ function App() {
                     activeView === "dayline" &&
                     !calendarOpen &&
                     renderAtRiskSection()}
+                  {showOverdueToggle && renderOverflowSection()}
                 </section>
               );
             })}
@@ -6422,11 +6556,13 @@ function App() {
                     </button>
                   </div>
                 )}
-                {showOverdueToggle && renderOverflowSection()}
                 {isTodayGroup &&
                   activeView === "dayline" &&
                   !calendarOpen &&
-                  !showOverdueToggle &&
+                  renderTimelineNotices()}
+                {isTodayGroup &&
+                  activeView === "dayline" &&
+                  !calendarOpen &&
                   renderCurrentFocus()}
                 <div
                   className="calendar-timeline-body"
@@ -6517,6 +6653,7 @@ function App() {
                     })}
           </div>
                 </div>
+                {showOverdueToggle && renderOverflowSection()}
               </section>
               );
             })}
@@ -8130,52 +8267,74 @@ function App() {
                   className="app-compose-kind-menu"
                   aria-label="Compose type"
                 >
-                  {COMPOSE_KIND_MENU_LEAD.map(({ id, label, Icon }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
-                      role="menuitem"
-                      onClick={() => {
-                        clearComposerMetaAuto("type");
-                        setComposeKind(id);
-                        setComposeKindMenuOpen(false);
-                      }}
-                    >
-                      <span className="app-compose-kind-plus" aria-hidden="true">
-                        +
-                      </span>
-                      <Icon />
-                      <span>{label}</span>
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    className={`app-attach-menu-item app-compose-kind-menu-span${composeKind === "collection" ? " is-selected" : ""}`}
+                    role="menuitem"
+                    onClick={() => {
+                      clearComposerMetaAuto("type");
+                      setComposeKind("collection");
+                      setComposeKindMenuOpen(false);
+                    }}
+                  >
+                    <span className="app-compose-kind-plus" aria-hidden="true">
+                      +
+                    </span>
+                    <COMPOSE_KIND_MENU_TOP.Icon />
+                    <span>{COMPOSE_KIND_MENU_TOP.label}</span>
+                  </button>
                   <div className="app-compose-kind-menu-divider" role="separator" />
-                  {COMPOSE_KIND_MENU_ITEMS.map(({ id, label, Icon }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
-                      role="menuitem"
-                      onClick={() => {
-                        clearComposerMetaAuto("type");
-                        setComposeKind(id);
-                        setComposeKindMenuOpen(false);
-                      }}
-                    >
-                      <span
-                        className={`app-compose-kind-plus${id === "log" ? " is-check" : ""}`}
-                        aria-hidden="true"
-                      >
-                        {id === "log" ? <CheckIcon /> : "+"}
-                      </span>
-                      <Icon />
-                      <span>{label}</span>
-                    </button>
-                  ))}
+                  <div className="app-compose-kind-menu-columns">
+                    <div className="app-compose-kind-menu-column">
+                      {COMPOSE_KIND_MENU_LEFT.map(({ id, label, Icon }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
+                          role="menuitem"
+                          onClick={() => {
+                            clearComposerMetaAuto("type");
+                            setComposeKind(id);
+                            setComposeKindMenuOpen(false);
+                          }}
+                        >
+                          <span
+                            className={`app-compose-kind-plus${id === "log" ? " is-check" : ""}`}
+                            aria-hidden="true"
+                          >
+                            {id === "log" ? <CheckIcon /> : "+"}
+                          </span>
+                          <Icon />
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="app-compose-kind-menu-column">
+                      {COMPOSE_KIND_MENU_RIGHT.map(({ id, label, Icon }) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={`app-attach-menu-item${composeKind === id ? " is-selected" : ""}`}
+                          role="menuitem"
+                          onClick={() => {
+                            clearComposerMetaAuto("type");
+                            setComposeKind(id);
+                            setComposeKindMenuOpen(false);
+                          }}
+                        >
+                          <span className="app-compose-kind-plus" aria-hidden="true">
+                            +
+                          </span>
+                          <Icon />
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="app-compose-kind-menu-divider" role="separator" />
                   <button
                     type="button"
-                    className={`app-attach-menu-item${composeKind === "assistant" ? " is-selected" : ""}`}
+                    className={`app-attach-menu-item app-compose-kind-menu-span${composeKind === "assistant" ? " is-selected" : ""}`}
                     role="menuitem"
                     onClick={() => {
                       clearComposerMetaAuto("type");
@@ -8244,7 +8403,7 @@ function App() {
                 >
                   {composeActionReady ? (
                     editingTaskId != null ? (
-                      <CheckIcon />
+                      <ComposeAddIcon Icon={EditIcon} badge="check" />
                     ) : (
                       <SendIcon />
                     )
