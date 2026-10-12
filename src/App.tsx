@@ -1308,20 +1308,15 @@ function CompactTaskRow({
             className={`task-row-countdown${countdownElapsedFill ? " is-elapsed-fill" : ""}`}
             aria-hidden="true"
             style={
-              countdownElapsedFill
-                ? undefined
-                : countdownBarColor != null
-                  ? { background: countdownBarColor }
-                  : undefined
+              countdownBarColor != null
+                ? { background: countdownBarColor }
+                : undefined
             }
           >
             <div
               className="task-row-countdown-fill"
               style={{
                 width: `${Math.min(1, Math.max(0, countdownProgress)) * 100}%`,
-                ...(countdownElapsedFill && countdownBarColor != null
-                  ? { background: countdownBarColor }
-                  : undefined),
               }}
             />
           </div>
@@ -2392,14 +2387,14 @@ function App() {
     nowMinutes < todayWindowStartMinutes
       ? todayStart.getTime() + todayWindowStartMinutes * 60_000
       : nextDayWindowStartMs;
-  // Timed overtaken only — soft focus has no countdown.
+  // Soft focus: countdown only when end-of-day slack is gone. Timed: always when overtaken.
   const focusTaskIsTimed =
     todayFocusTask != null && isTimedTask(todayFocusTask);
   const focusTaskCountdownActive =
     overtakenFocusBlock != null &&
-    focusTaskIsTimed &&
     todayFocusTask?.id != null &&
-    !focusLocked;
+    !focusLocked &&
+    (focusTaskIsTimed || todayEndSlackMin === 0);
   if (focusTaskCountdownActive && todayFocusTask.id != null) {
     const durationMs = Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000);
     const packStartMin =
@@ -2465,11 +2460,11 @@ function App() {
     focusCountdownTotalMs != null
       ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
       : null;
-  // Timed overtaken only: remaining/duration from pack start.
+  // Overtaken bars: timed always; softs when end-of-day slack is zero.
   const overtakenCountdownByTaskId = new Map<string, number>();
   if (!focusLocked) {
     for (const block of overtakenPlanBlocks) {
-      if (!isTimedTask(block.task)) continue;
+      if (!isTimedTask(block.task) && todayEndSlackMin > 0) continue;
       const taskId = block.task.id;
       if (taskId == null) continue;
       const durationMs = Math.max(1, taskDurationMinutes(block.task) * 60_000);
@@ -4391,8 +4386,9 @@ function App() {
             const task = block.task;
             const taskId = task.id;
             if (taskId == null) return null;
-            const timed = isTimedTask(task);
-            const rowProgress = timed
+            const showTaskCountdown =
+              isTimedTask(task) || todayEndSlackMin === 0;
+            const rowProgress = showTaskCountdown
               ? (overtakenCountdownByTaskId.get(taskId) ?? null)
               : null;
             return (
@@ -4425,9 +4421,20 @@ function App() {
   const renderAtRiskSection = () => {
     if (atRiskTask?.id == null || atRiskCountdownProgress == null) return null;
     const taskId = atRiskTask.id;
+    const atRiskCountdownLabel =
+      atRiskCountdownMs != null
+        ? `- ${formatCountdown(atRiskCountdownMs, { hideZeroHours: true })}`
+        : null;
     return (
       <div className="task-day-next task-day-at-risk">
-        <p className="task-current-focus-label">At risk</p>
+        <p className="task-current-focus-label">
+          At risk
+          {atRiskCountdownLabel != null && (
+            <span className="task-current-focus-countdown" aria-live="polite">
+              {atRiskCountdownLabel}
+            </span>
+          )}
+        </p>
         <ul className="task-day-tasks">
           <CompactTaskRow
             key={taskId}
