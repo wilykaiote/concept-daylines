@@ -1648,10 +1648,6 @@ function App() {
   const [taskStartsAt, setTaskStartsAt] = useState("");
   const [taskDueAt, setTaskDueAt] = useState("");
   const [taskTimeMode, setTaskTimeMode] = useState<"starts_at" | "due_at">("starts_at");
-  /** When set, Date & Time inputs are shown. */
-  const [dateTimeAnchor, setDateTimeAnchor] = useState<
-    "today" | "tomorrow" | "starts_on" | "due_by" | null
-  >(null);
   const [composerAutoRescheduled, setComposerAutoRescheduled] = useState(false);
   /** True after the user opens Date & Time; keeps the schedule icon green after the menu closes. */
   const [scheduleToolActivated, setScheduleToolActivated] = useState(false);
@@ -1910,6 +1906,10 @@ function App() {
   const dueDateButtonRef = useRef<HTMLButtonElement>(null);
   const taskDateInputRef = useRef<HTMLInputElement>(null);
   const taskTimeInputRef = useRef<HTMLInputElement>(null);
+  const datePickerOpenRef = useRef(false);
+  const timePickerOpenRef = useRef(false);
+  const datePickerClosingRef = useRef(false);
+  const timePickerClosingRef = useRef(false);
   const targetTimeInputRef = useRef<HTMLInputElement>(null);
   const windowStartInputRef = useRef<HTMLInputElement>(null);
   const homeCountdownButtonRef = useRef<HTMLSpanElement>(null);
@@ -3040,6 +3040,7 @@ function App() {
     setRecentLinkIds((current) => rememberRecentLinkId(draft.id!, current));
     setLinkQuickAddOpen(false);
     resetLinkQuickAddFields();
+    closeTaskToolHint();
   };
 
   const resetComposerFields = () => {
@@ -3063,7 +3064,6 @@ function App() {
     setTaskStartsAt("");
     setTaskDueAt("");
     setTaskTimeMode("starts_at");
-    setDateTimeAnchor(null);
     setComposerAutoRescheduled(false);
     setScheduleToolActivated(false);
     setComposerMetaAuto(new Set(["type", "duration", "urgency", "impact"]));
@@ -3103,9 +3103,8 @@ function App() {
     const mode = draft.mode;
     const dateInput = taskDateInputRef.current;
     const timeInput = taskTimeInputRef.current;
-    // Only trust mounted inputs while the schedule panel is open; when collapsed
-    // the controlled inputs are empty and must not wipe draft/state.
-    const trustInputs = dateTimeAnchor != null && (dateInput != null || timeInput != null);
+    // Trust mounted inputs while Date & Time is open (fields stay mounted there).
+    const trustInputs = dateInput != null || timeInput != null;
 
     let date = trustInputs
       ? normalizeOptionalField(dateInput?.value ?? "")
@@ -3483,13 +3482,6 @@ function App() {
     setImpactActivated(nextImpactActivated);
     const nextMode = nextDueAt && !nextStartsAt ? "due_at" : "starts_at";
     setTaskTimeMode(nextMode);
-    setDateTimeAnchor(
-      nextDate != null || nextStartsAt != null || nextDueAt != null
-        ? nextMode === "due_at"
-          ? "due_by"
-          : "starts_on"
-        : null,
-    );
     syncScheduleDraftRef({
       date: nextDate,
       starts_at: nextStartsAt,
@@ -3518,7 +3510,6 @@ function App() {
     setTaskDate("");
     setTaskStartsAt("");
     setTaskDueAt("");
-    setDateTimeAnchor(null);
     setComposerAutoRescheduled(false);
     clearComposerMetaAuto("schedule");
     syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
@@ -3558,6 +3549,7 @@ function App() {
       syncScheduleDraftRef({ date: null, starts_at: null, due_at: null });
       return;
     }
+    setUrgencyActivated(false);
     syncScheduleDraftRef({ date: next });
   };
 
@@ -3566,10 +3558,19 @@ function App() {
     const next = value.trim().slice(0, 5);
     let nextDate = taskDate.trim();
     setComposerAutoRescheduled(false);
-    if (taskTimeMode === "starts_at") {
+    const hadTime = Boolean(
+      (taskTimeMode === "starts_at" ? taskStartsAt : taskDueAt).trim(),
+    );
+    // First time a value is entered, force the toggle default (Starts on).
+    const mode = !hadTime && next ? "starts_at" : taskTimeMode;
+    if (mode !== taskTimeMode) {
+      setTaskTimeMode(mode);
+    }
+    if (mode === "starts_at") {
       setTaskStartsAt(next);
       setTaskDueAt("");
       syncScheduleDraftRef({
+        mode: "starts_at",
         starts_at: next || null,
         due_at: null,
         date: next && !nextDate ? dayKey(new Date(countdownNow)) : normalizeOptionalField(nextDate),
@@ -3578,15 +3579,69 @@ function App() {
       setTaskDueAt(next);
       setTaskStartsAt("");
       syncScheduleDraftRef({
+        mode: "due_at",
         due_at: next || null,
         starts_at: null,
         date: next && !nextDate ? dayKey(new Date(countdownNow)) : normalizeOptionalField(nextDate),
       });
     }
-    if (next && !nextDate) {
-      setTaskDate(dayKey(new Date(countdownNow)));
+    if (next) {
+      setUrgencyActivated(false);
+      if (!nextDate) {
+        setTaskDate(dayKey(new Date(countdownNow)));
+      }
     }
   };
+
+  const openNativeDateTimePicker = (input: HTMLInputElement) => {
+    try {
+      input.showPicker?.();
+    } catch {
+      // Unsupported browsers fall back to the native control.
+    }
+  };
+
+  const bindNativeDateTimePicker = (
+    openRef: { current: boolean },
+    closingRef: { current: boolean },
+  ) => ({
+    onPointerDown: (event: {
+      preventDefault: () => void;
+      stopPropagation: () => void;
+      currentTarget: HTMLInputElement;
+    }) => {
+      // Blur often fires before click when dismissing the native picker, which
+      // used to clear openRef too early and make the same click reopen it.
+      if (!openRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.blur();
+      openRef.current = false;
+      closingRef.current = true;
+    },
+    onClick: (event: {
+      preventDefault: () => void;
+      stopPropagation: () => void;
+      currentTarget: HTMLInputElement;
+    }) => {
+      if (closingRef.current || openRef.current) {
+        closingRef.current = false;
+        openRef.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.blur();
+        return;
+      }
+      openNativeDateTimePicker(event.currentTarget);
+      openRef.current = true;
+    },
+    onBlur: () => {
+      // Defer so the closing click still sees openRef as true.
+      window.setTimeout(() => {
+        if (!closingRef.current) openRef.current = false;
+      }, 0);
+    },
+  });
 
   const setTaskTimeModeValue = (mode: "starts_at" | "due_at") => {
     if (mode === taskTimeMode) return;
@@ -6967,14 +7022,9 @@ function App() {
                           const todayKeyValue = dayKey(
                             toStartOfDay(new Date(countdownNow)),
                           );
-                          const tomorrowKeyValue = dayKey(
-                            addDays(toStartOfDay(new Date(countdownNow)), 1),
-                          );
-                          const scheduleOptions = [
-                            { id: "today", label: "Today" },
-                            { id: "tomorrow", label: "Tomorrow" },
-                            { id: "due_by", label: "Due by" },
-                            { id: "starts_on", label: "Starts on" },
+                          const timeModeOptions = [
+                            { id: "due_at", label: "Due by" },
+                            { id: "starts_at", label: "Starts on" },
                           ] as const;
                           const urgencyOptions = [
                             { id: "ASAP", label: "ASAP" },
@@ -6982,134 +7032,176 @@ function App() {
                             { id: "Later", label: "Later" },
                             { id: "Future", label: "Future" },
                           ] as const;
+                          const hasTime = Boolean(taskTimeValue.trim());
+                          const hasSchedule =
+                            Boolean(taskDate.trim()) || hasTime;
                           return (
-                            <div className="app-due-date-selector">
-                              <div
-                                className={`app-due-date-schedule${dateTimeAnchor != null ? " is-open" : ""}`}
-                                aria-hidden={dateTimeAnchor == null}
-                              >
-                                <div className="app-due-date-schedule-inner">
-                                  <label className="app-due-date-field">
-                                    Date
-                                    <input
-                                      ref={taskDateInputRef}
-                                      type="date"
-                                      value={taskDate}
-                                      tabIndex={dateTimeAnchor == null ? -1 : 0}
-                                      onChange={(event) =>
-                                        setTaskDateValue(event.target.value)
-                                      }
-                                      onInput={(event) =>
-                                        setTaskDateValue(event.currentTarget.value)
-                                      }
-                                      aria-label="Task date"
-                                    />
-                                  </label>
-                                  <label className="app-due-date-field">
-                                    Time
-                                    <input
-                                      ref={taskTimeInputRef}
-                                      type="time"
-                                      value={taskTimeValue}
-                                      tabIndex={dateTimeAnchor == null ? -1 : 0}
-                                      onChange={(event) =>
-                                        setTaskTimeValue(event.target.value)
-                                      }
-                                      onInput={(event) =>
-                                        setTaskTimeValue(event.currentTarget.value)
-                                      }
-                                      aria-label="Task time"
-                                    />
-                                  </label>
+                            <>
+                              <div className="app-due-date-selector">
+                                <div className="app-due-date-schedule">
+                                  <div className="app-due-date-schedule-inner">
+                                    <label className="app-due-date-field">
+                                      <span className="app-due-date-field-label">Date</span>
+                                      <div className="app-due-date-input-wrap">
+                                        <input
+                                          ref={taskDateInputRef}
+                                          type="date"
+                                          value={taskDate}
+                                          onChange={(event) =>
+                                            setTaskDateValue(event.target.value)
+                                          }
+                                          onInput={(event) =>
+                                            setTaskDateValue(event.currentTarget.value)
+                                          }
+                                          {...bindNativeDateTimePicker(
+                                            datePickerOpenRef,
+                                            datePickerClosingRef,
+                                          )}
+                                          aria-label="Task date"
+                                        />
+                                        {taskDate.trim() !== "" && (
+                                          <button
+                                            type="button"
+                                            className="app-due-date-clear"
+                                            aria-label="Clear date"
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                              setTaskDateValue("");
+                                              if (taskDateInputRef.current) {
+                                                taskDateInputRef.current.value = "";
+                                                taskDateInputRef.current.blur();
+                                              }
+                                              datePickerOpenRef.current = false;
+                                            }}
+                                          >
+                                            ×
+                                          </button>
+                                        )}
+                                      </div>
+                                    </label>
+                                  </div>
                                 </div>
                               </div>
-                              <div className="app-due-date-option-row">
-                                <div
-                                  className="app-due-date-urgency-options"
-                                  role="group"
-                                  aria-label="Date"
-                                >
-                                  {scheduleOptions.map((option) => {
-                                    const isActive =
-                                      option.id === "today"
-                                        ? dateTimeAnchor === "today"
-                                        : option.id === "tomorrow"
-                                          ? dateTimeAnchor === "tomorrow"
-                                          : option.id === "starts_on"
-                                            ? dateTimeAnchor === "starts_on"
-                                            : dateTimeAnchor === "due_by";
-                                    return (
-                                      <button
-                                        key={option.id}
-                                        type="button"
-                                        className={`app-due-date-urgency-button${
-                                          isActive ? " is-active" : ""
-                                        }`}
-                                        aria-pressed={isActive}
-                                        onClick={() => {
-                                          if (option.id === "today") {
-                                            setDateTimeAnchor("today");
-                                            setUrgencyActivated(false);
-                                            setTaskDateValue(todayKeyValue);
-                                            return;
+                              <div className="app-due-date-selector">
+                                <div className="app-due-date-schedule">
+                                  <div className="app-due-date-schedule-inner">
+                                    <label className="app-due-date-field">
+                                      <span className="app-due-date-field-label">Time</span>
+                                      <div className="app-due-date-input-wrap">
+                                        <input
+                                          ref={taskTimeInputRef}
+                                          type="time"
+                                          value={taskTimeValue}
+                                          onChange={(event) =>
+                                            setTaskTimeValue(event.target.value)
                                           }
-                                          if (option.id === "tomorrow") {
-                                            setDateTimeAnchor("tomorrow");
-                                            setUrgencyActivated(false);
-                                            setTaskDateValue(tomorrowKeyValue);
-                                            return;
+                                          onInput={(event) =>
+                                            setTaskTimeValue(event.currentTarget.value)
                                           }
-                                          if (option.id === "starts_on") {
-                                            setDateTimeAnchor("starts_on");
-                                            setUrgencyActivated(false);
-                                            setTaskTimeModeValue("starts_at");
-                                            return;
-                                          }
-                                          setDateTimeAnchor("due_by");
-                                          setUrgencyActivated(false);
-                                          setTaskTimeModeValue("due_at");
-                                        }}
-                                      >
-                                        {option.label}
-                                      </button>
-                                    );
-                                  })}
+                                          {...bindNativeDateTimePicker(
+                                            timePickerOpenRef,
+                                            timePickerClosingRef,
+                                          )}
+                                          aria-label="Task time"
+                                        />
+                                        {taskTimeValue.trim() !== "" && (
+                                          <button
+                                            type="button"
+                                            className="app-due-date-clear"
+                                            aria-label="Clear time"
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                              setTaskTimeValue("");
+                                              if (taskTimeInputRef.current) {
+                                                taskTimeInputRef.current.value = "";
+                                                taskTimeInputRef.current.blur();
+                                              }
+                                              timePickerOpenRef.current = false;
+                                            }}
+                                          >
+                                            ×
+                                          </button>
+                                        )}
+                                      </div>
+                                    </label>
+                                    {hasTime && (
+                                      <div className="app-due-date-option-row">
+                                        <div
+                                          className="app-due-date-urgency-options"
+                                          role="group"
+                                          aria-label="Time mode"
+                                        >
+                                          {timeModeOptions.map((option) => {
+                                            const isActive = taskTimeMode === option.id;
+                                            return (
+                                              <button
+                                                key={option.id}
+                                                type="button"
+                                                className={`app-due-date-urgency-button${
+                                                  isActive ? " is-active" : ""
+                                                }`}
+                                                aria-pressed={isActive}
+                                                onClick={() => {
+                                                  setUrgencyActivated(false);
+                                                  if (!taskDate.trim()) {
+                                                    setTaskDateValue(todayKeyValue);
+                                                  }
+                                                  setTaskTimeModeValue(option.id);
+                                                }}
+                                              >
+                                                {option.label}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                              <div className="app-due-date-divider" aria-hidden="true" />
-                              <div className="app-due-date-option-row">
-                                <div
-                                  className="app-due-date-urgency-options"
-                                  role="group"
-                                  aria-label="Urgency"
-                                >
-                                  {urgencyOptions.map((option) => {
-                                    const isActive =
-                                      urgencyActivated &&
-                                      urgency === option.id &&
-                                      dateTimeAnchor == null;
-                                    return (
-                                      <button
-                                        key={option.id}
-                                        type="button"
-                                        className={`app-due-date-urgency-button${
-                                          isActive ? " is-active" : ""
-                                        }`}
-                                        aria-pressed={isActive}
-                                        onClick={() => {
-                                          clearTaskDueDate();
-                                          clearEditingTaskSchedule();
-                                          setUrgency(option.id);
-                                          setUrgencyActivated(true);
-                                        }}
-                                      >
-                                        {option.label}
-                                      </button>
-                                    );
-                                  })}
+                              <div className="app-due-date-selector">
+                                <div className="app-due-date-option-row">
+                                  <div
+                                    className="app-due-date-urgency-options"
+                                    role="group"
+                                    aria-label="Urgency"
+                                  >
+                                    {urgencyOptions.map((option) => {
+                                      const isActive =
+                                        urgencyActivated &&
+                                        urgency === option.id &&
+                                        !hasSchedule;
+                                      return (
+                                        <button
+                                          key={option.id}
+                                          type="button"
+                                          className={`app-due-date-urgency-button${
+                                            isActive ? " is-active" : ""
+                                          }`}
+                                          aria-pressed={isActive}
+                                          onClick={() => {
+                                            clearTaskDueDate();
+                                            clearEditingTaskSchedule();
+                                            if (taskDateInputRef.current) {
+                                              taskDateInputRef.current.value = "";
+                                            }
+                                            if (taskTimeInputRef.current) {
+                                              taskTimeInputRef.current.value = "";
+                                            }
+                                            setUrgency(option.id);
+                                            setUrgencyActivated(true);
+                                          }}
+                                        >
+                                          {option.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
+                            </>
                           );
                         })()}
                       </div>
@@ -7558,6 +7650,7 @@ function App() {
                                     setRecentLinkIds((current) =>
                                       rememberRecentLinkId(next, current),
                                     );
+                                    closeTaskToolHint();
                                   }
                                 } else {
                                   const next = pendingParentId === item.id ? null : item.id;
@@ -7573,6 +7666,7 @@ function App() {
                                     setRecentLinkIds((current) =>
                                       rememberRecentLinkId(next, current),
                                     );
+                                    closeTaskToolHint();
                                   }
                                 }
                               }}
