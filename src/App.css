@@ -3418,18 +3418,20 @@
 }
 
 .app-tray-tabs {
+  --tray-fab-overlap: calc(var(--fab-size) + 18px);
   position: relative;
   display: flex;
   align-items: stretch;
   gap: 4px;
   flex: 0 1 auto;
   width: 100%;
-  max-width: 495px;
+  max-width: calc(495px + var(--tray-fab-overlap));
   min-width: 0;
   height: auto;
   min-height: var(--tray-pill);
-  padding: 2px 0 2px 2px;
+  padding: 2px var(--tray-fab-overlap) 2px 2px;
   margin-left: auto;
+  margin-right: calc(-1 * var(--tray-fab-overlap));
   border-radius: 999px;
   box-sizing: border-box;
   overflow: visible;

@@ -829,27 +829,6 @@ function FitnessIcon() {
   );
 }
 
-function ShoppingBagIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M6 8h12l-1 13H7L6 8Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M9 8V7a3 3 0 0 1 6 0v1"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 function RecipeIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1047,10 +1026,6 @@ const CONTAINER_QUICK_ADD_KIND_IDS = [
   "calendar",
 ] as const;
 type ContainerQuickAddKind = (typeof CONTAINER_QUICK_ADD_KIND_IDS)[number];
-
-function isContainerQuickAddKind(kind: string): kind is ContainerQuickAddKind {
-  return (CONTAINER_QUICK_ADD_KIND_IDS as readonly string[]).includes(kind);
-}
 
 /** Named containers — not scheduled like tasks. */
 const CONTAINER_COMPOSE_KIND_IDS = [
