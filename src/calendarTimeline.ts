@@ -614,15 +614,24 @@ function packSoftTasks(
     }
     dateOnlyQueues.set(key, sameDayQueue);
 
-    // Priority 2: undated softs — today first, then spill non-baseline to future days.
+    // Priority 2: undated softs — today remaining time only, then spill non-baseline forward.
+    // Do not fill past morning holes (those read as overtaken Overflow).
     if (isToday) {
+      const nowMin = minutesFromMidnight(now);
+      let undatedFree = free
+        .map((hole) => ({
+          start: Math.max(hole.start, nowMin),
+          end: hole.end,
+        }))
+        .filter((hole) => hole.end > hole.start);
       while (undatedQueue.length > 0) {
         const task = undatedQueue[0];
         const minutes = taskDurationMinutes(task);
-        const range = firstFitRange(free, minutes);
+        const range = firstFitRange(undatedFree, minutes);
         if (!range) break;
         undatedQueue.shift();
         pushBlock(byDay, day, task, range.start, range.end, 0, false);
+        undatedFree = consumeFreeWithGap(undatedFree, range, gap);
         free = consumeFreeWithGap(free, range, gap);
       }
       splitTodayUndatedLeftovers();
@@ -742,9 +751,16 @@ function withTaskDate(
   );
 }
 
+export type RescheduleOverflowResult = {
+  tasks: ComposerDraft[];
+  /** Undated overflow ids to drop from today's window baseline so they spill-pack. */
+  releaseBaselineIds: string[];
+};
+
 /**
  * Move overflow tasks by kind priority (timed → date-only → undated).
- * Only `date` changes; `starts_at` / `due_at` stay the same.
+ * Timed/date-only: only `date` changes; times unchanged.
+ * Undated (non-recurring): no field changes — caller releases baseline so packer places them.
  * When `overflowTasks` is omitted, uses layout overdue only (midnight path).
  */
 export function rescheduleOverdueTasksForNewDay(
@@ -754,7 +770,8 @@ export function rescheduleOverdueTasksForNewDay(
   taskGapMinutes: number = DEFAULT_TASK_GAP_MINUTES,
   getWindowStartTimeForDay: (day: Date) => string = () => "06:00",
   overflowTasks?: readonly ComposerDraft[],
-): ComposerDraft[] {
+): RescheduleOverflowResult {
+  const empty: RescheduleOverflowResult = { tasks, releaseBaselineIds: [] };
   const layoutTasks = (
     candidateTasks: ComposerDraft[],
   ): CalendarTasksLayout =>
@@ -773,12 +790,13 @@ export function rescheduleOverdueTasksForNewDay(
       : initialLayout.overdueTasks
     ).map((task) => ({ ...task })),
   );
-  if (toReschedule.length === 0) return tasks;
+  if (toReschedule.length === 0) return empty;
 
   let working = tasks.map((task) => ({ ...task }));
   const today = toStartOfDay(now);
   const tomorrowKey = dayKey(addDays(today, 1));
   const movedThisPass = new Set<string>();
+  const releaseBaselineIds: string[] = [];
   let changed = false;
 
   const findSoftFitDate = (
@@ -808,6 +826,7 @@ export function rescheduleOverdueTasksForNewDay(
         if (!task) return false;
         if (parseRecurring(task.recurring) != null) return false;
         if (classifyTask(task) === "timed") return false;
+        if (classifyTask(task) === "undated") return false;
         return stillCountsAsOverflow(layout, id, now);
       });
       if (displaced.length === 0) break;
@@ -865,8 +884,13 @@ export function rescheduleOverdueTasksForNewDay(
       continue;
     }
 
-    // Date-only and undated: earliest day that leaves overflow (undated don't block dated).
-    // Already dated today (typical overtaken soft) → start at tomorrow.
+    if (kind === "undated") {
+      // No date / urgency changes — App releases baseline so packer spills by priority.
+      releaseBaselineIds.push(taskId);
+      continue;
+    }
+
+    // Date-only: earliest day that leaves overflow. Already dated today → start tomorrow.
     const softStartOffset =
       current.date != null && current.date === dayKey(today) ? 1 : 0;
     const nextDate = findSoftFitDate(taskId, current, softStartOffset);
@@ -877,7 +901,10 @@ export function rescheduleOverdueTasksForNewDay(
     rehomeMovedDateOnlyInOverflow();
   }
 
-  return changed ? working : tasks;
+  return {
+    tasks: changed ? working : tasks,
+    releaseBaselineIds,
+  };
 }
 
 function buildHourMarkers(visibleStartMin: number): CalendarDayLayout["hourMarkers"] {

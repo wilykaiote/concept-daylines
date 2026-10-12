@@ -1951,6 +1951,11 @@ function App() {
   const [todaySoftPackPlan, setTodaySoftPackPlan] = useState<TodaySoftPackPlan | null>(() =>
     loadTodaySoftPackPlan(),
   );
+  /** Undated ids released by Automatic this calendar day — baseline merge must not re-add. */
+  const autoReleasedBaselineIdsRef = useRef<{ dayKey: string; ids: Set<string> }>({
+    dayKey: "",
+    ids: new Set(),
+  });
   const composerRef = useRef<HTMLFormElement>(null);
   const composerFieldRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -4080,8 +4085,9 @@ function App() {
         .map((task) => task.id)
         .filter((id): id is string => id != null),
     );
+    const dayKeyForRelease = todayKeyStr;
     setTasks((current) => {
-      const next = rescheduleOverdueTasksForNewDay(
+      const { tasks: next, releaseBaselineIds } = rescheduleOverdueTasksForNewDay(
         current,
         new Date(countdownNowRef.current),
         getTargetTimeForDay,
@@ -4095,15 +4101,36 @@ function App() {
         const after = next.find((task) => task.id === id);
         if (before && after && before.date !== after.date) movedIds.add(id);
       }
-      if (movedIds.size > 0) {
+      const dropFreezeIds = new Set([...movedIds, ...releaseBaselineIds]);
+      if (dropFreezeIds.size > 0) {
         setTodaySoftPackPlan((plan) => {
           if (plan == null) return plan;
           const placements = plan.placements.filter(
-            (row) => !movedIds.has(row.taskId),
+            (row) => !dropFreezeIds.has(row.taskId),
           );
           if (placements.length === plan.placements.length) return plan;
           const nextPlan: TodaySoftPackPlan = { ...plan, placements };
           saveTodaySoftPackPlan(nextPlan);
+          return nextPlan;
+        });
+      }
+      if (releaseBaselineIds.length > 0) {
+        if (autoReleasedBaselineIdsRef.current.dayKey !== dayKeyForRelease) {
+          autoReleasedBaselineIdsRef.current = {
+            dayKey: dayKeyForRelease,
+            ids: new Set(),
+          };
+        }
+        for (const id of releaseBaselineIds) {
+          autoReleasedBaselineIdsRef.current.ids.add(id);
+        }
+        const released = autoReleasedBaselineIdsRef.current.ids;
+        setTodayWindowBaseline((plan) => {
+          if (plan == null || plan.dayKey !== dayKeyForRelease) return plan;
+          const taskIds = plan.taskIds.filter((id) => !released.has(id));
+          if (taskIds.length === plan.taskIds.length) return plan;
+          const nextPlan: TodayWindowBaseline = { ...plan, taskIds };
+          saveTodayWindowBaseline(nextPlan);
           return nextPlan;
         });
       }
@@ -4434,6 +4461,11 @@ function App() {
   }, [windowStartOverrides]);
 
   useEffect(() => {
+    if (autoReleasedBaselineIdsRef.current.dayKey !== todayKeyStr) {
+      autoReleasedBaselineIdsRef.current = { dayKey: todayKeyStr, ids: new Set() };
+    }
+    const released = autoReleasedBaselineIdsRef.current.ids;
+
     const livingIds = new Set(
       tasks.map((task) => task.id).filter((id): id is string => typeof id === "string"),
     );
@@ -4450,7 +4482,9 @@ function App() {
       const next: TodayWindowBaseline = {
         dayKey: todayKeyStr,
         windowSig: appliedTodayWindowSig,
-        taskIds: todaySoftIds.filter((id) => livingIds.has(id)),
+        taskIds: todaySoftIds.filter(
+          (id) => livingIds.has(id) && !released.has(id),
+        ),
       };
       setTodayWindowBaseline(next);
       saveTodayWindowBaseline(next);
@@ -4458,11 +4492,13 @@ function App() {
     }
 
     const merged = new Set(
-      todayWindowBaseline.taskIds.filter((id) => livingIds.has(id)),
+      todayWindowBaseline.taskIds.filter(
+        (id) => livingIds.has(id) && !released.has(id),
+      ),
     );
     let changed = merged.size !== todayWindowBaseline.taskIds.length;
     for (const id of todaySoftIds) {
-      if (!livingIds.has(id) || merged.has(id)) continue;
+      if (!livingIds.has(id) || merged.has(id) || released.has(id)) continue;
       merged.add(id);
       changed = true;
     }
@@ -4581,15 +4617,16 @@ function App() {
       lastAutoRescheduleDayRef.current = todayKey;
       saveLastAutoRescheduleDay(todayKey);
       const config = packingConfigRef.current;
-      setTasks((current) =>
-        rescheduleOverdueTasksForNewDay(
+      setTasks((current) => {
+        const { tasks: next } = rescheduleOverdueTasksForNewDay(
           current,
           new Date(nowMs),
           config.getTargetTimeForDay,
           config.taskGapMinutes,
           config.getWindowStartTimeForDay,
-        ),
-      );
+        );
+        return next;
+      });
     };
 
     tick();
