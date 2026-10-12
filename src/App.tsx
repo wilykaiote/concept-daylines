@@ -512,7 +512,7 @@ function CycleIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
-        d="M19 8a7 7 0 0 0-12.6-3.5M5 8V4.5M5 8h3.5"
+        d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
@@ -520,7 +520,23 @@ function CycleIcon() {
         strokeLinejoin="round"
       />
       <path
-        d="M5 16a7 7 0 0 0 12.6 3.5M19 16v3.5M19 16h-3.5"
+        d="M3 3v5h5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M16 16h5v5"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
@@ -1632,6 +1648,7 @@ function App() {
   const [collapsed, setCollapsed] = useState(true);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [composeKindMenuOpen, setComposeKindMenuOpen] = useState(false);
+  const [assistProPromptOpen, setAssistProPromptOpen] = useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = useState(false);
   const [durationActivated, setDurationActivated] = useState(false);
   const [recurringMenuOpen, setRecurringMenuOpen] = useState(false);
@@ -1896,6 +1913,7 @@ function App() {
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const composeKindMenuRef = useRef<HTMLDivElement>(null);
   const composeKindButtonRef = useRef<HTMLButtonElement>(null);
+  const assistProPromptMenuRef = useRef<HTMLDivElement>(null);
   const composeAddButtonRef = useRef<HTMLButtonElement>(null);
   const durationMenuRef = useRef<HTMLDivElement>(null);
   const durationButtonRef = useRef<HTMLButtonElement>(null);
@@ -3350,7 +3368,14 @@ function App() {
       composerAutoRescheduled !== editTaskBaseline.auto_rescheduled);
   const isCreateDirty = editingTaskId == null && content.trim() !== "";
   const isComposerDirty = isEditDirty || isCreateDirty;
-  const composeActionReady = editingTaskId != null ? isEditDirty : hasText;
+  // Assist never becomes a real Send action; gold ready opens the Pro upsell instead.
+  const assistActionReady = composeKind === "assistant" && hasText;
+  const composeActionReady =
+    composeKind === "assistant"
+      ? false
+      : editingTaskId != null
+        ? isEditDirty
+        : hasText;
 
   const completeTask = (id: string | null) => {
     if (!id) return;
@@ -5405,6 +5430,7 @@ function App() {
       if (
         attachMenuOpen ||
         composeKindMenuOpen ||
+        assistProPromptOpen ||
         durationMenuOpen ||
         recurringMenuOpen ||
         impactMenuOpen ||
@@ -5412,6 +5438,7 @@ function App() {
       ) {
         setAttachMenuOpen(false);
         setComposeKindMenuOpen(false);
+        setAssistProPromptOpen(false);
         setDurationMenuOpen(false);
         setRecurringMenuOpen(false);
         setImpactMenuOpen(false);
@@ -5428,12 +5455,33 @@ function App() {
     collapsed,
     attachMenuOpen,
     composeKindMenuOpen,
+    assistProPromptOpen,
     durationMenuOpen,
     recurringMenuOpen,
     impactMenuOpen,
     taskToolHint,
     isComposerDirty,
   ]);
+
+  useEffect(() => {
+    if (!assistProPromptOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (assistProPromptMenuRef.current?.contains(target)) return;
+      if (composeAddButtonRef.current?.contains(target)) return;
+      setAssistProPromptOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [assistProPromptOpen]);
+
+  useEffect(() => {
+    if (composeKind === "assistant" && hasText) return;
+    setAssistProPromptOpen(false);
+  }, [composeKind, hasText]);
 
   useEffect(() => {
     if (!attachMenuOpen) return;
@@ -7366,6 +7414,9 @@ function App() {
                                       max={IMPACT_MAX}
                                       step={1}
                                       value={linkQaImpact}
+                                      style={{
+                                        ["--impact-fill" as string]: `${(linkQaImpact / IMPACT_MAX) * 100}%`,
+                                      }}
                                       aria-label="Impact score"
                                       onChange={(e) => {
                                         setLinkQaImpact(clampImpact(Number(e.target.value)));
@@ -7981,6 +8032,9 @@ function App() {
                             max={IMPACT_MAX}
                             step={1}
                             value={impact}
+                            style={{
+                              ["--impact-fill" as string]: `${(impact / IMPACT_MAX) * 100}%`,
+                            }}
                             aria-label="Impact score"
                             aria-valuemin={IMPACT_MIN}
                             aria-valuemax={IMPACT_MAX}
@@ -8260,6 +8314,7 @@ function App() {
                   aria-expanded={composeKindMenuOpen}
                   onClick={() => {
                     setAttachMenuOpen(false);
+                    setAssistProPromptOpen(false);
                     setDurationMenuOpen(false);
                     setImpactMenuOpen(false);
                     closeTaskToolHint();
@@ -8272,39 +8327,89 @@ function App() {
                     {composeKind === "assistant" ? "Assist" : selectedComposeKind.label}
                   </span>
                 </button>
+                <ComposerOverlayMenu
+                  open={assistProPromptOpen && !searchOpen}
+                  anchorRef={composeAddButtonRef}
+                  menuRef={assistProPromptMenuRef}
+                  align="end"
+                  role="dialog"
+                  className="app-assist-pro-prompt"
+                  aria-label="AI Assistant Pro"
+                >
+                  <div className="app-assist-pro-prompt-icon" aria-hidden="true">
+                    <PremiumIcon />
+                  </div>
+                  <p className="app-assist-pro-prompt-title">AI Assistant is a Pro feature</p>
+                  <p className="app-assist-pro-prompt-body">
+                    Try Pro features free for 7 days and put an AI assistant in your Dayline.
+                  </p>
+                  <button
+                    type="button"
+                    className="app-attach-trial-button"
+                    onClick={() => {
+                      // Placeholder — Pro trial flow not wired yet.
+                      setAssistProPromptOpen(false);
+                    }}
+                  >
+                    Turn on Pro features
+                  </button>
+                  <p className="app-attach-trial-note">free for 7 days</p>
+                </ComposerOverlayMenu>
                 <button
                   ref={composeAddButtonRef}
                   type="button"
                   className={`app-composer-icon app-composer-add${
-                    composeActionReady ? " is-ready" : ""
+                    composeActionReady
+                      ? " is-ready"
+                      : assistActionReady
+                        ? " is-pro-ready"
+                        : ""
                   }`}
                   aria-label={
-                    composeActionReady
-                      ? editingTaskId != null
-                        ? "Save"
-                        : "Send"
-                      : "Choose compose type"
+                    assistActionReady
+                      ? "AI Assistant Pro"
+                      : composeActionReady
+                        ? editingTaskId != null
+                          ? "Save"
+                          : "Send"
+                        : "Choose compose type"
                   }
-                  aria-expanded={composeActionReady ? undefined : composeKindMenuOpen}
+                  aria-expanded={
+                    assistActionReady
+                      ? assistProPromptOpen
+                      : composeActionReady
+                        ? undefined
+                        : composeKindMenuOpen
+                  }
                   tabIndex={collapsed ? -1 : 0}
                   onClick={
-                    composeActionReady
-                      ? editingTaskId != null
-                        ? () => {
-                            if (!isEditDirty) return;
-                            saveComposerChanges();
-                          }
-                        : () => {
-                            submitCreate();
-                          }
-                      : () => {
+                    assistActionReady
+                      ? () => {
                           setAttachMenuOpen(false);
+                          setComposeKindMenuOpen(false);
                           setDurationMenuOpen(false);
                           setImpactMenuOpen(false);
                           closeTaskToolHint();
-                          clearComposerMetaAuto("type");
-                          setComposeKindMenuOpen((open) => !open);
+                          setAssistProPromptOpen((open) => !open);
                         }
+                      : composeActionReady
+                        ? editingTaskId != null
+                          ? () => {
+                              if (!isEditDirty) return;
+                              saveComposerChanges();
+                            }
+                          : () => {
+                              submitCreate();
+                            }
+                        : () => {
+                            setAttachMenuOpen(false);
+                            setAssistProPromptOpen(false);
+                            setDurationMenuOpen(false);
+                            setImpactMenuOpen(false);
+                            closeTaskToolHint();
+                            clearComposerMetaAuto("type");
+                            setComposeKindMenuOpen((open) => !open);
+                          }
                   }
                 >
                   {composeActionReady ? (
