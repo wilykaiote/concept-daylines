@@ -981,7 +981,7 @@
   display: inline-flex;
 }
 
-.twineline-menu-button {
+.twineline-profile-button {
   display: grid;
   place-items: center;
   width: 36px;
@@ -989,32 +989,139 @@
   margin: 0;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   background: transparent;
-  color: var(--text);
+  color: var(--text-h);
   cursor: pointer;
 }
 
-.twineline-menu-button svg {
-  width: 24px;
-  height: 24px;
-  display: block;
+.twineline-profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-raised));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-h) 18%, var(--border));
+  color: var(--text-h);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  user-select: none;
 }
 
-.twineline-menu-button:hover,
-.twineline-menu-button:focus-visible,
-.twineline-menu-button.is-open {
-  color: var(--accent);
+.twineline-profile-button:hover .twineline-profile-avatar,
+.twineline-profile-button:focus-visible .twineline-profile-avatar,
+.twineline-profile-button.is-open .twineline-profile-avatar {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 28%, var(--bg-raised));
 }
 
-.twineline-menu-button:focus-visible {
+.twineline-profile-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.twineline-menu {
-  min-width: 160px;
-  padding: 6px;
+.profile-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}
+
+.profile-drawer-scrim {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: color-mix(in srgb, #000 22%, transparent);
+  cursor: pointer;
+}
+
+.profile-drawer-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+  /* Keep a wide enough right strip to tap-close on phones. */
+  width: min(320px, calc(100% - max(80px, 22vw)));
+  max-width: calc(100% - 80px);
+  padding: calc(14px + var(--safe-top)) 14px calc(20px + var(--safe-bottom));
+  background: var(--bg);
+  box-shadow: 8px 0 28px color-mix(in srgb, #000 16%, transparent);
+  overflow: auto;
+  animation: profile-drawer-in 0.22s ease-out;
+}
+
+@keyframes profile-drawer-in {
+  from {
+    transform: translateX(-12px);
+    opacity: 0.85;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.profile-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 4px 4px 2px;
+}
+
+.profile-drawer-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-raised));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-h) 18%, var(--border));
+  color: var(--text-h);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  user-select: none;
+}
+
+.profile-drawer-name {
+  min-width: 0;
+  color: var(--text-h);
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-drawer-divider {
+  width: 100%;
+  height: 1px;
+  background: var(--border);
+}
+
+.profile-drawer-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-drawer-items .app-attach-menu-item {
+  width: 100%;
+  justify-content: flex-start;
 }
 
 .twineline-date-chevron {
@@ -1509,7 +1616,7 @@
   left: 0;
   pointer-events: none;
   z-index: 0;
-  background: #c45e18;
+  background: var(--accent);
   transition: width 200ms linear, background 200ms linear;
 }
 
@@ -2291,17 +2398,25 @@
 }
 
 .task-current-focus-reschedule {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 10px 12px;
-  justify-content: space-between;
+  justify-content: flex-start;
+}
+
+.task-current-focus-reschedule .task-current-focus-free-time-title {
+  flex: 0 0 auto;
 }
 
 .task-current-focus-reschedule-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  margin-left: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 0;
 }
 
 .task-current-focus-reschedule-btn {
@@ -2374,7 +2489,7 @@
   display: flex;
   justify-content: flex-end;
   height: 3px;
-  background: #c45e18;
+  background: var(--accent);
   pointer-events: none;
   z-index: 1;
 }
@@ -2522,10 +2637,10 @@
   height: 18px;
 }
 
-/* Overflow bin: complete ring uses overtaken/day-sky orange. */
+/* Overflow bin: complete ring uses overtaken/day-sky accent. */
 .task-overdue-tasks .task-complete.is-soft,
 .task-overdue-tasks .task-complete.is-anchored {
-  border-color: #c45e18;
+  border-color: var(--accent);
 }
 
 .task-overdue-tasks .task-complete.is-checked {

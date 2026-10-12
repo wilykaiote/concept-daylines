@@ -15,10 +15,10 @@ function dayOffset(min: number) {
 }
 
 export function daySkyStops(): DaySkyStop[] {
-  // Day: #c45e18. Night: same family, slightly darker/lighter orange.
-  const day = "#c45e18";
-  const dusk = "#a84a12";
-  const night = "#944812";
+  // Between accent (#aa3bff) and the duller muted set — soft but still colorful.
+  const day = "#a56de0";
+  const dusk = "#8f58c4";
+  const night = "#7d4aad";
   return [
     { color: night, offset: 0 },
     { color: night, offset: dayOffset(SUNRISE_MIN - 90) },

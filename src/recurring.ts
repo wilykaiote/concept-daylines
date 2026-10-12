@@ -83,19 +83,33 @@ export function nextRecurringDateKey(
   return dayKey(cursor);
 }
 
+/**
+ * Forced occurrence date for Automatic and completion. Null if not recurring.
+ * Always the schedule-required day — never first-fit / “find a free day”.
+ */
+export function forcedRecurringDateKey(
+  task: Pick<ComposerDraft, "date" | "recurring">,
+  now: Date = new Date(),
+): string | null {
+  const schedule = parseRecurring(task.recurring);
+  if (!schedule) return null;
+  return nextRecurringDateKey(task, schedule, now);
+}
+
 /** Build the next incomplete occurrence after completing a recurring task. */
 export function buildNextRecurringTask(
   task: ComposerDraft,
   now: Date = new Date(),
 ): ComposerDraft | null {
-  const schedule = parseRecurring(task.recurring);
-  if (!schedule) return null;
-  const nextDate = nextRecurringDateKey(task, schedule, now);
+  const nextDate = forcedRecurringDateKey(task, now);
+  if (nextDate == null) return null;
+  // Force onto the repeat day (may land in Overflow). Do not rehome bystander dated tasks.
   return withMetaAuto(
     {
       ...task,
       id: crypto.randomUUID(),
       date: nextDate,
+      // Keep starts_at / due_at (timed recurring stays at the same clock times).
       completed_at: null,
       created_at: new Date().toISOString(),
     },

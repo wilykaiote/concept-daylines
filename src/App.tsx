@@ -816,16 +816,6 @@ function MoreIcon() {
   );
 }
 
-function HorizontalMoreIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="6" cy="12" r="1.7" fill="currentColor" />
-      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
-      <circle cx="18" cy="12" r="1.7" fill="currentColor" />
-    </svg>
-  );
-}
-
 function ProfileIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1119,14 +1109,14 @@ const MORE_OPTIONS = [
 
 /** Order is top→bottom; Search is appended after these (bottom of the loop). */
 const TEND_MENU_ITEMS = [
-  { id: "settings", label: "Settings", Icon: SettingsIcon },
-  { id: "profile", label: "Profile", Icon: ProfileIcon },
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
   NOTES_TAB,
   { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
   COLLECTIONS_TAB,
   PLANS_TAB,
 ] as const;
+
+const PROFILE_MENU_NAME = "Kai";
 
 const URGENCY_OPTIONS = ["Future", "Later", "Soon", "ASAP"] as const;
 type UrgencyOption = (typeof URGENCY_OPTIONS)[number];
@@ -2213,7 +2203,43 @@ function App() {
     ),
   ];
   const deferredTasks = calendarTasksLayout.deferredTasks;
-  const overflowTasks = [...overdueTasks, ...deferredTasks];
+  const overdueIdSet = new Set(
+    overdueTasks.map((task) => task.id).filter((id): id is string => id != null),
+  );
+  /** Earliest-overtaken first; most recently overtaken last (matches timeline). */
+  const overflowPackEndById = new Map<string, number>();
+  for (const block of todayLayoutForOverflow?.scheduleBlocks ?? []) {
+    const end = block.packEndMin ?? block.endMin;
+    if (end > nowMinutes) continue;
+    if (block.task.id) overflowPackEndById.set(block.task.id, end);
+  }
+  const compareOverflowTimelineOrder = (a: ComposerDraft, b: ComposerDraft) => {
+    const endA = a.id != null ? overflowPackEndById.get(a.id) : undefined;
+    const endB = b.id != null ? overflowPackEndById.get(b.id) : undefined;
+    if (endA != null && endB != null && endA !== endB) return endA - endB;
+    if (endA != null && endB == null) return 1;
+    if (endA == null && endB != null) return -1;
+    const dateA = a.date ?? "";
+    const dateB = b.date ?? "";
+    if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+    const timeA =
+      parseTimeOfDay(a.starts_at) ??
+      parseTimeOfDay(a.due_at) ??
+      Number.POSITIVE_INFINITY;
+    const timeB =
+      parseTimeOfDay(b.starts_at) ??
+      parseTimeOfDay(b.due_at) ??
+      Number.POSITIVE_INFINITY;
+    if (timeA !== timeB) return timeA - timeB;
+    return (a.title ?? "").localeCompare(b.title ?? "");
+  };
+  const orderedOverflowRows = [...overdueTasks, ...deferredTasks]
+    .sort(compareOverflowTimelineOrder)
+    .map((task) => ({
+      task,
+      overdue: task.id != null && overdueIdSet.has(task.id),
+    }));
+  const overflowTasks = orderedOverflowRows.map((row) => row.task);
   const overflowTaskCount = overflowTasks.length;
   const overflowDeferOnly = overdueTasks.length === 0 && deferredTasks.length > 0;
   const unlockedFocusInOverflow =
@@ -3427,6 +3453,8 @@ function App() {
       const completed = current.find((task) => task.id === id);
       const without = current.filter((task) => task.id !== id);
       if (!completed) return without;
+      // Next occurrence forced onto nextRecurringDateKey (may Overflow).
+      // Do not rehome other dated tasks already on that day.
       const next = buildNextRecurringTask(completed, new Date(countdownNowRef.current));
       return next ? [next, ...without] : without;
     });
@@ -4046,15 +4074,41 @@ function App() {
   );
 
   const runAutomaticOverflowReschedule = () => {
-    setTasks((current) =>
-      rescheduleOverdueTasksForNewDay(
+    const overflowToReschedule = overflowTasks;
+    const overflowIds = new Set(
+      overflowToReschedule
+        .map((task) => task.id)
+        .filter((id): id is string => id != null),
+    );
+    setTasks((current) => {
+      const next = rescheduleOverdueTasksForNewDay(
         current,
         new Date(countdownNowRef.current),
         getTargetTimeForDay,
         taskGapMinutes,
         getWindowStartTimeForDay,
-      ),
-    );
+        overflowToReschedule,
+      );
+      const movedIds = new Set<string>();
+      for (const id of overflowIds) {
+        const before = current.find((task) => task.id === id);
+        const after = next.find((task) => task.id === id);
+        if (before && after && before.date !== after.date) movedIds.add(id);
+      }
+      if (movedIds.size > 0) {
+        setTodaySoftPackPlan((plan) => {
+          if (plan == null) return plan;
+          const placements = plan.placements.filter(
+            (row) => !movedIds.has(row.taskId),
+          );
+          if (placements.length === plan.placements.length) return plan;
+          const nextPlan: TodaySoftPackPlan = { ...plan, placements };
+          saveTodaySoftPackPlan(nextPlan);
+          return nextPlan;
+        });
+      }
+      return next;
+    });
   };
 
   const renderFocusStatusBox = (title: "Rest" | "Free time") => {
@@ -4277,60 +4331,31 @@ function App() {
               className={`task-overdue-section${overflowDeferOnly ? " is-defer-only" : ""}`}
               aria-label="Overflow tasks"
             >
-              {overdueTasks.length > 0 && (
-                <div className="task-overflow-bucket">
-                  <ul className="task-day-tasks task-overdue-tasks">
-                    {overdueTasks.map((task) => (
-                      <CompactTaskRow
-                        key={task.id ?? task.title}
-                        task={task}
-                        overdue
-                        editing={editingTaskId === task.id}
-                        highlighted={isTaskHighlighted(task.id)}
-                        popping={isTaskPopping(task.id)}
-                        now={new Date(countdownNow)}
-                        parentTitle={parentTitleFor(task.parent_id)}
-                        onComplete={() => requestCompleteTask(task.id)}
-                        onEdit={() => {
-                          if (task.id) {
-                            setFocusedOverflowTaskIds(null);
-                            setFocusedTaskId(task.id);
-                          }
-                          editTask(task);
-                        }}
-                        isCurrentFocus={todayFocusTask?.id === task.id}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {deferredTasks.length > 0 && (
-                <div className="task-overflow-bucket">
-                  <ul className="task-day-tasks task-overdue-tasks">
-                    {deferredTasks.map((task) => (
-                      <CompactTaskRow
-                        key={task.id ?? task.title}
-                        task={task}
-                        overdue={false}
-                        editing={editingTaskId === task.id}
-                        highlighted={isTaskHighlighted(task.id)}
-                        popping={isTaskPopping(task.id)}
-                        now={new Date(countdownNow)}
-                        parentTitle={parentTitleFor(task.parent_id)}
-                        onComplete={() => requestCompleteTask(task.id)}
-                        onEdit={() => {
-                          if (task.id) {
-                            setFocusedOverflowTaskIds(null);
-                            setFocusedTaskId(task.id);
-                          }
-                          editTask(task);
-                        }}
-                        isCurrentFocus={todayFocusTask?.id === task.id}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <div className="task-overflow-bucket">
+                <ul className="task-day-tasks task-overdue-tasks">
+                  {orderedOverflowRows.map(({ task, overdue }) => (
+                    <CompactTaskRow
+                      key={task.id ?? task.title}
+                      task={task}
+                      overdue={overdue}
+                      editing={editingTaskId === task.id}
+                      highlighted={isTaskHighlighted(task.id)}
+                      popping={isTaskPopping(task.id)}
+                      now={new Date(countdownNow)}
+                      parentTitle={parentTitleFor(task.parent_id)}
+                      onComplete={() => requestCompleteTask(task.id)}
+                      onEdit={() => {
+                        if (task.id) {
+                          setFocusedOverflowTaskIds(null);
+                          setFocusedTaskId(task.id);
+                        }
+                        editTask(task);
+                      }}
+                      isCurrentFocus={todayFocusTask?.id === task.id}
+                    />
+                  ))}
+                </ul>
+              </div>
             </section>
           </div>
         )}
@@ -5426,17 +5451,11 @@ function App() {
 
   useEffect(() => {
     if (!timelineMenuOpen) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (timelineMenuRef.current?.contains(target)) return;
-      if (timelineMenuButtonRef.current?.contains(target)) return;
-      setTimelineMenuOpen(false);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setTimelineMenuOpen(false);
     };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [timelineMenuOpen]);
 
   useEffect(() => {
@@ -5491,8 +5510,112 @@ function App() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [timePickerOpen, timeSavePromptOpen, targetTime, windowStartTime, timePickerBaseline]);
 
+  const closeProfileMenu = () => setTimelineMenuOpen(false);
+
   return (
     <div className="app">
+      {timelineMenuOpen &&
+        createPortal(
+          <div className="profile-drawer" role="presentation">
+            <button
+              type="button"
+              className="profile-drawer-scrim"
+              aria-label="Close profile menu"
+              onClick={closeProfileMenu}
+            />
+            <div
+              ref={timelineMenuRef}
+              className="profile-drawer-panel"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Profile menu"
+            >
+              <div className="profile-drawer-header">
+                <span className="profile-drawer-avatar" aria-hidden="true">
+                  {PROFILE_MENU_NAME.slice(0, 1)}
+                </span>
+                <span className="profile-drawer-name">{PROFILE_MENU_NAME}</span>
+              </div>
+              <div className="profile-drawer-divider" role="separator" />
+              <div className="profile-drawer-items" role="menu">
+                <button
+                  type="button"
+                  className="app-attach-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    closeProfileMenu();
+                    toggleTimePicker("dayline");
+                  }}
+                >
+                  <span>Set task window</span>
+                </button>
+                <button
+                  type="button"
+                  className="app-attach-menu-item"
+                  role="menuitem"
+                  onClick={closeProfileMenu}
+                >
+                  <span>Set aggression</span>
+                </button>
+                <button
+                  type="button"
+                  className="app-attach-menu-item"
+                  role="menuitem"
+                  onClick={closeProfileMenu}
+                >
+                  <span>Metrics</span>
+                </button>
+                <button
+                  type="button"
+                  className={`app-attach-menu-item${timelineMultiSelect ? " is-selected" : ""}`}
+                  role="menuitemcheckbox"
+                  aria-checked={timelineMultiSelect}
+                  onClick={() => {
+                    if (timelineMultiSelect) {
+                      setTimelineMultiSelect(false);
+                      setSelectedTimelineTaskIds([]);
+                    } else {
+                      setTimelineMultiSelect(true);
+                      setSelectedTimelineTaskIds(
+                        focusedTaskId != null ? [focusedTaskId] : [],
+                      );
+                      setFocusedTaskId(null);
+                      setFocusedOverflowTaskIds(null);
+                    }
+                    closeProfileMenu();
+                  }}
+                >
+                  <span>Select multiple</span>
+                </button>
+                <button
+                  type="button"
+                  className={`app-attach-menu-item${activeView === "settings" ? " is-selected" : ""}`}
+                  role="menuitem"
+                  onClick={() => {
+                    closeProfileMenu();
+                    selectView("settings");
+                  }}
+                >
+                  <SettingsIcon />
+                  <span>Settings</span>
+                </button>
+                <button
+                  type="button"
+                  className={`app-attach-menu-item${activeView === "profile" ? " is-selected" : ""}`}
+                  role="menuitem"
+                  onClick={() => {
+                    closeProfileMenu();
+                    selectView("profile");
+                  }}
+                >
+                  <ProfileIcon />
+                  <span>Profile</span>
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
       <main className="app-main" ref={mainRef}>
         <ComposerOverlayMenu
           open={timePickerOpen}
@@ -5769,74 +5892,18 @@ function App() {
               {!calendarOpen && (
                 <div className="twineline-countdown-bar">
                   <div className="twineline-menu-wrap">
-                    <ComposerOverlayMenu
-                      open={timelineMenuOpen}
-                      anchorRef={timelineMenuButtonRef}
-                      menuRef={timelineMenuRef}
-                      align="start"
-                      className="twineline-menu"
-                      aria-label="Timeline menu"
-                    >
-                      <button
-                        type="button"
-                        className="app-attach-menu-item"
-                        role="menuitem"
-                        onClick={() => {
-                          setTimelineMenuOpen(false);
-                          toggleTimePicker("dayline");
-                        }}
-                      >
-                        <span>Set task window</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="app-attach-menu-item"
-                        role="menuitem"
-                        onClick={() => setTimelineMenuOpen(false)}
-                      >
-                        <span>Set aggression</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="app-attach-menu-item"
-                        role="menuitem"
-                        onClick={() => setTimelineMenuOpen(false)}
-                      >
-                        <span>Metrics</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`app-attach-menu-item${timelineMultiSelect ? " is-selected" : ""}`}
-                        role="menuitemcheckbox"
-                        aria-checked={timelineMultiSelect}
-                        onClick={() => {
-                          if (timelineMultiSelect) {
-                            setTimelineMultiSelect(false);
-                            setSelectedTimelineTaskIds([]);
-                          } else {
-                            setTimelineMultiSelect(true);
-                            setSelectedTimelineTaskIds(
-                              focusedTaskId != null ? [focusedTaskId] : [],
-                            );
-                            setFocusedTaskId(null);
-                            setFocusedOverflowTaskIds(null);
-                          }
-                          setTimelineMenuOpen(false);
-                        }}
-                      >
-                        <span>Select multiple</span>
-                      </button>
-                    </ComposerOverlayMenu>
                     <button
                       ref={timelineMenuButtonRef}
                       type="button"
-                      className={`twineline-menu-button${timelineMenuOpen ? " is-open" : ""}`}
-                      aria-label="Timeline menu"
+                      className={`twineline-profile-button${timelineMenuOpen ? " is-open" : ""}`}
+                      aria-label="Open profile menu"
                       aria-expanded={timelineMenuOpen}
-                      aria-haspopup="menu"
+                      aria-haspopup="dialog"
                       onClick={() => setTimelineMenuOpen((open) => !open)}
                     >
-                      <HorizontalMoreIcon />
+                      <span className="twineline-profile-avatar" aria-hidden="true">
+                        {PROFILE_MENU_NAME.slice(0, 1)}
+                      </span>
                     </button>
                   </div>
                   <button

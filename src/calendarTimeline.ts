@@ -1,4 +1,5 @@
 import { withMetaAuto, type ComposerDraft } from "./composer";
+import { forcedRecurringDateKey, parseRecurring } from "./recurring";
 import { toStartOfDay } from "./taskStorage";
 
 export const PACK_START_MINUTES = 6 * 60;
@@ -502,19 +503,21 @@ function packSoftTasks(
     undatedTodayResolved = true;
   };
 
-  const takeTaskById = (taskId: string): ComposerDraft | null => {
+  /**
+   * Frozen placements are today-only: claim undated or today's date-only softs.
+   * Never steal softs already dated for a future day (e.g. after Automatic).
+   */
+  const takeFrozenTaskById = (taskId: string): ComposerDraft | null => {
     const undatedIdx = undatedQueue.findIndex((task) => task.id === taskId);
     if (undatedIdx >= 0) {
       return undatedQueue.splice(undatedIdx, 1)[0] ?? null;
     }
-    for (const [key, list] of dateOnlyQueues) {
-      const idx = list.findIndex((task) => task.id === taskId);
-      if (idx < 0) continue;
-      const [task] = list.splice(idx, 1);
-      dateOnlyQueues.set(key, list);
-      return task ?? null;
-    }
-    return null;
+    const list = dateOnlyQueues.get(todayKey) ?? [];
+    const idx = list.findIndex((task) => task.id === taskId);
+    if (idx < 0) return null;
+    const [task] = list.splice(idx, 1);
+    dateOnlyQueues.set(todayKey, list);
+    return task ?? null;
   };
 
   const placementFits = (
@@ -564,7 +567,7 @@ function packSoftTasks(
         (a, b) => a.startMin - b.startMin || a.endMin - b.endMin,
       );
       for (const placement of frozenOrdered) {
-        const task = takeTaskById(placement.taskId);
+        const task = takeFrozenTaskById(placement.taskId);
         if (!task) continue;
         const minutes = taskDurationMinutes(task);
         const durationMatches = placement.endMin - placement.startMin === minutes;
@@ -668,10 +671,81 @@ function sortOverdueTasks(tasks: ComposerDraft[]): ComposerDraft[] {
 
 const AUTO_RESCHEDULE_LOOKAHEAD_DAYS = 366;
 
+/** Soft fully overtaken on today (same rule as App overflow merge). */
+function isFullyOvertakenSoftOnToday(
+  layout: CalendarTasksLayout,
+  taskId: string,
+  now: Date,
+): boolean {
+  const todayKey = dayKey(toStartOfDay(now));
+  const nowMin = minutesFromMidnight(now);
+  const today = layout.days.find((day) => day.dayKey === todayKey);
+  if (!today) return false;
+  for (const block of today.scheduleBlocks) {
+    if (block.task.id !== taskId && block.taskId !== taskId) continue;
+    const end = block.packEndMin ?? block.endMin;
+    if (end > nowMin) continue;
+    const task = block.task;
+    if (
+      parseTimeOfDay(task.starts_at) == null &&
+      parseTimeOfDay(task.due_at) == null
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function stillCountsAsOverflow(
+  layout: CalendarTasksLayout,
+  taskId: string,
+  now: Date,
+): boolean {
+  if (layout.overdueTasks.some((task) => task.id === taskId)) return true;
+  if (layout.deferredTasks.some((task) => task.id === taskId)) return true;
+  return isFullyOvertakenSoftOnToday(layout, taskId, now);
+}
+
+function kindRescheduleRank(task: ComposerDraft): number {
+  const kind = classifyTask(task);
+  if (kind === "timed") return 0;
+  if (kind === "dateOnly") return 1;
+  return 2;
+}
+
+function sortOverflowForReschedule(tasks: ComposerDraft[]): ComposerDraft[] {
+  return [...tasks].sort((a, b) => {
+    const rankDelta = kindRescheduleRank(a) - kindRescheduleRank(b);
+    if (rankDelta !== 0) return rankDelta;
+    return compareSoftPriority(a, b);
+  });
+}
+
+function withTaskDate(
+  tasks: ComposerDraft[],
+  taskId: string,
+  nextDate: string,
+  times: Pick<ComposerDraft, "starts_at" | "due_at">,
+): ComposerDraft[] {
+  return tasks.map((task) =>
+    task.id === taskId
+      ? withMetaAuto(
+          {
+            ...task,
+            date: nextDate,
+            starts_at: times.starts_at,
+            due_at: times.due_at,
+          },
+          "schedule",
+        )
+      : task,
+  );
+}
+
 /**
- * After midnight, move overdue tasks (top → bottom) to the earliest future day
- * they can fit. Only `date` changes; `starts_at` / `due_at` stay the same.
- * Marks moved tasks with `auto_rescheduled: true`.
+ * Move overflow tasks by kind priority (timed → date-only → undated).
+ * Only `date` changes; `starts_at` / `due_at` stay the same.
+ * When `overflowTasks` is omitted, uses layout overdue only (midnight path).
  */
 export function rescheduleOverdueTasksForNewDay(
   tasks: ComposerDraft[],
@@ -679,72 +753,128 @@ export function rescheduleOverdueTasksForNewDay(
   getTargetTimeForDay: (day: Date) => string,
   taskGapMinutes: number = DEFAULT_TASK_GAP_MINUTES,
   getWindowStartTimeForDay: (day: Date) => string = () => "06:00",
+  overflowTasks?: readonly ComposerDraft[],
 ): ComposerDraft[] {
-  const layout = layoutCalendarTasks(
-    tasks,
-    now,
-    getTargetTimeForDay,
-    taskGapMinutes,
-    getWindowStartTimeForDay,
+  const layoutTasks = (
+    candidateTasks: ComposerDraft[],
+  ): CalendarTasksLayout =>
+    layoutCalendarTasks(
+      candidateTasks,
+      now,
+      getTargetTimeForDay,
+      taskGapMinutes,
+      getWindowStartTimeForDay,
+    );
+
+  const initialLayout = layoutTasks(tasks);
+  const toReschedule = sortOverflowForReschedule(
+    (overflowTasks != null
+      ? overflowTasks.filter((task) => task.id != null)
+      : initialLayout.overdueTasks
+    ).map((task) => ({ ...task })),
   );
-  const overdue = layout.overdueTasks;
-  if (overdue.length === 0) return tasks;
+  if (toReschedule.length === 0) return tasks;
 
   let working = tasks.map((task) => ({ ...task }));
   const today = toStartOfDay(now);
+  const tomorrowKey = dayKey(addDays(today, 1));
+  const movedThisPass = new Set<string>();
   let changed = false;
 
-  for (const overdueTask of overdue) {
-    if (!overdueTask.id) continue;
-    const current = working.find((task) => task.id === overdueTask.id);
-    if (!current) continue;
-
-    let nextDate: string | null = null;
-    for (let offset = 0; offset < AUTO_RESCHEDULE_LOOKAHEAD_DAYS; offset += 1) {
+  const findSoftFitDate = (
+    taskId: string,
+    current: ComposerDraft,
+    startOffset: number,
+  ): string | null => {
+    for (let offset = startOffset; offset < AUTO_RESCHEDULE_LOOKAHEAD_DAYS; offset += 1) {
       const candidateDate = dayKey(addDays(today, offset));
-      const candidateTasks = working.map((task) =>
-        task.id === overdueTask.id
-          ? {
-              ...task,
-              date: candidateDate,
-              // Keep original times; only the date moves.
-              starts_at: current.starts_at,
-              due_at: current.due_at,
-            }
-          : task,
-      );
-      const candidateLayout = layoutCalendarTasks(
-        candidateTasks,
-        now,
-        getTargetTimeForDay,
-        taskGapMinutes,
-        getWindowStartTimeForDay,
-      );
-      const stillOverdue = candidateLayout.overdueTasks.some(
-        (task) => task.id === overdueTask.id,
-      );
-      if (!stillOverdue) {
-        nextDate = candidateDate;
-        break;
+      const candidateTasks = withTaskDate(working, taskId, candidateDate, current);
+      const candidateLayout = layoutTasks(candidateTasks);
+      if (!stillCountsAsOverflow(candidateLayout, taskId, now)) {
+        return candidateDate;
       }
     }
+    return null;
+  };
 
+  /** Re-home date-only tasks moved earlier this pass that fell back into overflow. */
+  const rehomeMovedDateOnlyInOverflow = () => {
+    let guard = 0;
+    while (guard < toReschedule.length + 8) {
+      guard += 1;
+      const layout = layoutTasks(working);
+      const displaced = [...movedThisPass].filter((id) => {
+        const task = working.find((entry) => entry.id === id);
+        if (!task) return false;
+        if (parseRecurring(task.recurring) != null) return false;
+        if (classifyTask(task) === "timed") return false;
+        return stillCountsAsOverflow(layout, id, now);
+      });
+      if (displaced.length === 0) break;
+
+      let progressed = false;
+      for (const id of displaced) {
+        const current = working.find((entry) => entry.id === id);
+        if (!current) continue;
+        const scheduled = parseTaskDate(current.date);
+        const startOffset =
+          scheduled != null
+            ? Math.max(
+                0,
+                Math.round(
+                  (scheduled.getTime() - today.getTime()) / (24 * 60 * 60 * 1000),
+                ) + 1,
+              )
+            : 0;
+        const nextDate = findSoftFitDate(id, current, startOffset);
+        if (nextDate == null || nextDate === current.date) continue;
+        working = withTaskDate(working, id, nextDate, current);
+        movedThisPass.add(id);
+        changed = true;
+        progressed = true;
+      }
+      if (!progressed) break;
+    }
+  };
+
+  for (const overflowTask of toReschedule) {
+    if (!overflowTask.id) continue;
+    const current = working.find((task) => task.id === overflowTask.id);
+    if (!current) continue;
+    const taskId = overflowTask.id;
+
+    const forcedDate = forcedRecurringDateKey(current, now);
+    if (forcedDate != null) {
+      if (forcedDate !== current.date) {
+        working = withTaskDate(working, taskId, forcedDate, current);
+        movedThisPass.add(taskId);
+        changed = true;
+        rehomeMovedDateOnlyInOverflow();
+      }
+      continue;
+    }
+
+    const kind = classifyTask(current);
+    if (kind === "timed") {
+      if (tomorrowKey !== current.date) {
+        working = withTaskDate(working, taskId, tomorrowKey, current);
+        movedThisPass.add(taskId);
+        changed = true;
+        rehomeMovedDateOnlyInOverflow();
+      }
+      continue;
+    }
+
+    // Date-only and undated: earliest day that leaves overflow (undated don't block dated).
+    // Already dated today (typical overtaken soft) → start at tomorrow.
+    const softStartOffset =
+      current.date != null && current.date === dayKey(today) ? 1 : 0;
+    const nextDate = findSoftFitDate(taskId, current, softStartOffset);
     if (nextDate == null || nextDate === current.date) continue;
-
-    working = working.map((task) =>
-      task.id === overdueTask.id
-        ? withMetaAuto(
-            {
-              ...task,
-              date: nextDate,
-              starts_at: current.starts_at,
-              due_at: current.due_at,
-            },
-            "schedule",
-          )
-        : task,
-    );
+    working = withTaskDate(working, taskId, nextDate, current);
+    movedThisPass.add(taskId);
     changed = true;
+    rehomeMovedDateOnlyInOverflow();
   }
 
   return changed ? working : tasks;
