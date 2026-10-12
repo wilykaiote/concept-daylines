@@ -444,15 +444,16 @@ function LogIcon() {
 function TasksListIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M9 7h11M9 12h11M9 17h11"
+      <circle
+        cx="12"
+        cy="12"
+        r="8.25"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
-        strokeLinecap="round"
       />
       <path
-        d="m4 7 1.2 1.2L7.5 6M4 12l1.2 1.2L7.5 11M4 17l1.2 1.2L7.5 16"
+        d="m8.4 12.2 2.3 2.3 4.9-5.2"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
@@ -479,20 +480,6 @@ function MenuBarsIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function HomeIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M4.5 10.5 12 4.5l7.5 6V20a1.5 1.5 0 0 1-1.5 1.5h-4.2v-6.2H10.2V21.5H6A1.5 1.5 0 0 1 4.5 20v-9.5Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
         strokeLinejoin="round"
       />
     </svg>
@@ -547,42 +534,28 @@ function CycleIcon() {
 function PlansIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect
-        x="4.5"
-        y="5"
-        width="15"
-        height="4.2"
-        rx="1.2"
+      <path
+        d="M4.5 6.5H20"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
-      />
-      <rect
-        x="4.5"
-        y="10.4"
-        width="15"
-        height="4.2"
-        rx="1.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <rect
-        x="4.5"
-        y="15.8"
-        width="15"
-        height="3.7"
-        rx="1.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
+        strokeLinecap="round"
       />
       <path
-        d="M8 7.1h.01M8 12.5h.01M8 17.65h.01"
+        d="m4.5 12.5 1.4 1.4L9 10.8M11.5 12.5H20"
         fill="none"
         stroke="currentColor"
-        strokeWidth="2.2"
+        strokeWidth="1.8"
         strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m4.5 18.5 1.4 1.4L9 16.8M11.5 18.5H20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
@@ -985,7 +958,7 @@ const COMPOSE_KINDS = [
   { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
   { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ShoppingBagIcon },
   { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
-  { id: "log", label: "Log", placeholder: "What happened?", Icon: LogIcon },
+  { id: "log", label: "Entry", placeholder: "What happened?", Icon: LogIcon },
   {
     id: "assistant",
     label: "AI Assistant",
@@ -1076,7 +1049,7 @@ function defaultLinkPickerType(composeKind: string): LinkPickerType {
 
 /** Compose-type menu: Collection (top) · left/right columns · AI Assistant (bottom). */
 const COMPOSE_KIND_MENU_TOP = COMPOSE_KINDS.find((kind) => kind.id === "collection")!;
-const COMPOSE_KIND_MENU_LEFT_IDS = ["notebook", "list", "plan", "log"] as const;
+const COMPOSE_KIND_MENU_LEFT_IDS = ["notebook", "list", "plan"] as const;
 const COMPOSE_KIND_MENU_RIGHT_IDS = ["event", "note", "item", "task"] as const;
 const COMPOSE_KIND_MENU_LEFT = COMPOSE_KIND_MENU_LEFT_IDS.map(
   (id) => COMPOSE_KINDS.find((kind) => kind.id === id)!,
@@ -1084,6 +1057,7 @@ const COMPOSE_KIND_MENU_LEFT = COMPOSE_KIND_MENU_LEFT_IDS.map(
 const COMPOSE_KIND_MENU_RIGHT = COMPOSE_KIND_MENU_RIGHT_IDS.map(
   (id) => COMPOSE_KINDS.find((kind) => kind.id === id)!,
 );
+const LOG_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "log")!;
 const ASSISTANT_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "assistant")!;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
@@ -1123,7 +1097,7 @@ const SCHEDULE_POP_MS = 560;
 const TASK_POP_MS = TASK_ROW_POP_MS + SCHEDULE_POP_GAP_MS + SCHEDULE_POP_MS;
 
 const DAYLINE_TAB = { id: "dayline", label: "Timeline", Icon: TimelineIcon } as const;
-const HOME_TAB = { id: "home", label: "Home", Icon: HomeIcon } as const;
+const HOME_TAB = { id: "home", label: "Home", Icon: LogIcon } as const;
 const DISCOVER_TAB = { id: "discover", label: "Discover", Icon: DiscoverIcon } as const;
 const NOTES_TAB = { id: "notes", label: "Notes", Icon: NotesIcon } as const;
 const COLLECTIONS_TAB = { id: "collections", label: "Collections", Icon: CollectionOrbitIcon } as const;
@@ -1131,13 +1105,13 @@ const PLANS_TAB = { id: "plans", label: "Plans", Icon: PlansIcon } as const;
 
 const TRAY_TABS = [HOME_TAB, DISCOVER_TAB] as const;
 /** Left→right tray order for horizontal swipe navigation. */
-const MAIN_SWIPE_VIEWS = ["home", "dayline", "discover"] as const;
+const MAIN_SWIPE_VIEWS = ["dayline", "home", "discover"] as const;
 type MainSwipeView = (typeof MAIN_SWIPE_VIEWS)[number];
 const MAIN_SWIPE_THRESHOLD_PX = 56;
 const MAIN_SWIPE_MAX_SLOPE = 0.75;
 
 const MORE_OPTIONS = [
-  { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
+  { id: "tasks", label: "Tasks", Icon: TasksListIcon },
   { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
   { id: "groceries", label: "Groceries", Icon: FoodIcon },
   { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
@@ -1148,14 +1122,15 @@ const MORE_OPTIONS = [
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ] as const;
 
-/** Order is top→bottom; Search is appended after these (bottom of the loop). */
-const TEND_MENU_ITEMS = [
-  { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
+/** More menu: Collections (top) · Notes / Lists / Plans / Tasks · Search (bottom). */
+const TEND_MENU_TOP = COLLECTIONS_TAB;
+const TEND_MENU_MID = [
   NOTES_TAB,
-  { id: "tasks", label: "Tasks", Icon: MenuBarsIcon },
-  COLLECTIONS_TAB,
+  { id: "lists", label: "Lists", Icon: ShoppingBagIcon },
   PLANS_TAB,
+  { id: "tasks", label: "Tasks", Icon: TasksListIcon },
 ] as const;
+const TEND_MENU_ITEMS = [TEND_MENU_TOP, ...TEND_MENU_MID] as const;
 
 const PROFILE_MENU_NAME = "Kai";
 
@@ -1317,7 +1292,7 @@ function CompactTaskRow({
         : task.type === "note"
           ? "NOTE"
           : task.type === "log"
-            ? "LOG"
+            ? "ENTRY"
             : "TASK";
   const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
   // Repeat tasks keep grey schedule text even when completion/Automatic moved the date.
@@ -1652,195 +1627,6 @@ function ComposerOverlayMenu({
   );
 }
 
-const LOOP_SCROLL_COPIES = 3;
-
-function LoopingScrollList({
-  open,
-  className = "",
-  children,
-  scrollOffsetRef,
-  defaultAnchor,
-  defaultAnchorAlign = "start",
-  anchorRef,
-}: {
-  open: boolean;
-  className?: string;
-  children: (copy: number) => ReactNode;
-  scrollOffsetRef?: RefObject<number | null>;
-  defaultAnchor?: string;
-  /** Align the default anchor to the top or bottom of the visible menu. */
-  defaultAnchorAlign?: "start" | "end";
-  anchorRef?: RefObject<HTMLElement | null>;
-}) {
-  const shellRef = useRef<HTMLDivElement>(null);
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const setRef = useRef<HTMLDivElement>(null);
-  const adjustingRef = useRef(false);
-  const [maxHeight, setMaxHeight] = useState<number | null>(null);
-
-  const loopStride = () => {
-    const scroller = scrollerRef.current;
-    const set = setRef.current;
-    if (!scroller || !set) return 0;
-    const next = set.nextElementSibling as HTMLElement | null;
-    if (next) return next.offsetTop - set.offsetTop;
-    return set.offsetHeight;
-  };
-
-  const persistOffset = () => {
-    if (!scrollOffsetRef) return;
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const stride = loopStride();
-    if (stride <= 0) return;
-    scrollOffsetRef.current = ((scroller.scrollTop % stride) + stride) % stride;
-  };
-
-  const normalizeScroll = () => {
-    if (adjustingRef.current) return;
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const stride = loopStride();
-    if (stride <= 0) return;
-    const { scrollTop } = scroller;
-    if (scrollTop < stride * 0.5) {
-      adjustingRef.current = true;
-      scroller.scrollTop = scrollTop + stride;
-      adjustingRef.current = false;
-    } else if (scrollTop >= stride * 1.5) {
-      adjustingRef.current = true;
-      scroller.scrollTop = scrollTop - stride;
-      adjustingRef.current = false;
-    }
-    persistOffset();
-  };
-
-  const restoreScroll = () => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const stride = loopStride();
-    if (stride <= 0) return;
-
-    const saved = scrollOffsetRef?.current;
-    if (saved != null) {
-      scroller.scrollTop = stride + saved;
-      return;
-    }
-
-    scroller.scrollTop = stride;
-    if (!defaultAnchor) return;
-    const sets = scroller.querySelectorAll<HTMLElement>(".app-loop-scroll-set");
-    const middle = sets[1];
-    const anchor = middle?.querySelector<HTMLElement>(`[data-loop-anchor="${defaultAnchor}"]`);
-    if (!anchor) return;
-    const scrollerRect = scroller.getBoundingClientRect();
-    const anchorRect = anchor.getBoundingClientRect();
-    const delta =
-      defaultAnchorAlign === "end"
-        ? anchorRect.bottom - scrollerRect.bottom
-        : anchorRect.top - scrollerRect.top;
-    scroller.scrollTop += delta;
-    persistOffset();
-  };
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setMaxHeight(null);
-      return;
-    }
-
-    const updateFit = () => {
-      const anchor = anchorRef?.current;
-      const shell = shellRef.current;
-      const set = setRef.current;
-      if (!shell) return;
-
-      const vv = window.visualViewport;
-      const viewTop = vv?.offsetTop ?? 0;
-      const viewHeight = vv?.height ?? window.innerHeight;
-      const viewBottom = viewTop + viewHeight;
-      const gap = 10;
-      const pad = 8;
-
-      const menu = shell.closest(".app-attach-menu") as HTMLElement | null;
-      const menuStyle = menu ? getComputedStyle(menu) : null;
-      const menuPadY = menuStyle
-        ? (parseFloat(menuStyle.paddingTop) || 0) + (parseFloat(menuStyle.paddingBottom) || 0)
-        : 12;
-
-      let available = viewHeight - pad * 2 - menuPadY;
-      if (anchor) {
-        const rect = anchor.getBoundingClientRect();
-        const above = rect.top - viewTop - pad - gap - menuPadY;
-        const below = viewBottom - rect.bottom - pad - gap - menuPadY;
-        available = Math.max(above, below);
-      }
-
-      const firstItem = set?.querySelector<HTMLElement>(".app-attach-menu-item");
-      const itemH = firstItem?.offsetHeight || 40;
-      const setStyle = set ? getComputedStyle(set) : null;
-      const itemGap = setStyle ? parseFloat(setStyle.rowGap || setStyle.gap) || 0 : 2;
-      const row = itemH + itemGap;
-      const peek = Math.round(itemH * 0.55);
-      const fitRows = Math.max(2, Math.floor((Math.max(0, available) - peek) / row));
-      const setHeight = set?.offsetHeight ?? 0;
-      const uncapped = fitRows * row + peek - itemGap;
-      // Never expose a full cycle — keep at least a peek of overflow for the loop.
-      const loopCap =
-        setHeight > 0 ? Math.max(row * 2, setHeight - Math.round(itemH * 0.25)) : uncapped;
-      const height = Math.min(Math.max(0, available), uncapped, loopCap);
-
-      setMaxHeight(height);
-    };
-
-    updateFit();
-    const frame = requestAnimationFrame(() => {
-      updateFit();
-      restoreScroll();
-    });
-
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", updateFit);
-    window.addEventListener("resize", updateFit);
-
-    return () => {
-      cancelAnimationFrame(frame);
-      vv?.removeEventListener("resize", updateFit);
-      window.removeEventListener("resize", updateFit);
-    };
-  }, [open, anchorRef, scrollOffsetRef, defaultAnchor]);
-
-  useLayoutEffect(() => {
-    if (!open || maxHeight == null) return;
-    restoreScroll();
-  }, [open, maxHeight, scrollOffsetRef, defaultAnchor]);
-
-  return (
-    <div
-      ref={shellRef}
-      className={`app-loop-scroll-shell${className ? ` ${className}` : ""}`}
-      style={maxHeight != null ? { maxHeight } : undefined}
-    >
-      <div
-        ref={scrollerRef}
-        className="app-loop-scroll"
-        onScroll={normalizeScroll}
-      >
-        {Array.from({ length: LOOP_SCROLL_COPIES }, (_, copy) => (
-          <div
-            key={copy}
-            ref={copy === 0 ? setRef : undefined}
-            className="app-loop-scroll-set"
-            aria-hidden={copy !== 1}
-          >
-            {children(copy)}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function App() {
   const [content, setContent] = useState("");
   const [collapsed, setCollapsed] = useState(true);
@@ -2000,11 +1786,12 @@ function App() {
   const [forcedOverflowIds, setForcedOverflowIds] = useState<Set<string>>(() => new Set());
   type TimelineNotice = {
     id: string;
-    kind: "overflow" | "recovered";
+    kind: "overflow" | "recovered" | "at-risk";
     count: number;
   };
   const [timelineNotices, setTimelineNotices] = useState<TimelineNotice[]>([]);
   const prevOverflowIdsRef = useRef<Set<string> | null>(null);
+  const prevAtRiskIdRef = useRef<string | null | undefined>(undefined);
   /** Undated ids released by Automatic this calendar day — baseline merge must not re-add. */
   const autoReleasedBaselineIdsRef = useRef<{ dayKey: string; ids: Set<string> }>({
     dayKey: "",
@@ -2154,7 +1941,6 @@ function App() {
   const toolsCenterRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
-  const moreMenuScrollOffsetRef = useRef<number | null>(null);
   const timelineMenuButtonRef = useRef<HTMLButtonElement>(null);
   const timelineMenuRef = useRef<HTMLDivElement>(null);
   const fabRef = useRef<HTMLButtonElement>(null);
@@ -2179,11 +1965,9 @@ function App() {
   const FabComposeIcon = fabComposeKind.Icon;
 
   const DaylineIcon = DAYLINE_TAB.Icon;
-  const moreMenuItems = TEND_MENU_ITEMS;
   const moreMenuViewIds = new Set<ActiveView>(TEND_MENU_ITEMS.map((item) => item.id));
   const moreMenuViewSelected = moreMenuViewIds.has(activeView);
-  const moreMenuPending = moreMenuOpen && !moreMenuViewSelected;
-  const moreButtonActive = moreMenuViewSelected;
+  const moreButtonActive = moreMenuOpen || moreMenuViewSelected;
   const todayStart = toStartOfDay(new Date(countdownNow));
   const getTargetTimeForDay = (day: Date) => {
     if (timePickerOpen && sameCalendarDay(day, selectedDay)) return targetTime;
@@ -3483,7 +3267,7 @@ function App() {
         : composeKind === "note"
           ? "NOTE"
           : composeKind === "log"
-            ? "LOG"
+            ? "ENTRY"
             : "TASK";
   const composerScheduleAuto =
     !composerIsRecurring &&
@@ -4528,6 +4312,13 @@ function App() {
                       moved to{" "}
                       <span className="task-overflow-notice-overflow">Overflow</span>.
                     </>
+                  ) : notice.kind === "at-risk" ? (
+                    <>
+                      {notice.count === 1 ? "is" : "are"} currently getting pushed
+                      into{" "}
+                      <span className="task-overflow-notice-overflow">overflow</span>
+                      .
+                    </>
                   ) : (
                     <>recovered.</>
                   )}
@@ -4867,6 +4658,7 @@ function App() {
   useEffect(() => {
     setForcedOverflowIds((prev) => (prev.size === 0 ? prev : new Set()));
     prevOverflowIdsRef.current = null;
+    prevAtRiskIdRef.current = undefined;
     setTimelineNotices([]);
   }, [todayKeyStr]);
 
@@ -4882,6 +4674,23 @@ function App() {
       return next;
     });
   }, [atRiskTask?.id, atRiskCountdownMs]);
+
+  // Notify when a soft becomes At Risk (getting pushed into overflow).
+  useEffect(() => {
+    const currentId = atRiskTask?.id ?? null;
+    const prev = prevAtRiskIdRef.current;
+    prevAtRiskIdRef.current = currentId;
+    if (prev === undefined) return;
+    if (currentId == null || currentId === prev) return;
+    setTimelineNotices((current) => [
+      ...current,
+      {
+        id: `at-risk-${Date.now()}-${currentId}`,
+        kind: "at-risk",
+        count: 1,
+      },
+    ]);
+  }, [atRiskTask?.id]);
 
   // Emit dismissible notices when tasks enter or leave Overflow (still living = recovered).
   useEffect(() => {
@@ -6667,13 +6476,13 @@ function App() {
         aria-label="Main"
       >
         <div className="app-tray-tabs ui-glass" aria-hidden={!collapsed || searchOpen}>
-          {[HOME_TAB, null, DISCOVER_TAB].map((tab) => {
+          {[null, HOME_TAB, DISCOVER_TAB].map((tab) => {
             if (!tab) {
               return (
                 <button
                   key="dayline"
                   type="button"
-                  className={`app-tray-tab${activeView === "dayline" ? " is-active" : ""}`}
+                  className={`app-tray-tab app-tray-tab-dayline${activeView === "dayline" ? " is-active" : ""}`}
                   onClick={() => selectView("dayline")}
                   tabIndex={collapsed && !searchOpen ? 0 : -1}
                   aria-label={DAYLINE_TAB.label}
@@ -6708,57 +6517,43 @@ function App() {
               className="app-tray-more-menu"
               aria-label="More..."
             >
-              <LoopingScrollList
-                open={moreMenuOpen && !searchOpen}
-                className="app-tray-more-loop"
-                scrollOffsetRef={moreMenuScrollOffsetRef}
-                defaultAnchor="search"
-                defaultAnchorAlign="end"
-                anchorRef={moreButtonRef}
+              <button
+                type="button"
+                className={`app-attach-menu-item${activeView === TEND_MENU_TOP.id ? " is-selected" : ""}`}
+                role="menuitem"
+                onClick={() => selectView(TEND_MENU_TOP.id)}
               >
-                {(copy) => (
-                  <>
-                    {moreMenuItems.map(({ id, label, Icon }) => (
-                      <button
-                        key={`${copy}-${id}`}
-                        type="button"
-                        className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
-                        role="menuitem"
-                        tabIndex={copy === 1 ? 0 : -1}
-                        onClick={() => selectView(id)}
-                      >
-                        <Icon />
-                        <span>{label}</span>
-                      </button>
-                    ))}
-                    <button
-                      key={`${copy}-search`}
-                      type="button"
-                      className="app-attach-menu-item app-tray-more-search"
-                      role="menuitem"
-                      tabIndex={copy === 1 ? 0 : -1}
-                      data-loop-anchor="search"
-                      onClick={openSearch}
-                    >
-                      <SearchIcon />
-                      <span>Search</span>
-                    </button>
-                    <div
-                      key={`${copy}-seam`}
-                      className="app-tray-more-loop-seam"
-                      role="separator"
-                      aria-label="End of menu"
-                    />
-                  </>
-                )}
-              </LoopingScrollList>
+                <TEND_MENU_TOP.Icon />
+                <span>{TEND_MENU_TOP.label}</span>
+              </button>
+              <div className="app-tray-more-menu-divider" role="separator" />
+              {TEND_MENU_MID.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`app-attach-menu-item${activeView === id ? " is-selected" : ""}`}
+                  role="menuitem"
+                  onClick={() => selectView(id)}
+                >
+                  <Icon />
+                  <span>{label}</span>
+                </button>
+              ))}
+              <div className="app-tray-more-menu-divider" role="separator" />
+              <button
+                type="button"
+                className="app-attach-menu-item app-tray-more-search"
+                role="menuitem"
+                onClick={openSearch}
+              >
+                <SearchIcon />
+                <span>Search</span>
+              </button>
             </ComposerOverlayMenu>
             <button
               ref={moreButtonRef}
               type="button"
-              className={`app-tray-more-button${
-                moreButtonActive ? " is-active" : moreMenuPending ? " is-menu-open" : ""
-              }`}
+              className={`app-tray-more-button${moreButtonActive ? " is-active" : ""}`}
               onClick={() => {
                 setMoreMenuOpen((open) => !open);
               }}
@@ -8298,17 +8093,34 @@ function App() {
                             setComposeKindMenuOpen(false);
                           }}
                         >
-                          <span
-                            className={`app-compose-kind-plus${id === "log" ? " is-check" : ""}`}
-                            aria-hidden="true"
-                          >
-                            {id === "log" ? <CheckIcon /> : "+"}
+                          <span className="app-compose-kind-plus" aria-hidden="true">
+                            +
                           </span>
                           <Icon />
                           <span>{label}</span>
                         </button>
                       ))}
+                      <button
+                        type="button"
+                        className={`app-attach-menu-item${composeKind === "log" ? " is-selected" : ""}`}
+                        role="menuitem"
+                        onClick={() => {
+                          clearComposerMetaAuto("type");
+                          setComposeKind("log");
+                          setComposeKindMenuOpen(false);
+                        }}
+                      >
+                        <span className="app-compose-kind-plus is-check" aria-hidden="true">
+                          <CheckIcon />
+                        </span>
+                        <LOG_COMPOSE_KIND.Icon />
+                        <span>{LOG_COMPOSE_KIND.label}</span>
+                      </button>
                     </div>
+                    <div
+                      className="app-compose-kind-menu-divider app-compose-kind-menu-divider-vert"
+                      role="separator"
+                    />
                     <div className="app-compose-kind-menu-column">
                       {COMPOSE_KIND_MENU_RIGHT.map(({ id, label, Icon }) => (
                         <button

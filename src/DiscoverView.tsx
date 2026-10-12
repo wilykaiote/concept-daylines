@@ -157,6 +157,7 @@ const DISCOVER_COLLECTIONS: DiscoverCollection[] = [
 export function DiscoverView() {
   const [activeType, setActiveType] = useState<DiscoverType>("All");
   const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const toggleTag = (tag: string) => {
     setActiveTags((current) =>
@@ -215,6 +216,36 @@ export function DiscoverView() {
               </button>
             ))}
           </div>
+
+          <label className="discover-search">
+            <span className="discover-search-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle
+                  cx="11"
+                  cy="11"
+                  r="6.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
+                <path
+                  d="m16 16 4 4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search collections..."
+              autoComplete="off"
+              enterKeyHint="search"
+            />
+          </label>
         </header>
       </div>
 
