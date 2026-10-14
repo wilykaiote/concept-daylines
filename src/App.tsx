@@ -1822,15 +1822,18 @@ function App() {
   );
   const [selectedDay, setSelectedDay] = useState(() => toStartOfDay(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [overdueSectionOpen, setOverdueSectionOpen] = useState(
-    () => INITIAL_UI_SESSION?.overdueSectionOpen ?? true,
-  );
+  const [overdueSectionOpenByDay, setOverdueSectionOpenByDay] = useState<
+    Record<string, boolean>
+  >(() => {
+    const today = dayKey(toStartOfDay(new Date()));
+    return { [today]: INITIAL_UI_SESSION?.overdueSectionOpen ?? true };
+  });
   const [homeOverdueSectionOpen] = useState(
     () => INITIAL_UI_SESSION?.homeOverdueSectionOpen ?? false,
   );
   const [planCompletedCounts, setPlanCompletedCounts] = useState(loadPlanCompletedCounts);
-  const overdueSectionOpenRef = useRef(overdueSectionOpen);
-  overdueSectionOpenRef.current = overdueSectionOpen;
+  const overdueSectionOpenByDayRef = useRef(overdueSectionOpenByDay);
+  overdueSectionOpenByDayRef.current = overdueSectionOpenByDay;
   const homeOverdueSectionOpenRef = useRef(homeOverdueSectionOpen);
   homeOverdueSectionOpenRef.current = homeOverdueSectionOpen;
   const [timePickerOpen, setTimePickerOpen] = useState(false);
@@ -1866,13 +1869,6 @@ function App() {
     dayKey: "",
     ids: new Set(),
   });
-  /** Duration countdown anchor while a soft is At Risk. */
-  const atRiskCountdownAnchorRef = useRef<{
-    taskId: string;
-    dayKey: string;
-    startedAtMs: number;
-    durationMs: number;
-  } | null>(null);
   const composerRef = useRef<HTMLFormElement>(null);
   const composerFieldRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -2103,23 +2099,8 @@ function App() {
   );
   const todayEndSlackMin = calendarTasksLayout.todayEndSlackMin;
   const layoutAtRiskTask = calendarTasksLayout.atRiskTask;
-  const layoutOverdueIds = new Set(
-    calendarTasksLayout.overdueTasks
-      .map((task) => task.id)
-      .filter((id): id is string => id != null),
-  );
   const forcedOverflowTasks = nonContainerTasks.filter(
     (task) => task.id != null && forcedOverflowIds.has(task.id),
-  );
-  const overdueTasks = [
-    ...calendarTasksLayout.overdueTasks,
-    ...forcedOverflowTasks.filter(
-      (task) => task.id != null && !layoutOverdueIds.has(task.id),
-    ),
-  ];
-  const deferredTasks = calendarTasksLayout.deferredTasks;
-  const overdueIdSet = new Set(
-    overdueTasks.map((task) => task.id).filter((id): id is string => id != null),
   );
   /** Earliest-overtaken first; most recently overtaken last (matches timeline). */
   const overflowPackEndById = new Map<string, number>();
@@ -2148,15 +2129,42 @@ function App() {
     if (timeA !== timeB) return timeA - timeB;
     return (a.title ?? "").localeCompare(b.title ?? "");
   };
-  const orderedOverflowRows = [...overdueTasks, ...deferredTasks]
-    .sort(compareOverflowTimelineOrder)
-    .map((task) => ({
-      task,
-      overdue: task.id != null && overdueIdSet.has(task.id),
-    }));
-  const overflowTasks = orderedOverflowRows.map((row) => row.task);
-  const overflowTaskCount = overflowTasks.length;
-  const overflowDeferOnly = overdueTasks.length === 0 && deferredTasks.length > 0;
+  const overflowForDay = (dayLayout: (typeof calendarTaskLayout)[number] | undefined) => {
+    const dayOverdue = dayLayout?.overdueTasks ?? [];
+    const dayDeferred = dayLayout?.deferredTasks ?? [];
+    const layoutOverdueIds = new Set(
+      dayOverdue.map((task) => task.id).filter((id): id is string => id != null),
+    );
+    const isToday = dayLayout?.dayKey === todayKeyStr;
+    const overdue = isToday
+      ? [
+          ...dayOverdue,
+          ...forcedOverflowTasks.filter(
+            (task) => task.id != null && !layoutOverdueIds.has(task.id),
+          ),
+        ]
+      : dayOverdue;
+    const deferred = dayDeferred;
+    const overdueIdSet = new Set(
+      overdue.map((task) => task.id).filter((id): id is string => id != null),
+    );
+    const rows = [...overdue, ...deferred]
+      .sort(compareOverflowTimelineOrder)
+      .map((task) => ({
+        task,
+        overdue: task.id != null && overdueIdSet.has(task.id),
+      }));
+    return {
+      rows,
+      tasks: rows.map((row) => row.task),
+      count: rows.length,
+      deferOnly: overdue.length === 0 && deferred.length > 0,
+    };
+  };
+  const todayOverflow = overflowForDay(todayLayoutForOverflow);
+  const overflowTasks = todayOverflow.tasks;
+  const overflowTaskCount = todayOverflow.count;
+  const overflowDeferOnly = todayOverflow.deferOnly;
   const unlockedFocusInOverflow =
     currentFocus != null &&
     currentFocus.dayKey === todayKeyStr &&
@@ -2222,12 +2230,47 @@ function App() {
   const firstUpcomingSoftBlock =
     upNextPlanBlocksAll.find((block) => !isTimedTask(block.task)) ?? null;
   const firstUpcomingSoft = firstUpcomingSoftBlock?.task ?? null;
-  const atRiskTask =
+  const layoutSpillHoldTasks = calendarTasksLayout.todaySpillHoldTasks ?? [];
+  const spillCandidateTask =
     layoutAtRiskTask != null &&
     layoutAtRiskTask.id != null &&
     !forcedOverflowIds.has(layoutAtRiskTask.id)
       ? layoutAtRiskTask
+      : (layoutSpillHoldTasks.find(
+          (task) => task.id != null && !forcedOverflowIds.has(task.id),
+        ) ?? null);
+  const pastWindowMin = Math.max(0, nowMinutes - todayPackEnd);
+  const spillDurationMin =
+    spillCandidateTask != null
+      ? Math.max(1, taskDurationMinutes(spillCandidateTask))
+      : 0;
+  const spillRemainingMin =
+    spillCandidateTask != null
+      ? Math.max(0, spillDurationMin - pastWindowMin)
+      : 0;
+  /** OVERFLOWING: spill soft with time past the pack window and remaining duration. */
+  const atRiskTask =
+    spillCandidateTask != null && pastWindowMin > 0 && spillRemainingMin > 0
+      ? spillCandidateTask
       : null;
+  const atRiskCountdownMs =
+    atRiskTask != null ? spillRemainingMin * 60_000 : null;
+  const atRiskCountdownProgress =
+    atRiskTask != null && spillDurationMin > 0
+      ? Math.min(1, Math.max(0, spillRemainingMin / spillDurationMin))
+      : null;
+  /** Spill softs that have entirely passed the window → Overflow. */
+  const spillReadyForOverflowIds = (() => {
+    const ids: string[] = [];
+    const consider = (task: ComposerDraft | null | undefined) => {
+      if (task?.id == null || forcedOverflowIds.has(task.id)) return;
+      const durationMin = Math.max(1, taskDurationMinutes(task));
+      if (pastWindowMin >= durationMin) ids.push(task.id);
+    };
+    consider(layoutAtRiskTask);
+    for (const task of layoutSpillHoldTasks) consider(task);
+    return ids;
+  })();
   const pinnedFocusTask =
     todayFocusId != null
       ? (tasks.find((task) => task.id === todayFocusId) ?? null)
@@ -2377,40 +2420,6 @@ function App() {
     }
   }
 
-  // At Risk duration countdown (elapsed fill); starts when task enters At Risk.
-  let atRiskCountdownProgress: number | null = null;
-  let atRiskCountdownMs: number | null = null;
-  if (atRiskTask?.id != null) {
-    const durationMs = Math.max(1, taskDurationMinutes(atRiskTask) * 60_000);
-    const anchor = atRiskCountdownAnchorRef.current;
-    if (
-      anchor == null ||
-      anchor.taskId !== atRiskTask.id ||
-      anchor.dayKey !== todayKeyStr
-    ) {
-      atRiskCountdownAnchorRef.current = {
-        taskId: atRiskTask.id,
-        dayKey: todayKeyStr,
-        startedAtMs: countdownNow,
-        durationMs,
-      };
-    } else if (anchor.durationMs !== durationMs) {
-      atRiskCountdownAnchorRef.current = { ...anchor, durationMs };
-    }
-    const live = atRiskCountdownAnchorRef.current!;
-    atRiskCountdownMs = Math.max(
-      0,
-      live.durationMs - (countdownNow - live.startedAtMs),
-    );
-    const elapsed = Math.min(
-      1,
-      Math.max(0, (countdownNow - live.startedAtMs) / live.durationMs),
-    );
-    atRiskCountdownProgress = elapsed;
-  } else {
-    atRiskCountdownAnchorRef.current = null;
-  }
-
   const nowSkyColor = daySkyColorAtMinutes(nowMinutes);
 
   const upNextCountdownTaskId: string | null = null;
@@ -2512,6 +2521,8 @@ function App() {
         blocks: [],
         scheduleBlocks: [],
         hourMarkers,
+        overdueTasks: [],
+        deferredTasks: [],
       };
     });
 
@@ -2617,8 +2628,12 @@ function App() {
     if (activeViewRef.current === "home") {
       selectView("dayline");
     }
-    overdueSectionOpenRef.current = true;
-    setOverdueSectionOpen(true);
+    const key = dayKey(toStartOfDay(new Date(countdownNowRef.current)));
+    setOverdueSectionOpenByDay((current) => {
+      const next = { ...current, [key]: true };
+      overdueSectionOpenByDayRef.current = next;
+      return next;
+    });
     persistUiSession();
   };
 
@@ -3756,10 +3771,11 @@ function App() {
     const scrollByView = { ...viewScrollTopRef.current } as Partial<
       Record<UiSessionViewId, number>
     >;
+    const todayOpenKey = dayKey(toStartOfDay(new Date(countdownNowRef.current)));
     const session: UiSession = {
       activeView: view as UiSessionViewId,
       scrollByView,
-      overdueSectionOpen: overdueSectionOpenRef.current,
+      overdueSectionOpen: overdueSectionOpenByDayRef.current[todayOpenKey] ?? true,
       homeOverdueSectionOpen: homeOverdueSectionOpenRef.current,
     };
     if (view === "dayline" || timelineDayCountRef.current !== DEFAULT_TIMELINE_DAY_COUNT) {
@@ -4125,14 +4141,17 @@ function App() {
     </div>
   );
 
-  const runAutomaticOverflowReschedule = () => {
-    const overflowToReschedule = overflowTasks;
+  const runAutomaticOverflowReschedule = (sourceDayKey: string = todayKeyStr) => {
+    const sourceLayout = calendarTaskLayout.find((day) => day.dayKey === sourceDayKey);
+    const sourceOverflow = overflowForDay(sourceLayout);
+    const overflowToReschedule = sourceOverflow.tasks;
     const overflowIds = new Set(
       overflowToReschedule
         .map((task) => task.id)
         .filter((id): id is string => id != null),
     );
     const dayKeyForRelease = todayKeyStr;
+    const sourceDay = sourceLayout?.date ?? todayStart;
     setTasks((current) => {
       const { tasks: next, releaseBaselineIds } = rescheduleOverdueTasksForNewDay(
         current,
@@ -4141,6 +4160,7 @@ function App() {
         taskGapMinutes,
         getWindowStartTimeForDay,
         overflowToReschedule,
+        sourceDay,
       );
       const movedIds = new Set<string>();
       for (const id of overflowIds) {
@@ -4258,7 +4278,7 @@ function App() {
           <button
             type="button"
             className="task-current-focus-reschedule-btn is-automatic"
-            onClick={runAutomaticOverflowReschedule}
+            onClick={() => runAutomaticOverflowReschedule()}
           >
             Automatic
           </button>
@@ -4393,7 +4413,7 @@ function App() {
     return (
       <div className="task-day-next task-day-at-risk">
         <p className="task-current-focus-label">
-          At risk
+          OVERFLOWING...
           {atRiskCountdownLabel != null && (
             <span className="task-current-focus-countdown" aria-live="polite">
               {atRiskCountdownLabel}
@@ -4413,7 +4433,6 @@ function App() {
             isCurrentFocus={false}
             countdownProgress={atRiskCountdownProgress}
             countdownBarColor="var(--day-kind-soft)"
-            countdownElapsedFill
             onComplete={() => requestCompleteTask(taskId)}
             onEdit={() => {
               setFocusedOverflowTaskIds(null);
@@ -4453,9 +4472,8 @@ function App() {
                     </>
                   ) : notice.kind === "at-risk" ? (
                     <>
-                      {notice.count === 1 ? "is" : "are"} currently getting pushed
-                      into{" "}
-                      <span className="task-overflow-notice-overflow">overflow</span>
+                      {notice.count === 1 ? "is" : "are"} currently{" "}
+                      <span className="task-overflow-notice-overflow">OVERFLOWING</span>
                       .
                     </>
                   ) : (
@@ -4478,22 +4496,29 @@ function App() {
     );
   };
 
-  const renderOverflowSection = () => {
-    if (overflowTaskCount <= 0) return null;
+  const renderOverflowSection = (dayLayout: (typeof calendarTaskLayout)[number]) => {
+    const dayOverflow = overflowForDay(dayLayout);
+    if (dayOverflow.count <= 0) return null;
+    const isToday = dayLayout.dayKey === todayKeyStr;
+    const sectionOpen = overdueSectionOpenByDay[dayLayout.dayKey] ?? false;
+    const listId = `task-overdue-list-${dayLayout.dayKey}`;
     return (
       <>
         <div className="task-day-label-row task-day-overflow-row">
           <button
-            ref={overflowToggleRef}
+            ref={isToday ? overflowToggleRef : undefined}
             type="button"
-            className={`task-overdue-toggle${overdueSectionOpen ? " is-open" : ""}${overflowDeferOnly ? " is-defer-only" : ""}`}
-            aria-expanded={overdueSectionOpen}
-            aria-controls="task-overdue-list"
+            className={`task-overdue-toggle${sectionOpen ? " is-open" : ""}${dayOverflow.deferOnly ? " is-defer-only" : ""}`}
+            aria-expanded={sectionOpen}
+            aria-controls={listId}
             aria-label="Overflow tasks"
             onClick={() => {
-              setOverdueSectionOpen((open) => {
-                const next = !open;
-                overdueSectionOpenRef.current = next;
+              setOverdueSectionOpenByDay((current) => {
+                const next = {
+                  ...current,
+                  [dayLayout.dayKey]: !(current[dayLayout.dayKey] ?? false),
+                };
+                overdueSectionOpenByDayRef.current = next;
                 persistUiSession();
                 return next;
               });
@@ -4501,26 +4526,29 @@ function App() {
           >
             <span className="task-overdue-toggle-action">
               <span className="task-overdue-toggle-reschedule">
-                <span className="task-overdue-toggle-count">{overflowTaskCount}</span>
+                <span className="task-overdue-toggle-count">{dayOverflow.count}</span>
                 OVERFLOW
               </span>
               <span className="task-overdue-toggle-chevron" aria-hidden="true">
-                {overdueSectionOpen ? "∨" : ">"}
+                {sectionOpen ? "∨" : ">"}
               </span>
             </span>
           </button>
         </div>
-        {overdueSectionOpen && (
-          <div className="task-overdue-scroll-block" ref={overdueScrollBlockRef}>
+        {sectionOpen && (
+          <div
+            className="task-overdue-scroll-block"
+            ref={isToday ? overdueScrollBlockRef : undefined}
+          >
             <section
-              ref={overdueSectionRef}
-              id="task-overdue-list"
-              className={`task-overdue-section${overflowDeferOnly ? " is-defer-only" : ""}`}
+              ref={isToday ? overdueSectionRef : undefined}
+              id={listId}
+              className={`task-overdue-section${dayOverflow.deferOnly ? " is-defer-only" : ""}`}
               aria-label="Overflow tasks"
             >
               <div className="task-overflow-bucket">
                 <ul className="task-day-tasks task-overdue-tasks">
-                  {orderedOverflowRows.map(({ task, overdue }) => (
+                  {dayOverflow.rows.map(({ task, overdue }) => (
                     <CompactTaskRow
                       key={task.id ?? task.title}
                       task={task}
@@ -4783,6 +4811,8 @@ function App() {
           config.getTargetTimeForDay,
           config.taskGapMinutes,
           config.getWindowStartTimeForDay,
+          undefined,
+          toStartOfDay(new Date(nowMs)),
         );
         return next;
       });
@@ -4801,20 +4831,23 @@ function App() {
     setTimelineNotices([]);
   }, [todayKeyStr]);
 
-  // At Risk countdown expired → Overflow.
+  // Spill softs that entirely passed the pack window → Overflow.
   useEffect(() => {
-    if (atRiskTask?.id == null || atRiskCountdownMs == null) return;
-    if (atRiskCountdownMs > 0) return;
-    const expiredId = atRiskTask.id;
+    if (spillReadyForOverflowIds.length === 0) return;
     setForcedOverflowIds((prev) => {
-      if (prev.has(expiredId)) return prev;
+      let changed = false;
       const next = new Set(prev);
-      next.add(expiredId);
-      return next;
+      for (const id of spillReadyForOverflowIds) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
-  }, [atRiskTask?.id, atRiskCountdownMs]);
+  }, [spillReadyForOverflowIds.join("|")]);
 
-  // Notify when a soft becomes At Risk (getting pushed into overflow).
+  // Notify when a soft becomes OVERFLOWING (past window, still has remaining).
   useEffect(() => {
     const currentId = atRiskTask?.id ?? null;
     const prev = prevAtRiskIdRef.current;
@@ -6387,11 +6420,11 @@ function App() {
                 seenTaskIds.add(id);
                 return true;
               });
+              const dayOverflow = overflowForDay(day);
               const showOverdueToggle =
-                isTodayGroup &&
                 activeView === "dayline" &&
                 !calendarOpen &&
-                overflowTaskCount > 0;
+                dayOverflow.count > 0;
               return (
                 <section
                   key={day.dayKey}
@@ -6479,7 +6512,7 @@ function App() {
                     activeView === "dayline" &&
                     !calendarOpen &&
                     renderAtRiskSection()}
-                  {showOverdueToggle && renderOverflowSection()}
+                  {showOverdueToggle && renderOverflowSection(day)}
                 </section>
               );
             })}
@@ -6492,11 +6525,11 @@ function App() {
                 outsideExpandedByDay[day.dayKey] ?? {},
               );
               const isTodayGroup = day.dayKey === todayKey;
+              const dayOverflow = overflowForDay(day);
               const showOverdueToggle =
-                isTodayGroup &&
                 activeView === "dayline" &&
                 !calendarOpen &&
-                overflowTaskCount > 0;
+                dayOverflow.count > 0;
               const toggleOutsideRegion = (region: OutsideRegionId) => {
                 setOutsideExpandedByDay((current) => {
                   const prev = current[day.dayKey] ?? {};
@@ -6624,7 +6657,7 @@ function App() {
                     })}
           </div>
                 </div>
-                {showOverdueToggle && renderOverflowSection()}
+                {showOverdueToggle && renderOverflowSection(day)}
               </section>
               );
             })}

@@ -2037,7 +2037,8 @@
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: transparent;
+  background: var(--bg-raised);
+  color: var(--text-h);
   line-height: 1.2;
   transition:
     background 120ms ease,
@@ -2046,7 +2047,7 @@
 
 .task-overdue-toggle:hover .task-overdue-toggle-action {
   border-color: var(--border);
-  background: transparent;
+  background: var(--bg-raised);
 }
 
 .task-overdue-toggle:focus-visible .task-overdue-toggle-action {
@@ -2056,7 +2057,7 @@
 
 .task-overdue-toggle.is-open .task-overdue-toggle-action {
   border-color: var(--border);
-  background: transparent;
+  background: var(--bg-raised);
 }
 
 .task-overdue-toggle-reschedule {
@@ -2100,7 +2101,7 @@
 }
 
 .task-overdue-toggle-chevron {
-  color: var(--text);
+  color: inherit;
   font-size: 0.85rem;
   font-weight: 500;
   line-height: 1;
@@ -2108,17 +2109,17 @@
 
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-action {
   border-color: var(--border);
-  background: transparent;
+  background: var(--bg-raised);
 }
 
 .task-overdue-toggle.is-defer-only:hover .task-overdue-toggle-action {
   border-color: color-mix(in srgb, var(--text) 28%, var(--border));
-  background: transparent;
+  background: var(--bg-raised);
 }
 
 .task-overdue-toggle.is-defer-only.is-open .task-overdue-toggle-action {
   border-color: color-mix(in srgb, var(--text) 35%, var(--border));
-  background: transparent;
+  background: var(--bg-raised);
 }
 
 .task-overdue-toggle.is-defer-only .task-overdue-toggle-reschedule,
