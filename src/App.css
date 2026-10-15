@@ -5156,6 +5156,23 @@
   height: 30px;
 }
 
+/* Fill the FAB so the glyph centers in the circle; pin + to prior corner. */
+.app-composer-fab.app-composer-fab--toggle .app-compose-add-icon {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.app-composer-fab.app-composer-fab--toggle .app-compose-add-icon svg {
+  width: 42px;
+  height: 42px;
+}
+
+.app-composer-fab.app-composer-fab--toggle .app-compose-add-plus {
+  right: 11px;
+  bottom: 10px;
+}
+
 .app-composer-fab .app-compose-add-plus {
   top: auto;
   right: -2px;
