@@ -2230,15 +2230,12 @@ function App() {
   const firstUpcomingSoftBlock =
     upNextPlanBlocksAll.find((block) => !isTimedTask(block.task)) ?? null;
   const firstUpcomingSoft = firstUpcomingSoftBlock?.task ?? null;
-  const layoutSpillHoldTasks = calendarTasksLayout.todaySpillHoldTasks ?? [];
   const spillCandidateTask =
     layoutAtRiskTask != null &&
     layoutAtRiskTask.id != null &&
     !forcedOverflowIds.has(layoutAtRiskTask.id)
       ? layoutAtRiskTask
-      : (layoutSpillHoldTasks.find(
-          (task) => task.id != null && !forcedOverflowIds.has(task.id),
-        ) ?? null);
+      : null;
   const pastWindowMin = Math.max(0, nowMinutes - todayPackEnd);
   const spillDurationMin =
     spillCandidateTask != null
@@ -2248,7 +2245,7 @@ function App() {
     spillCandidateTask != null
       ? Math.max(0, spillDurationMin - pastWindowMin)
       : 0;
-  /** OVERFLOWING: spill soft with time past the pack window and remaining duration. */
+  /** OVERFLOWING: packed flush soft with time past the pack window and remaining duration. */
   const atRiskTask =
     spillCandidateTask != null && pastWindowMin > 0 && spillRemainingMin > 0
       ? spillCandidateTask
@@ -2259,18 +2256,13 @@ function App() {
     atRiskTask != null && spillDurationMin > 0
       ? Math.min(1, Math.max(0, spillRemainingMin / spillDurationMin))
       : null;
-  /** Spill softs that have entirely passed the window → Overflow. */
-  const spillReadyForOverflowIds = (() => {
-    const ids: string[] = [];
-    const consider = (task: ComposerDraft | null | undefined) => {
-      if (task?.id == null || forcedOverflowIds.has(task.id)) return;
-      const durationMin = Math.max(1, taskDurationMinutes(task));
-      if (pastWindowMin >= durationMin) ids.push(task.id);
-    };
-    consider(layoutAtRiskTask);
-    for (const task of layoutSpillHoldTasks) consider(task);
-    return ids;
-  })();
+  /** Packed spill soft that has entirely passed the window → Overflow. */
+  const spillReadyForOverflowIds =
+    spillCandidateTask?.id != null &&
+    !forcedOverflowIds.has(spillCandidateTask.id) &&
+    pastWindowMin >= spillDurationMin
+      ? [spillCandidateTask.id]
+      : [];
   const pinnedFocusTask =
     todayFocusId != null
       ? (tasks.find((task) => task.id === todayFocusId) ?? null)
@@ -4656,9 +4648,22 @@ function App() {
     const livingIds = new Set(
       tasks.map((task) => task.id).filter((id): id is string => typeof id === "string"),
     );
-    const todaySoftIds = todaySoftResidentKey
+    // Baseline only tracks softs the user dated for today — never undated auto-fill.
+    const datedTodayIds = new Set(
+      tasks
+        .filter(
+          (task) =>
+            typeof task.id === "string" &&
+            task.date === todayKeyStr &&
+            parseTimeOfDay(task.starts_at) == null &&
+            parseTimeOfDay(task.due_at) == null,
+        )
+        .map((task) => task.id as string),
+    );
+    const todaySoftIds = (todaySoftResidentKey
       ? todaySoftResidentKey.split(",").filter(Boolean)
-      : [];
+      : []
+    ).filter((id) => datedTodayIds.has(id));
 
     if (
       todayWindowBaseline == null ||
@@ -4680,7 +4685,10 @@ function App() {
 
     const merged = new Set(
       todayWindowBaseline.taskIds.filter(
-        (id) => livingIds.has(id) && !released.has(id),
+        (id) =>
+          livingIds.has(id) &&
+          !released.has(id) &&
+          datedTodayIds.has(id),
       ),
     );
     let changed = merged.size !== todayWindowBaseline.taskIds.length;

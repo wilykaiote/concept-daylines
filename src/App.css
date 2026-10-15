@@ -1909,6 +1909,7 @@
   box-sizing: border-box;
   justify-content: space-between;
   cursor: default;
+  background: none;
 }
 
 .task-timeline-notice-dismiss {

@@ -469,12 +469,13 @@ function packSoftTasks(
   getWindowStart: (day: Date) => number,
   overdueByDay: Map<string, ComposerDraft[]>,
   deferredByDay: Map<string, ComposerDraft[]>,
-  todaySpillHold: ComposerDraft[],
   gapMinutes: number,
   todaySoftBaselineIds: ReadonlySet<string>,
   _frozenPlacements: ReadonlyMap<string, SoftPackPlacement>,
 ) {
   void _frozenPlacements;
+  // Baseline no longer soft-fills today; dated-today softs use Overflow instead.
+  void todaySoftBaselineIds;
   const undatedQueue = [...undated].sort(compareSoftPriority);
   const dateOnlyQueues = new Map<string, ComposerDraft[]>();
   for (const [key, list] of dateOnlyByDay) {
@@ -482,50 +483,23 @@ function packSoftTasks(
   }
 
   const todayStart = toStartOfDay(now);
-  const todayKey = dayKey(todayStart);
+  const tomorrowKey = dayKey(addDays(todayStart, 1));
   let day = todayStart;
   let guard = 0;
   const gap = Math.max(0, gapMinutes);
-  let undatedTodayResolved = false;
-
-  const isBaselineSoft = (task: ComposerDraft) =>
-    task.id != null && todaySoftBaselineIds.has(task.id);
+  /** After leaving today, undated may pack on tomorrow+. */
+  let undatedMayPack = false;
 
   const hasRemaining = () =>
     undatedQueue.length > 0 ||
     [...dateOnlyQueues.values()].some((list) => list.length > 0);
 
-  /** Today soft spill → hold (not Overflow yet); other days → overdue. */
-  const pushDateOnlySpill = (key: string, task: ComposerDraft) => {
-    if (key === todayKey) {
-      todaySpillHold.push(task);
-    } else {
-      pushDayOverflow(overdueByDay, key, task);
-    }
-  };
-
   const drainDateOnlyToOverdue = (key: string) => {
     const stranded = dateOnlyQueues.get(key) ?? [];
     while (stranded.length > 0) {
-      pushDateOnlySpill(key, stranded.shift()!);
+      pushDayOverflow(overdueByDay, key, stranded.shift()!);
     }
     dateOnlyQueues.set(key, stranded);
-  };
-
-  /** Baseline leftovers → Deferring; other undated stay queued to spill forward. */
-  const splitTodayUndatedLeftovers = () => {
-    if (undatedTodayResolved) return;
-    const spill: ComposerDraft[] = [];
-    while (undatedQueue.length > 0) {
-      const task = undatedQueue.shift()!;
-      if (isBaselineSoft(task)) {
-        pushDayOverflow(deferredByDay, todayKey, task);
-      } else {
-        spill.push(task);
-      }
-    }
-    undatedQueue.push(...spill);
-    undatedTodayResolved = true;
   };
 
   while (hasRemaining() && guard < 1000) {
@@ -537,7 +511,7 @@ function packSoftTasks(
     const packStart = softPackStartForDay(day, now, packEnd, windowStart);
     if (packStart >= packEnd) {
       drainDateOnlyToOverdue(key);
-      if (isToday) splitTodayUndatedLeftovers();
+      if (isToday) undatedMayPack = true;
       day = addDays(day, 1);
       continue;
     }
@@ -551,7 +525,7 @@ function packSoftTasks(
     let free = freeIntervals(packStart, packEnd, occupied);
     if (free.length === 0) {
       drainDateOnlyToOverdue(key);
-      if (isToday) splitTodayUndatedLeftovers();
+      if (isToday) undatedMayPack = true;
       day = addDays(day, 1);
       continue;
     }
@@ -560,13 +534,13 @@ function packSoftTasks(
 
     const sameDayQueue = dateOnlyQueues.get(key) ?? [];
 
-    // Priority 1: date-only / soft-anchored for this day. Fail → hold (today) or overdue.
+    // Priority 1: date-only / soft-anchored for this day. Fail → that day's Overflow.
     while (sameDayQueue.length > 0) {
       const task = sameDayQueue[0];
       const minutes = taskDurationMinutes(task);
       const range = firstFitRange(free, minutes);
       if (!range) {
-        pushDateOnlySpill(key, sameDayQueue.shift()!);
+        pushDayOverflow(overdueByDay, key, sameDayQueue.shift()!);
         continue;
       }
       sameDayQueue.shift();
@@ -576,19 +550,10 @@ function packSoftTasks(
     }
     dateOnlyQueues.set(key, sameDayQueue);
 
-    // Priority 2: undated softs — today from live packStart, then spill non-baseline forward.
+    // Priority 2: undated softs — never auto-fill today; pack from tomorrow+.
     if (isToday) {
-      while (undatedQueue.length > 0) {
-        const task = undatedQueue[0];
-        const minutes = taskDurationMinutes(task);
-        const range = firstFitRange(free, minutes);
-        if (!range) break;
-        undatedQueue.shift();
-        pushBlock(byDay, day, task, range.start, range.end, 0, false);
-        free = consumeFreeWithGap(free, range, gap);
-      }
-      splitTodayUndatedLeftovers();
-    } else if (undatedTodayResolved) {
+      undatedMayPack = true;
+    } else if (undatedMayPack) {
       while (undatedQueue.length > 0) {
         const task = undatedQueue[0];
         const minutes = taskDurationMinutes(task);
@@ -606,14 +571,13 @@ function packSoftTasks(
   for (const [key, list] of dateOnlyQueues) {
     if (list.length === 0) continue;
     while (list.length > 0) {
-      pushDateOnlySpill(key, list.shift()!);
+      pushDayOverflow(overdueByDay, key, list.shift()!);
     }
     dateOnlyQueues.set(key, list);
   }
-  if (!undatedTodayResolved) splitTodayUndatedLeftovers();
+  // Unplaced undated → Deferring under tomorrow (never auto-add to today).
   while (undatedQueue.length > 0) {
-    const task = undatedQueue.shift()!;
-    if (isBaselineSoft(task)) pushDayOverflow(deferredByDay, todayKey, task);
+    pushDayOverflow(deferredByDay, tomorrowKey, undatedQueue.shift()!);
   }
 }
 
@@ -761,13 +725,16 @@ export function rescheduleOverdueTasksForNewDay(
   const releaseBaselineIds: string[] = [];
   let changed = false;
 
+  const freezeTodayKey = dayKey(today);
   const findSoftFitDate = (
     taskId: string,
     current: ComposerDraft,
     startOffset: number,
   ): string | null => {
+    // Never auto-date onto today once the day has started.
     for (let offset = startOffset; offset < AUTO_RESCHEDULE_LOOKAHEAD_DAYS; offset += 1) {
       const candidateDate = dayKey(addDays(origin, offset));
+      if (candidateDate === freezeTodayKey) continue;
       const candidateTasks = withTaskDate(working, taskId, candidateDate, current);
       const candidateLayout = layoutTasks(candidateTasks);
       if (!stillCountsAsOverflow(candidateLayout, taskId, now)) {
@@ -852,9 +819,13 @@ export function rescheduleOverdueTasksForNewDay(
       continue;
     }
 
-    // Date-only: earliest day that leaves overflow. Already on source day → start next day.
+    // Date-only: earliest day that leaves overflow. Skip today entirely.
     const softStartOffset =
-      current.date != null && current.date === originKey ? 1 : 0;
+      current.date != null && current.date === originKey
+        ? 1
+        : originKey === freezeTodayKey
+          ? 1
+          : 0;
     const nextDate = findSoftFitDate(taskId, current, softStartOffset);
     if (nextDate == null || nextDate === current.date) continue;
     working = withTaskDate(working, taskId, nextDate, current);
@@ -896,11 +867,6 @@ export type CalendarTasksLayout = {
   overdueTasks: ComposerDraft[];
   /** Today-only undated softs that no longer fit (Overflow → Deferring). */
   deferredTasks: ComposerDraft[];
-  /**
-   * Today date-only softs that failed to pack — held out of Overflow until
-   * wall-clock past the pack window consumes their full est duration.
-   */
-  todaySpillHoldTasks: ComposerDraft[];
   /** Soft placements on today after this pack (for persistence / freeze). */
   todaySoftPlacements: SoftPackPlacement[];
   /** Minutes of free time after the last packed block before today's pack window end. */
@@ -976,7 +942,10 @@ export function collectPushedFromTodayWindowTasks(
   return overflow;
 }
 
-/** Pin the current-focus task using a frozen placement or first-fit from window start. */
+/**
+ * Pin the current-focus task on today only when it is already dated/timed for today.
+ * Returns false when the task must not invent a today placement (e.g. undated).
+ */
 function pinFocusTaskOnToday(
   byDay: Map<string, PackBlock[]>,
   task: ComposerDraft,
@@ -985,12 +954,18 @@ function pinFocusTaskOnToday(
   getWindowStart: (day: Date) => number,
   frozen: SoftPackPlacement | null,
   gapMinutes: number,
-) {
+): boolean {
   const today = toStartOfDay(now);
+  const todayKey = dayKey(today);
+  const scheduled = parseTaskDate(task.date);
+  if (scheduled == null || dayKey(scheduled) !== todayKey) {
+    return false;
+  }
+
   const packEnd = getPackEnd(today);
   const windowStart = getWindowStart(today);
   const minutes = Math.max(1, taskDurationMinutes(task));
-  const key = dayKey(today);
+  const key = todayKey;
 
   if (
     frozen != null &&
@@ -999,13 +974,13 @@ function pinFocusTaskOnToday(
     frozen.endMin <= packEnd
   ) {
     pushBlock(byDay, today, task, frozen.startMin, frozen.endMin, 0, false);
-    return;
+    return true;
   }
 
   const packStart = softPackStartForDay(today, now, packEnd, windowStart);
   if (packStart >= packEnd) {
     pushBlock(byDay, today, task, windowStart, windowStart + minutes, 0, false);
-    return;
+    return true;
   }
   const occupied = inflateOccupied(
     occupiedIntervalsForDay(byDay, key),
@@ -1017,9 +992,10 @@ function pinFocusTaskOnToday(
   const range = firstFitRange(free, minutes);
   if (range) {
     pushBlock(byDay, today, task, range.start, range.end, 0, false);
-    return;
+    return true;
   }
   pushBlock(byDay, today, task, packStart, packStart + minutes, 0, false);
+  return true;
 }
 
 export function layoutCalendarTasks(
@@ -1048,7 +1024,6 @@ export function layoutCalendarTasks(
   const byDay = new Map<string, PackBlock[]>();
   const overdueByDay = new Map<string, ComposerDraft[]>();
   const deferredByDay = new Map<string, ComposerDraft[]>();
-  const todaySpillHold: ComposerDraft[] = [];
   const frozenById = new Map<string, SoftPackPlacement>();
   for (const placement of frozenSoftPlacements) {
     if (!placement.taskId || placement.endMin <= placement.startMin) continue;
@@ -1118,7 +1093,7 @@ export function layoutCalendarTasks(
   if (focusTask) {
     const frozen =
       focusTask.id != null ? (frozenById.get(focusTask.id) ?? null) : null;
-    pinFocusTaskOnToday(
+    const pinned = pinFocusTaskOnToday(
       byDay,
       focusTask,
       now,
@@ -1128,6 +1103,33 @@ export function layoutCalendarTasks(
       gapMinutes,
     );
     if (focusTask.id) frozenById.delete(focusTask.id);
+    if (!pinned) {
+      // Undated / non-today focus must not invent a today slot — rejoin soft queues.
+      const kind = classifyTask(focusTask);
+      if (kind === "undated") {
+        undated.push(focusTask);
+      } else if (kind === "timed") {
+        placeTimedTask(
+          byDay,
+          focusTask,
+          now,
+          getPackEnd,
+          getWindowStart,
+          overdueByDay,
+          todayKey,
+        );
+      } else {
+        const scheduled = parseTaskDate(focusTask.date);
+        if (scheduled && scheduled.getTime() < todayStart.getTime()) {
+          pushDayOverflow(overdueByDay, todayKey, focusTask);
+        } else if (scheduled) {
+          const key = dayKey(scheduled);
+          const list = dateOnlyByDay.get(key) ?? [];
+          list.push(focusTask);
+          dateOnlyByDay.set(key, list);
+        }
+      }
+    }
   }
 
   packSoftTasks(
@@ -1139,13 +1141,12 @@ export function layoutCalendarTasks(
     getWindowStart,
     overdueByDay,
     deferredByDay,
-    todaySpillHold,
     gapMinutes,
     todaySoftBaselineIds,
     frozenById,
   );
 
-  // Safety: missed/unplaced tasks still belong in the right Overflow / hold bucket.
+  // Safety: missed/unplaced tasks still belong in the right Overflow bucket.
   const placedIds = new Set<string>();
   for (const blocks of byDay.values()) {
     for (const block of blocks) {
@@ -1164,14 +1165,9 @@ export function layoutCalendarTasks(
       if (task.id) deferredIds.add(task.id);
     }
   }
-  const spillHoldIds = new Set(
-    todaySpillHold.map((task) => task.id).filter((id): id is string => id != null),
-  );
   for (const task of tasks) {
     if (!task.id || placedIds.has(task.id)) continue;
-    if (overdueIds.has(task.id) || deferredIds.has(task.id) || spillHoldIds.has(task.id)) {
-      continue;
-    }
+    if (overdueIds.has(task.id) || deferredIds.has(task.id)) continue;
     const scheduled = parseTaskDate(task.date);
     const missDay = scheduled ?? todayStart;
     if (isAnchoredTaskMissed(task, now, getPackEnd(missDay), getWindowStart(missDay))) {
@@ -1181,23 +1177,20 @@ export function layoutCalendarTasks(
       continue;
     }
     const kind = classifyTask(task);
-    // Date-only: past → today overdue (catch-up); today → spill hold; future → that day.
+    // Date-only: past → today Overflow (catch-up); today/future → that day's Overflow.
     if (kind === "dateOnly") {
       if (scheduled && scheduled.getTime() < todayStart.getTime()) {
         pushDayOverflow(overdueByDay, todayKey, task);
         overdueIds.add(task.id);
-      } else if (scheduled && scheduled.getTime() === todayStart.getTime()) {
-        todaySpillHold.push(task);
-        spillHoldIds.add(task.id);
       } else if (scheduled) {
         pushDayOverflow(overdueByDay, dayKey(scheduled), task);
         overdueIds.add(task.id);
       }
       continue;
     }
-    // Unplaced undated soft that started in today's window → Deferring.
-    if (kind === "undated" && todaySoftBaselineIds.has(task.id)) {
-      pushDayOverflow(deferredByDay, todayKey, task);
+    // Unplaced undated soft → Deferring under tomorrow (never auto-add to today).
+    if (kind === "undated") {
+      pushDayOverflow(deferredByDay, dayKey(addDays(todayStart, 1)), task);
       deferredIds.add(task.id);
     }
   }
@@ -1328,13 +1321,8 @@ export function layoutCalendarTasks(
 
   const todayPackEnd = getPackEnd(todayStart);
   const todayEndSlackMin = Math.max(0, todayPackEnd - todayLastBlockEnd);
-  const sortedSpillHold = [...todaySpillHold].sort(compareSoftPriority);
   const atRiskTask =
-    todayEndSlackMin === 0 && atRiskSoft != null
-      ? atRiskSoft.task
-      : todayEndSlackMin === 0 && sortedSpillHold.length > 0
-        ? sortedSpillHold[0]!
-        : null;
+    todayEndSlackMin === 0 && atRiskSoft != null ? atRiskSoft.task : null;
 
   const flatOverdue = sortOverdueTasks(
     layouts.flatMap((day) => day.overdueTasks),
@@ -1347,7 +1335,6 @@ export function layoutCalendarTasks(
     days: layouts,
     overdueTasks: flatOverdue,
     deferredTasks: flatDeferred,
-    todaySpillHoldTasks: sortedSpillHold,
     todaySoftPlacements,
     todayEndSlackMin,
     atRiskTask,
