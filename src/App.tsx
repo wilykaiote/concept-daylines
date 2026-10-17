@@ -30,12 +30,17 @@ import {
   type MetaAutoKey,
 } from "./composer";
 import {
+  clampMonthDay,
   clampRecurringCount,
   completeRecurringOccurrence,
   DEFAULT_RECURRING_COUNT,
   DEFAULT_RECURRING_UNIT,
   formatRecurring,
+  formatRecurringSchedule,
   materializeRecurringSeries,
+  MAX_MONTH_DAY,
+  MIN_MONTH_DAY,
+  normalizeWeekdays,
   parseRecurring,
   pruneRecurringSeriesBeyondHorizon,
   recurringHorizonEnd,
@@ -1759,6 +1764,8 @@ function App() {
   const [recurringUnit, setRecurringUnit] = useState<RecurringUnit>(DEFAULT_RECURRING_UNIT);
   const [recurringCount, setRecurringCount] = useState(DEFAULT_RECURRING_COUNT);
   const [recurringInput, setRecurringInput] = useState(String(DEFAULT_RECURRING_COUNT));
+  const [recurringWeekdays, setRecurringWeekdays] = useState<number[]>([]);
+  const [recurringMonthDay, setRecurringMonthDay] = useState(MIN_MONTH_DAY);
   const [urgencyActivated, setUrgencyActivated] = useState(true);
   const [urgency, setUrgency] = useState<UrgencyOption>(DEFAULT_URGENCY);
   const [impactMenuOpen, setImpactMenuOpen] = useState(false);
@@ -3318,6 +3325,8 @@ function App() {
     setRecurringUnit(DEFAULT_RECURRING_UNIT);
     setRecurringCount(DEFAULT_RECURRING_COUNT);
     setRecurringInput(String(DEFAULT_RECURRING_COUNT));
+    setRecurringWeekdays([]);
+    setRecurringMonthDay(MIN_MONTH_DAY);
     setUrgencyActivated(true);
     setUrgency(DEFAULT_URGENCY);
     setImpactMenuOpen(false);
@@ -3486,7 +3495,10 @@ function App() {
     .join(" ");
 
   const composerRecurring = recurringActivated
-    ? formatRecurring(recurringCount, recurringUnit)
+    ? formatRecurring(recurringCount, recurringUnit, {
+        weekdays: recurringUnit === "week" ? recurringWeekdays : undefined,
+        monthDay: recurringUnit === "month" ? recurringMonthDay : undefined,
+      })
     : null;
 
   const showComposerTaskRowChrome = !isContainerComposeKind(composeKind);
@@ -3711,9 +3723,7 @@ function App() {
       date: nextDate,
       starts_at: nextStartsAt,
       due_at: nextDueAt,
-      recurring: nextRecurring
-        ? formatRecurring(nextRecurring.count, nextRecurring.unit)
-        : null,
+      recurring: nextRecurring ? formatRecurringSchedule(nextRecurring) : null,
       meta_auto: formatMetaAuto(loadedMetaAuto),
       durationActivated: nextDurationActivated,
       impactActivated: nextImpactActivated,
@@ -3735,11 +3745,24 @@ function App() {
       setRecurringUnit(nextRecurring.unit);
       setRecurringCount(nextRecurring.count);
       setRecurringInput(String(nextRecurring.count));
+      setRecurringWeekdays(
+        nextRecurring.weekdays ??
+          (nextRecurring.unit === "week"
+            ? [toStartOfDay(new Date(countdownNowRef.current)).getDay()]
+            : []),
+      );
+      setRecurringMonthDay(
+        nextRecurring.monthDay ??
+          parseTaskDate(nextDate)?.getDate() ??
+          toStartOfDay(new Date(countdownNowRef.current)).getDate(),
+      );
     } else {
       setRecurringActivated(false);
       setRecurringUnit(DEFAULT_RECURRING_UNIT);
       setRecurringCount(DEFAULT_RECURRING_COUNT);
       setRecurringInput(String(DEFAULT_RECURRING_COUNT));
+      setRecurringWeekdays([]);
+      setRecurringMonthDay(MIN_MONTH_DAY);
     }
     setUrgency(nextUrgency);
     setUrgencyActivated(nextUrgencyActivated);
@@ -4328,8 +4351,39 @@ function App() {
     syncRecurringInput(next);
   };
 
+  const recurringAnchorDate = () => {
+    const fromTask = parseTaskDate(composerDate);
+    if (fromTask) return fromTask;
+    return toStartOfDay(new Date(countdownNowRef.current));
+  };
+
   const setRecurringUnitValue = (unit: RecurringUnit) => {
     setRecurringUnit(unit);
+    const anchor = recurringAnchorDate();
+    if (unit === "week") {
+      setRecurringWeekdays((current) =>
+        current.length > 0 ? current : [anchor.getDay()],
+      );
+    } else if (unit === "month") {
+      setRecurringMonthDay(clampMonthDay(anchor.getDate()));
+    }
+  };
+
+  const toggleRecurringWeekday = (weekday: number) => {
+    setRecurringWeekdays((current) => {
+      const set = new Set(current);
+      if (set.has(weekday)) {
+        if (set.size <= 1) return normalizeWeekdays(current);
+        set.delete(weekday);
+      } else {
+        set.add(weekday);
+      }
+      return normalizeWeekdays(set);
+    });
+  };
+
+  const stepRecurringMonthDay = (direction: 1 | -1) => {
+    setRecurringMonthDay((value) => clampMonthDay(value + direction));
   };
 
   const setRecurringEnabled = (enabled: boolean) => {
@@ -4337,6 +4391,14 @@ function App() {
     if (!enabled) return;
     setRecurringCount((count) => clampRecurringCount(count));
     syncRecurringInput(clampRecurringCount(recurringCount));
+    const anchor = recurringAnchorDate();
+    if (recurringUnit === "week") {
+      setRecurringWeekdays((current) =>
+        current.length > 0 ? current : [anchor.getDay()],
+      );
+    } else if (recurringUnit === "month") {
+      setRecurringMonthDay(clampMonthDay(anchor.getDate()));
+    }
   };
 
   const stepImpact = (direction: 1 | -1) => {
@@ -8453,7 +8515,7 @@ function App() {
                         <p className="app-duration-title">Repeat Every...</p>
                         <div className="app-duration-divider" aria-hidden="true" />
                         <div
-                          className="app-duration-unit app-duration-unit-triple"
+                          className="app-duration-unit app-duration-unit-quad"
                           role="group"
                           aria-label="Repeat unit"
                         >
@@ -8462,6 +8524,7 @@ function App() {
                               { id: "day", label: "Days" },
                               { id: "week", label: "Weeks" },
                               { id: "month", label: "Months" },
+                              { id: "year", label: "Years" },
                             ] as const
                           ).map(({ id, label }) => (
                             <button
@@ -8474,7 +8537,7 @@ function App() {
                               {label}
                             </button>
                           ))}
-              </div>
+                        </div>
                         <div className="app-duration-stepper">
                           <button
                             type="button"
@@ -8509,6 +8572,68 @@ function App() {
                             +
                           </button>
                         </div>
+                        {recurringUnit === "week" && (
+                          <div
+                            className="app-recurring-weekdays"
+                            role="group"
+                            aria-label="Days of the week"
+                          >
+                            {WEEKDAY_BUTTONS.map(({ id, label, name }) => {
+                              const selected = recurringWeekdays.includes(id);
+                              return (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  className={`app-recurring-weekday-chip${selected ? " is-selected" : ""}`}
+                                  aria-pressed={selected}
+                                  aria-label={name}
+                                  onClick={() => toggleRecurringWeekday(id)}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {recurringUnit === "month" && (
+                          <div className="app-recurring-monthday">
+                            <span className="app-recurring-monthday-label">Day of month</span>
+                            <div className="app-duration-stepper app-recurring-monthday-stepper">
+                              <button
+                                type="button"
+                                className="app-duration-step"
+                                aria-label="Decrease day of month"
+                                onClick={() => stepRecurringMonthDay(-1)}
+                              >
+                                −
+                              </button>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                className="app-duration-input"
+                                value={String(recurringMonthDay)}
+                                aria-label="Day of month"
+                                onChange={(event) => {
+                                  const parsed = Number.parseInt(event.target.value, 10);
+                                  if (!Number.isFinite(parsed)) {
+                                    setRecurringMonthDay(MIN_MONTH_DAY);
+                                    return;
+                                  }
+                                  setRecurringMonthDay(clampMonthDay(parsed));
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="app-duration-step"
+                                aria-label="Increase day of month"
+                                onClick={() => stepRecurringMonthDay(1)}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         <div className="app-recurring-toggle-row">
                           <span className="app-recurring-toggle-label" id="app-recurring-toggle-label">
                             Repeat

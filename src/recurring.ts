@@ -2,11 +2,15 @@ import { addDays, dayKey, parseTaskDate } from "./calendarTimeline";
 import { withMetaAuto, type ComposerDraft } from "./composer";
 import { toStartOfDay } from "./taskStorage";
 
-export type RecurringUnit = "day" | "week" | "month";
+export type RecurringUnit = "day" | "week" | "month" | "year";
 
 export type RecurringSchedule = {
   count: number;
   unit: RecurringUnit;
+  /** 0=Sun..6=Sat when unit is week (multi-select). */
+  weekdays?: number[];
+  /** 1–31 when unit is month. */
+  monthDay?: number;
 };
 
 /** Extra days beyond the visible timeline when materializing series. */
@@ -35,37 +39,102 @@ const UNIT_CHAR: Record<RecurringUnit, string> = {
   day: "d",
   week: "w",
   month: "m",
+  year: "y",
 };
 
 const CHAR_UNIT: Record<string, RecurringUnit> = {
   d: "day",
   w: "week",
   m: "month",
+  y: "year",
 };
 
 export const DEFAULT_RECURRING_COUNT = 1;
 export const DEFAULT_RECURRING_UNIT: RecurringUnit = "day";
 export const MIN_RECURRING_COUNT = 1;
 export const MAX_RECURRING_COUNT = 99;
+export const MIN_MONTH_DAY = 1;
+export const MAX_MONTH_DAY = 31;
 
 export function clampRecurringCount(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_RECURRING_COUNT;
   return Math.min(MAX_RECURRING_COUNT, Math.max(MIN_RECURRING_COUNT, Math.round(value)));
 }
 
-/** Serialize to `ComposerDraft.recurring`, e.g. `1d`, `2w`, `1m`. */
-export function formatRecurring(count: number, unit: RecurringUnit): string {
-  return `${clampRecurringCount(count)}${UNIT_CHAR[unit]}`;
+export function clampMonthDay(value: number): number {
+  if (!Number.isFinite(value)) return MIN_MONTH_DAY;
+  return Math.min(MAX_MONTH_DAY, Math.max(MIN_MONTH_DAY, Math.round(value)));
+}
+
+export function normalizeWeekdays(weekdays: Iterable<number> | null | undefined): number[] {
+  if (weekdays == null) return [];
+  const set = new Set<number>();
+  for (const day of weekdays) {
+    if (!Number.isFinite(day)) continue;
+    const n = Math.round(day);
+    if (n >= 0 && n <= 6) set.add(n);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+export type FormatRecurringExtras = {
+  weekdays?: number[];
+  monthDay?: number;
+};
+
+/** Serialize to `ComposerDraft.recurring`, e.g. `1d`, `2w:wd=1,3`, `1m:md=15`, `1y`. */
+export function formatRecurring(
+  count: number,
+  unit: RecurringUnit,
+  extras?: FormatRecurringExtras,
+): string {
+  let out = `${clampRecurringCount(count)}${UNIT_CHAR[unit]}`;
+  if (unit === "week") {
+    const weekdays = normalizeWeekdays(extras?.weekdays);
+    if (weekdays.length > 0) out += `:wd=${weekdays.join(",")}`;
+  } else if (unit === "month" && extras?.monthDay != null) {
+    out += `:md=${clampMonthDay(extras.monthDay)}`;
+  }
+  return out;
+}
+
+export function formatRecurringSchedule(schedule: RecurringSchedule): string {
+  return formatRecurring(schedule.count, schedule.unit, {
+    weekdays: schedule.weekdays,
+    monthDay: schedule.monthDay,
+  });
 }
 
 export function parseRecurring(value: string | null | undefined): RecurringSchedule | null {
   if (!value) return null;
-  const match = /^(\d+)([dwm])$/i.exec(value.trim());
+  const match = /^(\d+)([dwmy])(?::(.+))?$/i.exec(value.trim());
   if (!match) return null;
   const unit = CHAR_UNIT[match[2].toLowerCase()];
   if (!unit) return null;
   const count = clampRecurringCount(Number(match[1]));
-  return { count, unit };
+  const schedule: RecurringSchedule = { count, unit };
+  const suffix = match[3];
+  if (suffix) {
+    for (const part of suffix.split(";")) {
+      const [rawKey, rawVal] = part.split("=");
+      if (!rawKey || rawVal == null) continue;
+      const key = rawKey.trim().toLowerCase();
+      const val = rawVal.trim();
+      if (key === "wd" && unit === "week") {
+        const weekdays = normalizeWeekdays(
+          val
+            .split(",")
+            .map((piece) => Number(piece.trim()))
+            .filter((n) => Number.isFinite(n)),
+        );
+        if (weekdays.length > 0) schedule.weekdays = weekdays;
+      } else if (key === "md" && unit === "month") {
+        const md = Number(val);
+        if (Number.isFinite(md)) schedule.monthDay = clampMonthDay(md);
+      }
+    }
+  }
+  return schedule;
 }
 
 function addMonths(date: Date, months: number): Date {
@@ -77,16 +146,170 @@ function addMonths(date: Date, months: number): Date {
   return toStartOfDay(next);
 }
 
+/** Add years keeping the source month/day; Feb 29 → last day of Feb in non-leap years. */
+function addYears(date: Date, years: number): Date {
+  const month = date.getMonth();
+  const day = date.getDate();
+  const next = new Date(date.getFullYear() + years, month, day);
+  if (next.getMonth() !== month) {
+    next.setDate(0);
+  }
+  return toStartOfDay(next);
+}
+
+function startOfWeekSunday(date: Date): Date {
+  const start = toStartOfDay(date);
+  return addDays(start, -start.getDay());
+}
+
+function dateInMonth(year: number, monthIndex: number, monthDay: number): Date {
+  const last = new Date(year, monthIndex + 1, 0).getDate();
+  return toStartOfDay(new Date(year, monthIndex, Math.min(clampMonthDay(monthDay), last)));
+}
+
+/** Advance one interval for simple day/week/month/year schedules (no weekday list). */
 export function addRecurringInterval(date: Date, schedule: RecurringSchedule): Date {
   const start = toStartOfDay(date);
   if (schedule.unit === "day") return addDays(start, schedule.count);
   if (schedule.unit === "week") return addDays(start, schedule.count * 7);
+  if (schedule.unit === "year") return addYears(start, schedule.count);
+  if (schedule.monthDay != null) {
+    const next = addMonths(
+      dateInMonth(start.getFullYear(), start.getMonth(), schedule.monthDay),
+      schedule.count,
+    );
+    return dateInMonth(next.getFullYear(), next.getMonth(), schedule.monthDay);
+  }
   return addMonths(start, schedule.count);
 }
 
 /**
+ * Occurrence date keys from anchor through `throughDate` (inclusive).
+ * Includes the anchor day when it matches the schedule.
+ */
+export function enumerateRecurringDateKeys(
+  anchorDate: Date | string,
+  schedule: RecurringSchedule,
+  throughDate: Date,
+  maxOccurrences: number = RECURRING_MATERIALIZE_MAX_OCCURRENCES,
+): string[] {
+  const through = toStartOfDay(throughDate);
+  const anchor =
+    typeof anchorDate === "string"
+      ? (parseTaskDate(anchorDate) ?? toStartOfDay(new Date()))
+      : toStartOfDay(anchorDate);
+  const max = Math.max(1, maxOccurrences);
+
+  if (schedule.unit === "week" && schedule.weekdays != null && schedule.weekdays.length > 0) {
+    return enumerateWeekdayKeys(anchor, schedule, through, max);
+  }
+  if (schedule.unit === "month" && schedule.monthDay != null) {
+    return enumerateMonthDayKeys(anchor, schedule, through, max);
+  }
+  if (schedule.unit === "year") {
+    return enumerateYearKeys(anchor, schedule, through, max);
+  }
+
+  const keys: string[] = [];
+  let cursor = anchor;
+  let guard = 0;
+  while (cursor.getTime() <= through.getTime() && guard < max) {
+    keys.push(dayKey(cursor));
+    cursor = addRecurringInterval(cursor, schedule);
+    guard += 1;
+  }
+  return keys;
+}
+
+/** Year steps always use the anchor month/day so leap-day clamps do not stick. */
+function enumerateYearKeys(
+  anchor: Date,
+  schedule: RecurringSchedule,
+  through: Date,
+  max: number,
+): string[] {
+  const keys: string[] = [];
+  let step = 0;
+  while (keys.length < max) {
+    const next = addYears(anchor, step * schedule.count);
+    if (next.getTime() > through.getTime()) break;
+    keys.push(dayKey(next));
+    step += 1;
+  }
+  return keys;
+}
+
+function enumerateWeekdayKeys(
+  anchor: Date,
+  schedule: RecurringSchedule,
+  through: Date,
+  max: number,
+): string[] {
+  const weekdays = normalizeWeekdays(schedule.weekdays);
+  if (weekdays.length === 0) return [];
+  const count = Math.max(1, schedule.count);
+  const anchorWeekStart = startOfWeekSunday(anchor);
+  const keys: string[] = [];
+  let weekIndex = 0;
+  let guard = 0;
+  while (keys.length < max && guard < max * 14) {
+    const weekStart = addDays(anchorWeekStart, weekIndex * 7);
+    if (weekStart.getTime() > through.getTime() + 6 * 24 * 60 * 60 * 1000) break;
+    if (weekIndex % count === 0) {
+      for (const weekday of weekdays) {
+        const day = addDays(weekStart, weekday);
+        if (day.getTime() < anchor.getTime()) continue;
+        if (day.getTime() > through.getTime()) continue;
+        keys.push(dayKey(day));
+        if (keys.length >= max) return keys;
+      }
+    }
+    weekIndex += 1;
+    guard += 1;
+  }
+  return keys;
+}
+
+function enumerateMonthDayKeys(
+  anchor: Date,
+  schedule: RecurringSchedule,
+  through: Date,
+  max: number,
+): string[] {
+  const monthDay = clampMonthDay(schedule.monthDay ?? anchor.getDate());
+  const count = Math.max(1, schedule.count);
+  let year = anchor.getFullYear();
+  let month = anchor.getMonth();
+  let candidate = dateInMonth(year, month, monthDay);
+  if (candidate.getTime() < anchor.getTime()) {
+    month += 1;
+    if (month > 11) {
+      month = 0;
+      year += 1;
+    }
+    candidate = dateInMonth(year, month, monthDay);
+  }
+  const keys: string[] = [];
+  let guard = 0;
+  year = candidate.getFullYear();
+  month = candidate.getMonth();
+  while (keys.length < max && guard < max + 4) {
+    const day = dateInMonth(year, month, monthDay);
+    if (day.getTime() > through.getTime()) break;
+    if (day.getTime() >= anchor.getTime()) keys.push(dayKey(day));
+    month += count;
+    while (month > 11) {
+      month -= 12;
+      year += 1;
+    }
+    guard += 1;
+  }
+  return keys;
+}
+
+/**
  * Next occurrence on/after today, advancing from the task's date (or today).
- * Always takes at least one interval step from the base date.
+ * Always skips the current occurrence date.
  */
 export function nextRecurringDateKey(
   task: Pick<ComposerDraft, "date">,
@@ -94,9 +317,17 @@ export function nextRecurringDateKey(
   now: Date = new Date(),
 ): string {
   const today = toStartOfDay(now);
-  const scheduled = parseTaskDate(task.date);
-  let cursor = scheduled ?? today;
-  cursor = addRecurringInterval(cursor, schedule);
+  const scheduled = parseTaskDate(task.date) ?? today;
+  const scheduledKey = dayKey(scheduled);
+  const through = addDays(today, 366 * 3);
+  const keys = enumerateRecurringDateKeys(scheduled, schedule, through, 500);
+  for (const key of keys) {
+    if (key === scheduledKey) continue;
+    const date = parseTaskDate(key);
+    if (date != null && date.getTime() >= today.getTime()) return key;
+  }
+  // Fallback: simple interval step when enumeration yields nothing.
+  let cursor = addRecurringInterval(scheduled, schedule);
   let guard = 0;
   while (cursor.getTime() < today.getTime() && guard < 500) {
     cursor = addRecurringInterval(cursor, schedule);
@@ -161,31 +392,6 @@ export function pruneRecurringSeriesBeyondHorizon(
   });
 }
 
-/**
- * Occurrence date keys from anchor through `throughDate` (inclusive), stepping
- * by the schedule. Includes the anchor day.
- */
-export function enumerateRecurringDateKeys(
-  anchorDate: Date | string,
-  schedule: RecurringSchedule,
-  throughDate: Date,
-  maxOccurrences: number = RECURRING_MATERIALIZE_MAX_OCCURRENCES,
-): string[] {
-  const through = toStartOfDay(throughDate);
-  let cursor =
-    typeof anchorDate === "string"
-      ? (parseTaskDate(anchorDate) ?? toStartOfDay(new Date()))
-      : toStartOfDay(anchorDate);
-  const keys: string[] = [];
-  let guard = 0;
-  while (cursor.getTime() <= through.getTime() && guard < maxOccurrences) {
-    keys.push(dayKey(cursor));
-    cursor = addRecurringInterval(cursor, schedule);
-    guard += 1;
-  }
-  return keys;
-}
-
 /** Clone template onto each date key (new ids, shared series_id). */
 export function materializeRecurringSeries(
   template: ComposerDraft,
@@ -200,20 +406,21 @@ export function materializeRecurringSeries(
   const keys = enumerateRecurringDateKeys(anchor, schedule, throughDate);
   const dateKeys = includeAnchor ? keys : keys.slice(1);
   const createdAt = new Date().toISOString();
+  const recurring = formatRecurringSchedule(schedule);
   return dateKeys.map((date) => ({
     ...template,
     id: crypto.randomUUID(),
     series_id: seriesId,
     date,
-    recurring: formatRecurring(schedule.count, schedule.unit),
+    recurring,
     completed_at: null,
     created_at: createdAt,
   }));
 }
 
 /**
- * Ensure open series members fill the horizon from the latest dated member
- * (or from `fromDateKey` when provided).
+ * Ensure open series members fill the horizon from the series epoch
+ * (earliest open date), skipping dates on/before `fromDateKey` when set.
  */
 export function topUpRecurringSeries(
   tasks: ComposerDraft[],
@@ -235,36 +442,25 @@ export function topUpRecurringSeries(
     .map((task) => task.date)
     .filter((date): date is string => date != null)
     .sort();
-  const latestKey = dated[dated.length - 1] ?? null;
+  const epochKey = dated[0] ?? sample.date;
+  if (epochKey == null) return tasks;
   const existingDates = new Set(dated);
-
-  let seedKey = fromDateKey ?? latestKey;
-  if (seedKey == null) return tasks;
-  // Step from the seed (latest open, or completed date) by one interval, then fill.
-  const seedDate = parseTaskDate(seedKey);
-  if (seedDate == null) return tasks;
-  let cursor = addRecurringInterval(seedDate, schedule);
-  // If we already have the seed as an open member and are topping from latest,
-  // start after latest (cursor already one step past seed).
+  const keys = enumerateRecurringDateKeys(epochKey, schedule, throughDate);
+  const recurring = formatRecurringSchedule(schedule);
   const additions: ComposerDraft[] = [];
-  const through = toStartOfDay(throughDate);
-  let guard = 0;
-  while (cursor.getTime() <= through.getTime() && guard < RECURRING_MATERIALIZE_MAX_OCCURRENCES) {
-    const key = dayKey(cursor);
-    if (!existingDates.has(key)) {
-      additions.push({
-        ...sample,
-        id: crypto.randomUUID(),
-        series_id: seriesId,
-        date: key,
-        recurring: formatRecurring(schedule.count, schedule.unit),
-        completed_at: null,
-        created_at: new Date().toISOString(),
-      });
-      existingDates.add(key);
-    }
-    cursor = addRecurringInterval(cursor, schedule);
-    guard += 1;
+  for (const key of keys) {
+    if (fromDateKey != null && key <= fromDateKey) continue;
+    if (existingDates.has(key)) continue;
+    additions.push({
+      ...sample,
+      id: crypto.randomUUID(),
+      series_id: seriesId,
+      date: key,
+      recurring,
+      completed_at: null,
+      created_at: new Date().toISOString(),
+    });
+    existingDates.add(key);
   }
   if (additions.length === 0) return tasks;
   return [...additions, ...tasks];
