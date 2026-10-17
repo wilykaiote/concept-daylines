@@ -1,4 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import "./App.css";
 import { HomeView } from "./HomeView";
@@ -28,8 +37,9 @@ import {
   formatRecurring,
   materializeRecurringSeries,
   parseRecurring,
-  RECURRING_MATERIALIZE_HORIZON_DAYS,
+  pruneRecurringSeriesBeyondHorizon,
   recurringHorizonEnd,
+  recurringMaterializeHorizonDays,
   removeFutureSeriesMembers,
   topUpRecurringSeries,
   type RecurringUnit,
@@ -1814,9 +1824,17 @@ function App() {
     if (migrated.length > 0) {
       saveCollections([...loadCollections(), ...migrated]);
     }
-    // Top up open recurring series through the horizon (series_id already assigned).
+    // Materialize / prune series to the visible timeline window (+ buffer).
     const now = new Date();
-    const through = recurringHorizonEnd(now);
+    const savedTimelineDays =
+      typeof INITIAL_UI_SESSION?.timelineDayCount === "number" &&
+      Number.isFinite(INITIAL_UI_SESSION.timelineDayCount)
+        ? INITIAL_UI_SESSION.timelineDayCount
+        : DEFAULT_TIMELINE_DAY_COUNT;
+    const through = recurringHorizonEnd(
+      now,
+      recurringMaterializeHorizonDays(savedTimelineDays),
+    );
     let changed = migrated.length > 0;
     const SERIES_MIGRATE_KEY = "twineline.recurringSeriesMigrated";
     const needsLegacyMigrate = localStorage.getItem(SERIES_MIGRATE_KEY) !== "1";
@@ -1847,6 +1865,12 @@ function App() {
       } catch {
         /* ignore */
       }
+    }
+    // Drop bloated 90-day materializations from earlier builds.
+    const pruned = pruneRecurringSeriesBeyondHorizon(rest, through);
+    if (pruned.length !== rest.length) {
+      rest = pruned;
+      changed = true;
     }
     const seriesIds = new Set(
       rest
@@ -2141,10 +2165,16 @@ function App() {
   const outsideTaskWindow =
     nowMinutes < todayWindowStartMinutes || nowMinutes >= todayPackEnd;
   const targetTimeLabel = formatTargetTimeLabel(timePickerOpen ? targetTime : todayTargetTime);
-  const nonContainerTasks = tasks.filter((task) => !isContainerTaskType(task.type));
-  const tasksForCalendar = (
-    daySnoozed ? nonContainerTasks.filter((task) => !isUndatedTask(task)) : nonContainerTasks
-  ).filter((task) => task.id == null || !forcedOverflowIds.has(task.id));
+  const nonContainerTasks = useMemo(
+    () => tasks.filter((task) => !isContainerTaskType(task.type)),
+    [tasks],
+  );
+  const tasksForCalendar = useMemo(() => {
+    const list = daySnoozed
+      ? nonContainerTasks.filter((task) => !isUndatedTask(task))
+      : nonContainerTasks;
+    return list.filter((task) => task.id == null || !forcedOverflowIds.has(task.id));
+  }, [nonContainerTasks, daySnoozed, forcedOverflowIds]);
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const appliedTodayBegins = resolveWindowStartTime(
@@ -2155,28 +2185,56 @@ function App() {
   const appliedTodayEnds = resolveTargetTime(todayStart, defaultTargetTime, targetTimeOverrides);
   const appliedTodayWindowSig = todayWindowSignature(appliedTodayBegins, appliedTodayEnds);
   const todayKeyStr = dayKey(todayStart);
-  const baselineIds = new Set(
+  const baselineKey =
     todayWindowBaseline?.dayKey === todayKeyStr &&
-      todayWindowBaseline.windowSig === appliedTodayWindowSig
-      ? todayWindowBaseline.taskIds
-      : [],
+    todayWindowBaseline.windowSig === appliedTodayWindowSig
+      ? todayWindowBaseline.taskIds.join("\0")
+      : "";
+  const baselineIds = useMemo(
+    () => new Set(baselineKey ? baselineKey.split("\0") : []),
+    [baselineKey],
   );
   const todayFocusId =
     currentFocus?.dayKey === todayKeyStr ? currentFocus.taskId : null;
   const focusLocked = currentFocus?.dayKey === todayKeyStr && currentFocus.locked === true;
   /** Only a locked focus is force-pinned so packing cannot push it to overflow. */
   const pinnedFocusId = focusLocked ? todayFocusId : null;
-  // Soft freeze pins disabled — softs slide from live now around timed anchors.
-  const calendarTasksLayout = layoutCalendarTasks(
+  // Pack once per minute — second-level countdownNow ticks must not re-layout.
+  const layoutNowFloorMs = Math.floor(countdownNow / 60_000) * 60_000;
+  const calendarTasksLayout = useMemo(() => {
+    const layoutGetTarget = (day: Date) => {
+      if (timePickerOpen && sameCalendarDay(day, selectedDay)) return targetTime;
+      return resolveTargetTime(day, defaultTargetTime, targetTimeOverrides);
+    };
+    const layoutGetWindowStart = (day: Date) => {
+      if (timePickerOpen && sameCalendarDay(day, selectedDay)) return windowStartTime;
+      return resolveWindowStartTime(day, defaultWindowStartTime, windowStartOverrides);
+    };
+    return layoutCalendarTasks(
+      tasksForCalendar,
+      new Date(layoutNowFloorMs),
+      layoutGetTarget,
+      taskGapMinutes,
+      layoutGetWindowStart,
+      baselineIds,
+      pinnedFocusId,
+      [],
+    );
+  }, [
     tasksForCalendar,
-    new Date(countdownNow),
-    getTargetTimeForDay,
+    layoutNowFloorMs,
     taskGapMinutes,
-    getWindowStartTimeForDay,
     baselineIds,
     pinnedFocusId,
-    [],
-  );
+    timePickerOpen,
+    selectedDay,
+    targetTime,
+    windowStartTime,
+    defaultTargetTime,
+    targetTimeOverrides,
+    defaultWindowStartTime,
+    windowStartOverrides,
+  ]);
   const calendarTaskLayout = calendarTasksLayout.days;
   const todayLayoutForOverflow = calendarTaskLayout.find(
     (day) => day.dayKey === todayKeyStr,
@@ -3021,7 +3079,10 @@ function App() {
           const futures = materializeRecurringSeries(
             anchored,
             schedule,
-            recurringHorizonEnd(new Date(countdownNowRef.current)),
+            recurringHorizonEnd(
+              new Date(countdownNowRef.current),
+              recurringMaterializeHorizonDays(timelineDayCountRef.current),
+            ),
             { seriesId, includeAnchor: false },
           );
           if (futures.length > 0) next = [...futures, ...next];
@@ -3579,6 +3640,7 @@ function App() {
         current,
         completed,
         new Date(countdownNowRef.current),
+        recurringMaterializeHorizonDays(timelineDayCountRef.current),
       );
     });
     if (editingTaskId === id) {
@@ -4136,7 +4198,10 @@ function App() {
           const futures = materializeRecurringSeries(
             { ...updated, series_id: seriesId },
             schedule,
-            recurringHorizonEnd(new Date(countdownNowRef.current)),
+            recurringHorizonEnd(
+              new Date(countdownNowRef.current),
+              recurringMaterializeHorizonDays(timelineDayCountRef.current),
+            ),
             { seriesId, includeAnchor: false },
           );
           if (futures.length > 0) next = [...futures, ...next];
@@ -4851,7 +4916,10 @@ function App() {
   }, [currentFocus, todayKeyStr, tasks, unlockedFocusInOverflow]);
 
   useEffect(() => {
-    saveTasks(tasks);
+    const timer = window.setTimeout(() => {
+      saveTasks(tasks);
+    }, 300);
+    return () => window.clearTimeout(timer);
   }, [tasks]);
 
   useEffect(() => {
@@ -5243,11 +5311,11 @@ function App() {
     schedulePersistUiSession("dayline");
   }, [timelineDayCount]);
 
-  // Keep recurring series filled as the timeline horizon grows.
+  // Incremental top-up when the visible timeline grows (window + buffer only).
   useEffect(() => {
     const through = recurringHorizonEnd(
       new Date(countdownNowRef.current),
-      Math.max(RECURRING_MATERIALIZE_HORIZON_DAYS, timelineDayCount),
+      recurringMaterializeHorizonDays(timelineDayCount),
     );
     setTasks((current) => {
       const seriesIds = new Set(

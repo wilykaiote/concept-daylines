@@ -9,10 +9,27 @@ export type RecurringSchedule = {
   unit: RecurringUnit;
 };
 
-/** Materialize open occurrences from anchor through today + this many days. */
-export const RECURRING_MATERIALIZE_HORIZON_DAYS = 90;
+/** Extra days beyond the visible timeline when materializing series. */
+export const RECURRING_MATERIALIZE_BUFFER_DAYS = 7;
+/** Fallback timeline length when the UI count is unknown (matches default dayline). */
+export const RECURRING_MATERIALIZE_DEFAULT_TIMELINE_DAYS = 31;
+/**
+ * @deprecated Prefer `recurringMaterializeHorizonDays(timelineDayCount)`.
+ * Kept as the default window size (timeline + buffer).
+ */
+export const RECURRING_MATERIALIZE_HORIZON_DAYS =
+  RECURRING_MATERIALIZE_DEFAULT_TIMELINE_DAYS + RECURRING_MATERIALIZE_BUFFER_DAYS;
 /** Safety cap so dense schedules (e.g. daily) cannot explode. */
-export const RECURRING_MATERIALIZE_MAX_OCCURRENCES = 120;
+export const RECURRING_MATERIALIZE_MAX_OCCURRENCES = 45;
+
+/** Visible timeline days + buffer — keep stored series small on mobile. */
+export function recurringMaterializeHorizonDays(timelineDayCount?: number): number {
+  const base =
+    timelineDayCount != null && Number.isFinite(timelineDayCount)
+      ? Math.max(1, Math.round(timelineDayCount))
+      : RECURRING_MATERIALIZE_DEFAULT_TIMELINE_DAYS;
+  return base + RECURRING_MATERIALIZE_BUFFER_DAYS;
+}
 
 const UNIT_CHAR: Record<RecurringUnit, string> = {
   day: "d",
@@ -129,6 +146,19 @@ export function recurringHorizonEnd(
   horizonDays: number = RECURRING_MATERIALIZE_HORIZON_DAYS,
 ): Date {
   return addDays(toStartOfDay(now), Math.max(0, horizonDays));
+}
+
+/** Drop open series members dated after `throughDate` (inclusive keep). */
+export function pruneRecurringSeriesBeyondHorizon(
+  tasks: ComposerDraft[],
+  throughDate: Date,
+): ComposerDraft[] {
+  const throughKey = dayKey(toStartOfDay(throughDate));
+  return tasks.filter((task) => {
+    if (task.series_id == null || task.date == null) return true;
+    if (task.completed_at != null) return true;
+    return task.date <= throughKey;
+  });
 }
 
 /**
@@ -265,11 +295,12 @@ export function completeRecurringOccurrence(
   tasks: ComposerDraft[],
   completed: ComposerDraft,
   now: Date = new Date(),
+  horizonDays: number = RECURRING_MATERIALIZE_HORIZON_DAYS,
 ): ComposerDraft[] {
   const without = tasks.filter((task) => task.id !== completed.id);
   const seriesId = completed.series_id;
   const schedule = parseRecurring(completed.recurring);
-  const through = recurringHorizonEnd(now);
+  const through = recurringHorizonEnd(now, horizonDays);
 
   if (seriesId == null || schedule == null) {
     const next = buildNextRecurringTask(completed, now);
