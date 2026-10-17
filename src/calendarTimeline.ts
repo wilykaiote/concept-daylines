@@ -472,6 +472,7 @@ function packSoftTasks(
   gapMinutes: number,
   todaySoftBaselineIds: ReadonlySet<string>,
   _frozenPlacements: ReadonlyMap<string, SoftPackPlacement>,
+  layoutThrough: Date | null = null,
 ) {
   void _frozenPlacements;
   // Baseline no longer soft-fills today; dated-today softs use Overflow instead.
@@ -483,6 +484,7 @@ function packSoftTasks(
   }
 
   const todayStart = toStartOfDay(now);
+  const throughCap = layoutThrough != null ? toStartOfDay(layoutThrough) : null;
   const tomorrowKey = dayKey(addDays(todayStart, 1));
   let day = todayStart;
   let guard = 0;
@@ -504,6 +506,17 @@ function packSoftTasks(
 
   while (hasRemaining() && guard < 1000) {
     guard += 1;
+    if (throughCap != null && day.getTime() > throughCap.getTime()) {
+      // Past layout cap — spill leftovers onto the last packed day / tomorrow defer.
+      const spillKey = dayKey(throughCap);
+      for (const [key, list] of dateOnlyQueues) {
+        while (list.length > 0) {
+          pushDayOverflow(overdueByDay, key >= spillKey ? spillKey : key, list.shift()!);
+        }
+        dateOnlyQueues.set(key, list);
+      }
+      break;
+    }
     const key = dayKey(day);
     const isToday = day.getTime() === todayStart.getTime();
     const packEnd = getPackEnd(day);
@@ -1022,6 +1035,8 @@ export function layoutCalendarTasks(
   focusTaskId: string | null = null,
   /** Frozen soft placements for today (absolute minutes); stops sliding with now. */
   frozenSoftPlacements: readonly SoftPackPlacement[] = [],
+  /** Cap pack/emit through this day (inclusive). Far dates do not force a long layout. */
+  layoutThroughDate?: Date | null,
 ): CalendarTasksLayout {
   const getWindowStart = (day: Date) => packWindowStartMinutes(getWindowStartTimeForDay(day));
   const getPackEnd = (day: Date) =>
@@ -1032,6 +1047,8 @@ export function layoutCalendarTasks(
       : DEFAULT_TASK_GAP_MINUTES;
   const todayStart = toStartOfDay(now);
   const todayKey = dayKey(todayStart);
+  const layoutThrough =
+    layoutThroughDate != null ? toStartOfDay(layoutThroughDate) : null;
   const nowMin = minutesFromMidnight(now);
   const byDay = new Map<string, PackBlock[]>();
   const overdueByDay = new Map<string, ComposerDraft[]>();
@@ -1156,6 +1173,7 @@ export function layoutCalendarTasks(
     gapMinutes,
     todaySoftBaselineIds,
     frozenById,
+    layoutThrough,
   );
 
   // Safety: missed/unplaced tasks still belong in the right Overflow bucket.
@@ -1220,7 +1238,13 @@ export function layoutCalendarTasks(
     ...deferredByDay.keys(),
   ].sort();
   const lastKey = keys.length > 0 ? keys[keys.length - 1] : todayKey;
-  const end = toStartOfDay(new Date(`${lastKey}T00:00:00`));
+  let end = toStartOfDay(new Date(`${lastKey}T00:00:00`));
+  if (layoutThrough != null && end.getTime() > layoutThrough.getTime()) {
+    end = layoutThrough;
+  }
+  if (end.getTime() < todayStart.getTime()) {
+    end = todayStart;
+  }
   const layouts: CalendarDayLayout[] = [];
 
   for (let d = todayStart; d.getTime() <= end.getTime(); d = addDays(d, 1)) {

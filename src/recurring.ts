@@ -13,26 +13,23 @@ export type RecurringSchedule = {
   monthDay?: number;
 };
 
-/** Extra days beyond the visible timeline when materializing series. */
+/** Buffer days kept beyond the default dayline length when materializing series. */
 export const RECURRING_MATERIALIZE_BUFFER_DAYS = 7;
-/** Fallback timeline length when the UI count is unknown (matches default dayline). */
+/** Default dayline length used when sizing the fixed materialize window. */
 export const RECURRING_MATERIALIZE_DEFAULT_TIMELINE_DAYS = 31;
 /**
- * @deprecated Prefer `recurringMaterializeHorizonDays(timelineDayCount)`.
- * Kept as the default window size (timeline + buffer).
+ * Fixed stored horizon for recurring series (not tied to scroll window size).
+ * Scrolling the dayline must not grow materialized occurrences.
  */
 export const RECURRING_MATERIALIZE_HORIZON_DAYS =
   RECURRING_MATERIALIZE_DEFAULT_TIMELINE_DAYS + RECURRING_MATERIALIZE_BUFFER_DAYS;
 /** Safety cap so dense schedules (e.g. daily) cannot explode. */
 export const RECURRING_MATERIALIZE_MAX_OCCURRENCES = 45;
 
-/** Visible timeline days + buffer — keep stored series small on mobile. */
-export function recurringMaterializeHorizonDays(timelineDayCount?: number): number {
-  const base =
-    timelineDayCount != null && Number.isFinite(timelineDayCount)
-      ? Math.max(1, Math.round(timelineDayCount))
-      : RECURRING_MATERIALIZE_DEFAULT_TIMELINE_DAYS;
-  return base + RECURRING_MATERIALIZE_BUFFER_DAYS;
+/** Fixed materialize window in days. Argument ignored (kept for call-site compatibility). */
+export function recurringMaterializeHorizonDays(_timelineDayCount?: number): number {
+  void _timelineDayCount;
+  return RECURRING_MATERIALIZE_HORIZON_DAYS;
 }
 
 const UNIT_CHAR: Record<RecurringUnit, string> = {

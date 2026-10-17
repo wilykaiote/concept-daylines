@@ -1831,17 +1831,9 @@ function App() {
     if (migrated.length > 0) {
       saveCollections([...loadCollections(), ...migrated]);
     }
-    // Materialize / prune series to the visible timeline window (+ buffer).
+    // Materialize / prune series to the fixed horizon (not scroll window).
     const now = new Date();
-    const savedTimelineDays =
-      typeof INITIAL_UI_SESSION?.timelineDayCount === "number" &&
-      Number.isFinite(INITIAL_UI_SESSION.timelineDayCount)
-        ? INITIAL_UI_SESSION.timelineDayCount
-        : DEFAULT_TIMELINE_DAY_COUNT;
-    const through = recurringHorizonEnd(
-      now,
-      recurringMaterializeHorizonDays(savedTimelineDays),
-    );
+    const through = recurringHorizonEnd(now, recurringMaterializeHorizonDays());
     let changed = migrated.length > 0;
     const SERIES_MIGRATE_KEY = "twineline.recurringSeriesMigrated";
     const needsLegacyMigrate = localStorage.getItem(SERIES_MIGRATE_KEY) !== "1";
@@ -2065,6 +2057,24 @@ function App() {
   });
   const timelineDayCountRef = useRef(timelineDayCount);
   timelineDayCountRef.current = timelineDayCount;
+  const timelineGrowAtRef = useRef(0);
+  const TIMELINE_GROW_STEP = 14;
+  const TIMELINE_GROW_COALESCE_MS = 150;
+  const TIMELINE_PREFETCH_RATIO = 0.7;
+  const TIMELINE_PREFETCH_PX = 1200;
+  /** Grow the UI day window (not materialize horizon). Coalesce flings unless forced. */
+  const growTimelineDayCount = (step: number = TIMELINE_GROW_STEP, force = false) => {
+    if (!force) {
+      const now = performance.now();
+      if (now - timelineGrowAtRef.current < TIMELINE_GROW_COALESCE_MS) return;
+      timelineGrowAtRef.current = now;
+    }
+    setTimelineDayCount((count) => {
+      if (count >= MAX_TIMELINE_DAY_COUNT) return count;
+      const add = Math.max(1, Math.round(step));
+      return Math.min(MAX_TIMELINE_DAY_COUNT, count + add);
+    });
+  };
   const [showTimelineScrollTop, setShowTimelineScrollTop] = useState(false);
   const timelineScrollSyncLockRef = useRef(false);
   const timelineScrollTopBtnVisibleRef = useRef(false);
@@ -2208,6 +2218,7 @@ function App() {
   const pinnedFocusId = focusLocked ? todayFocusId : null;
   // Pack once per minute — second-level countdownNow ticks must not re-layout.
   const layoutNowFloorMs = Math.floor(countdownNow / 60_000) * 60_000;
+  const LAYOUT_THROUGH_BUFFER_DAYS = 7;
   const calendarTasksLayout = useMemo(() => {
     const layoutGetTarget = (day: Date) => {
       if (timePickerOpen && sameCalendarDay(day, selectedDay)) return targetTime;
@@ -2217,6 +2228,10 @@ function App() {
       if (timePickerOpen && sameCalendarDay(day, selectedDay)) return windowStartTime;
       return resolveWindowStartTime(day, defaultWindowStartTime, windowStartOverrides);
     };
+    const layoutThroughDate = addDays(
+      timelineRangeStart,
+      timelineDayCount - 1 + LAYOUT_THROUGH_BUFFER_DAYS,
+    );
     return layoutCalendarTasks(
       tasksForCalendar,
       new Date(layoutNowFloorMs),
@@ -2226,6 +2241,7 @@ function App() {
       baselineIds,
       pinnedFocusId,
       [],
+      layoutThroughDate,
     );
   }, [
     tasksForCalendar,
@@ -2241,6 +2257,8 @@ function App() {
     targetTimeOverrides,
     defaultWindowStartTime,
     windowStartOverrides,
+    timelineRangeStart,
+    timelineDayCount,
   ]);
   const calendarTaskLayout = calendarTasksLayout.days;
   const todayLayoutForOverflow = calendarTaskLayout.find(
@@ -2694,7 +2712,7 @@ function App() {
         setTimelineRangeStart(today);
       } else if (clamped.getTime() > end.getTime()) {
         const extra = Math.ceil((clamped.getTime() - end.getTime()) / 86_400_000) + 1;
-        setTimelineDayCount((count) => count + extra);
+        growTimelineDayCount(extra, true);
       }
       return;
     }
@@ -3088,7 +3106,7 @@ function App() {
             schedule,
             recurringHorizonEnd(
               new Date(countdownNowRef.current),
-              recurringMaterializeHorizonDays(timelineDayCountRef.current),
+              recurringMaterializeHorizonDays(),
             ),
             { seriesId, includeAnchor: false },
           );
@@ -3652,7 +3670,7 @@ function App() {
         current,
         completed,
         new Date(countdownNowRef.current),
-        recurringMaterializeHorizonDays(timelineDayCountRef.current),
+        recurringMaterializeHorizonDays(),
       );
     });
     if (editingTaskId === id) {
@@ -4223,7 +4241,7 @@ function App() {
             schedule,
             recurringHorizonEnd(
               new Date(countdownNowRef.current),
-              recurringMaterializeHorizonDays(timelineDayCountRef.current),
+              recurringMaterializeHorizonDays(),
             ),
             { seriesId, includeAnchor: false },
           );
@@ -5181,6 +5199,10 @@ function App() {
       lastAutoRescheduleDayRef.current = todayKey;
       saveLastAutoRescheduleDay(todayKey);
       const config = packingConfigRef.current;
+      const through = recurringHorizonEnd(
+        new Date(nowMs),
+        recurringMaterializeHorizonDays(),
+      );
       setTasks((current) => {
         const { tasks: next } = rescheduleOverdueTasksForNewDay(
           current,
@@ -5191,7 +5213,17 @@ function App() {
           undefined,
           toStartOfDay(new Date(nowMs)),
         );
-        return next;
+        // Refresh fixed-horizon series for the new calendar day.
+        let refreshed = pruneRecurringSeriesBeyondHorizon(next, through);
+        const seriesIds = new Set(
+          refreshed
+            .map((task) => task.series_id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0),
+        );
+        for (const seriesId of seriesIds) {
+          refreshed = topUpRecurringSeries(refreshed, seriesId, through);
+        }
+        return refreshed;
       });
     };
 
@@ -5342,7 +5374,7 @@ function App() {
         sessionScrollRestoreRef.current = null;
         return;
       }
-      setTimelineDayCount((count) => Math.min(MAX_TIMELINE_DAY_COUNT, count + 14));
+      growTimelineDayCount(TIMELINE_GROW_STEP, true);
       return;
     }
     main.scrollTop = target;
@@ -5371,30 +5403,6 @@ function App() {
   useEffect(() => {
     if (activeViewRef.current !== "dayline") return;
     schedulePersistUiSession("dayline");
-  }, [timelineDayCount]);
-
-  // Incremental top-up when the visible timeline grows (window + buffer only).
-  useEffect(() => {
-    const through = recurringHorizonEnd(
-      new Date(countdownNowRef.current),
-      recurringMaterializeHorizonDays(timelineDayCount),
-    );
-    setTasks((current) => {
-      const seriesIds = new Set(
-        current
-          .map((task) => task.series_id)
-          .filter((id): id is string => typeof id === "string" && id.length > 0),
-      );
-      if (seriesIds.size === 0) return current;
-      let next = current;
-      let changed = false;
-      for (const seriesId of seriesIds) {
-        const before = next.length;
-        next = topUpRecurringSeries(next, seriesId, through);
-        if (next.length !== before) changed = true;
-      }
-      return changed ? next : current;
-    });
   }, [timelineDayCount]);
 
   // Tray/FAB sit above app-main; forward wheel so page scroll still works over them.
@@ -5542,8 +5550,10 @@ function App() {
           }
 
           const maxScroll = Math.max(1, main.scrollHeight - main.clientHeight);
-          if (top / maxScroll > 0.88) {
-            setTimelineDayCount((count) => count + 14);
+          const nearEndPx = maxScroll - top <= TIMELINE_PREFETCH_PX;
+          const nearEndRatio = top / maxScroll > TIMELINE_PREFETCH_RATIO;
+          if (nearEndPx || nearEndRatio) {
+            growTimelineDayCount(TIMELINE_GROW_STEP);
           }
         }
       }
@@ -5606,22 +5616,8 @@ function App() {
     }
   }, [activeView, countdownNow, timelineRangeStart]);
 
-  useEffect(() => {
-    if (activeView !== "dayline") return;
-    if (!calendarLayoutSpanKey || calendarTaskLayout.length === 0) return;
-    const last = calendarTaskLayout[calendarTaskLayout.length - 1].date;
-    const rangeEnd = addDays(timelineRangeStart, timelineDayCount - 1);
-    if (last.getTime() > rangeEnd.getTime()) {
-      const extra = Math.ceil((last.getTime() - rangeEnd.getTime()) / 86_400_000) + 1;
-      setTimelineDayCount((count) => count + extra);
-    }
-  }, [
-    activeView,
-    calendarLayoutSpanKey,
-    timelineRangeStart,
-    timelineDayCount,
-    calendarTaskLayout,
-  ]);
+  // Layout is capped to the UI range + buffer, so far series dates must not
+  // force timelineDayCount growth. Jump-to-day / session restore grow explicitly.
 
   useLayoutEffect(() => {
     // Keep pending targets queued off-Dayline; never move main for Home/etc.
@@ -5642,7 +5638,7 @@ function App() {
           if (dayWithTask.date.getTime() > end.getTime()) {
             const extra =
               Math.ceil((dayWithTask.date.getTime() - end.getTime()) / 86_400_000) + 1;
-            setTimelineDayCount((count) => count + extra);
+            growTimelineDayCount(extra, true);
             return;
           }
         }
@@ -5696,9 +5692,10 @@ function App() {
     if (activeView !== "dayline") return;
     const main = mainRef.current;
     if (!main) return;
+    if (timelineDayCount >= MAX_TIMELINE_DAY_COUNT) return;
     // Compact day groups are short — grow the range until the list can scroll.
     if (main.scrollHeight <= main.clientHeight + 48) {
-      setTimelineDayCount((count) => count + 14);
+      growTimelineDayCount(TIMELINE_GROW_STEP);
     }
   }, [activeView, tasksCompact, timelineDayCount, timelineDays.length, tasks.length]);
 
