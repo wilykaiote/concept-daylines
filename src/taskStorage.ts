@@ -116,10 +116,18 @@ function migrateLegacyMetaAuto(
 }
 
 function normalizePlanDraft(draft: ComposerDraft): ComposerDraft {
-  if (draft.type === "project" || draft.type === "program" || draft.type === "plan") {
-    return { ...draft, type: "plan" };
+  const withSeries: ComposerDraft = {
+    ...draft,
+    series_id: draft.series_id ?? null,
+  };
+  if (
+    withSeries.type === "project" ||
+    withSeries.type === "program" ||
+    withSeries.type === "plan"
+  ) {
+    return { ...withSeries, type: "plan" };
   }
-  return draft;
+  return withSeries;
 }
 
 export function loadTasks(): ComposerDraft[] {
@@ -806,23 +814,52 @@ export function buildMonthCalendarDays(month: Date): (Date | null)[] {
   return cells;
 }
 
-export function formatTwinelineDateLabel(
+export type TwinelineDateLabelParts = {
+  /** e.g. "Today" before the stamp */
+  prefix?: string;
+  stamp: string;
+  /** e.g. "Tomorrow" / "Yesterday" after the stamp */
+  relative?: string;
+  weekday?: string;
+};
+
+export function formatTwinelineDateLabelParts(
   date: Date,
   now = new Date(),
   options?: { weekday?: boolean; omitTodayWord?: boolean },
-): string {
+): TwinelineDateLabelParts {
   const selected = startOfDay(date);
   const today = startOfDay(now);
   const dayMs = 24 * 60 * 60 * 1000;
   const diffDays = Math.round((selected.getTime() - today.getTime()) / dayMs);
   const stamp = `${MONTH_LABELS[selected.getMonth()]} ${selected.getDate()}`;
-  let label: string;
-  if (diffDays === 0) label = options?.omitTodayWord ? stamp : `Today - ${stamp}`;
-  else if (diffDays === -1) label = `${stamp} - Yesterday`;
-  else label = stamp;
-  if (options?.weekday) {
-    const weekday = WEEKDAY_BUTTONS[selected.getDay()]!.name.slice(0, 3).toUpperCase();
-    label = `${label} - ${weekday}`;
+  const parts: TwinelineDateLabelParts = { stamp };
+  if (diffDays === 0) {
+    if (!options?.omitTodayWord) parts.prefix = "Today";
+  } else if (diffDays === -1) {
+    parts.relative = "Yesterday";
+  } else if (diffDays === 1) {
+    parts.relative = "Tomorrow";
   }
+  if (options?.weekday) {
+    parts.weekday = WEEKDAY_BUTTONS[selected.getDay()]!.name.slice(0, 3).toUpperCase();
+  }
+  return parts;
+}
+
+export function formatTwinelineDateLabel(
+  date: Date,
+  now = new Date(),
+  options?: { weekday?: boolean; omitTodayWord?: boolean },
+): string {
+  const { prefix, stamp, relative, weekday } = formatTwinelineDateLabelParts(
+    date,
+    now,
+    options,
+  );
+  let label = stamp;
+  if (prefix) label = `${prefix} - ${stamp}`;
+  if (relative) label = `${stamp} - ${relative}`;
+  if (weekday) label = `${label} - ${weekday}`;
   return label;
 }

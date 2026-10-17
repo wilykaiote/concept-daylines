@@ -132,19 +132,22 @@ export function DayScheduleTrack({
             const highlighted = isTaskHighlighted?.(taskId) ?? false;
             const popping = isTaskPopping?.(taskId) ?? false;
             const fillPct = blockElapsedPct(segment);
+            const isPast = nowMin != null && nowMin >= segment.endMin;
+            const isBeingOvertaken = fillPct > 0 && !isPast;
             const elapsedFillColor =
               nowMin != null ? daySkyColorAtMinutes(nowMin) : null;
             const classNames = [
               "twineline-schedule-block",
               `is-${kind}`,
-              fillPct > 0 ? "has-elapsed" : "",
+              isBeingOvertaken ? "has-elapsed" : "",
+              isPast ? "is-past" : "",
               highlighted ? "is-highlighted" : "",
               popping ? "is-popping" : "",
             ]
               .filter(Boolean)
               .join(" ");
             const elapsedFill =
-              fillPct > 0 ? (
+              isBeingOvertaken ? (
                 <span
                   className="twineline-schedule-block-elapsed"
                   style={{
@@ -158,7 +161,7 @@ export function DayScheduleTrack({
               ) : null;
             const blockStyle = {
               flex: `0 0 ${widthPercent}%`,
-              ...(fillPct > 0 && elapsedFillColor != null
+              ...(isBeingOvertaken && elapsedFillColor != null
                 ? ({
                     "--schedule-block-fill": elapsedFillColor,
                   } as CSSProperties)

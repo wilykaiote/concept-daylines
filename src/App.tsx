@@ -21,12 +21,17 @@ import {
   type MetaAutoKey,
 } from "./composer";
 import {
-  buildNextRecurringTask,
   clampRecurringCount,
+  completeRecurringOccurrence,
   DEFAULT_RECURRING_COUNT,
   DEFAULT_RECURRING_UNIT,
   formatRecurring,
+  materializeRecurringSeries,
   parseRecurring,
+  RECURRING_MATERIALIZE_HORIZON_DAYS,
+  recurringHorizonEnd,
+  removeFutureSeriesMembers,
+  topUpRecurringSeries,
   type RecurringUnit,
 } from "./recurring";
 import {
@@ -35,6 +40,7 @@ import {
   formatMonthYearLabel,
   formatTargetTimeLabel,
   formatTwinelineDateLabel,
+  formatTwinelineDateLabelParts,
   loadDaySnooze,
   loadLastAutoRescheduleDay,
   loadRecentLinkIds,
@@ -340,17 +346,27 @@ function CalendarIcon() {
   );
 }
 
-function DayvisionIcon() {
+function EventIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect
+        x="3.5"
+        y="5"
+        width="17"
+        height="15"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
       <path
-        d="M12 3.5v17"
+        d="M8 3.5v3M16 3.5v3M3.5 10h17"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
-        strokeDasharray="2.2 3.2"
       />
+      <circle cx="12" cy="15" r="2.1" fill="currentColor" />
     </svg>
   );
 }
@@ -995,15 +1011,15 @@ const COMPOSE_KINDS = [
   },
   {
     id: "calendar",
-    label: "Dayvision",
-    placeholder: "Name this dayvision...",
-    Icon: DayvisionIcon,
+    label: "Calendar",
+    placeholder: "Name this calendar...",
+    Icon: CalendarIcon,
   },
   {
     id: "event",
     label: "Event",
     placeholder: "What's the event?",
-    Icon: CalendarIcon,
+    Icon: EventIcon,
   },
   { id: "note", label: "Note", placeholder: "Type away...", Icon: NotesIcon },
   { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ListItemIcon },
@@ -1068,7 +1084,7 @@ const LINK_ALL_TYPE_ITEM = {
 const LINK_ITEM_TYPE_ITEMS = [
   { id: "task", label: "Tasks", Icon: TasksListIcon },
   { id: "note", label: "Notes", Icon: NotesIcon },
-  { id: "event", label: "Events", Icon: CalendarIcon },
+  { id: "event", label: "Events", Icon: EventIcon },
   { id: "item", label: "Items", Icon: ListItemIcon },
 ] as const;
 
@@ -1080,7 +1096,7 @@ const LINK_CONTAINER_TYPE_ITEMS = [
 
 const COMPOSE_CONTAINER_TYPE_ITEMS = [
   { id: "collection", label: "Collection", Icon: CollectionOrbitIcon },
-  { id: "calendar", label: "Dayvision", Icon: DayvisionIcon },
+  { id: "calendar", label: "Calendar", Icon: CalendarIcon },
   { id: "notebook", label: "Notebook", Icon: NotebookIcon },
   { id: "plan", label: "Plan", Icon: PlansIcon },
   { id: "list", label: "List", Icon: MenuBarsIcon },
@@ -1104,7 +1120,7 @@ function defaultLinkPickerType(composeKind: string): LinkPickerType {
 
 /** Compose-type menu: Collection (top) · left/right columns · Entry · AI Assistant (bottom). */
 const COMPOSE_KIND_MENU_TOP = COMPOSE_KINDS.find((kind) => kind.id === "collection")!;
-/** Left column top→bottom: Dayvision, Notebook, List, Plan (Plan nearest the composer). */
+/** Left column top→bottom: Calendar, Notebook, List, Plan (Plan nearest the composer). */
 const COMPOSE_KIND_MENU_LEFT_IDS = ["calendar", "notebook", "list", "plan"] as const;
 const COMPOSE_KIND_MENU_RIGHT_IDS = ["event", "note", "item", "task"] as const;
 const COMPOSE_KIND_MENU_LEFT = COMPOSE_KIND_MENU_LEFT_IDS.map(
@@ -1182,16 +1198,16 @@ const MORE_OPTIONS = [
 const TEND_MENU_TOP = COLLECTIONS_TAB;
 const TEND_MENU_LISTS = { id: "lists", label: "Lists", Icon: MenuBarsIcon } as const;
 const TEND_MENU_TASKS = { id: "tasks", label: "Tasks", Icon: TasksListIcon } as const;
-/** Left column (compose layout): Dayvisions · Notebooks · Lists · Plans. */
+/** Left column (compose layout): Calendars · Notebooks · Lists · Plans. */
 const TEND_MENU_LEFT = [
-  { id: "calendar", label: "Dayvisions", Icon: DayvisionIcon, view: null },
+  { id: "calendar", label: "Calendars", Icon: CalendarIcon, view: null },
   { id: "notebook", label: "Notebooks", Icon: NotebookIcon, view: null },
   { id: "lists", label: "Lists", Icon: MenuBarsIcon, view: "lists" as const },
   { id: "plans", label: "Plans", Icon: PlansIcon, view: "plans" as const },
 ] as const;
 /** Right column (compose layout): Events · Notes · Items · Tasks. */
 const TEND_MENU_RIGHT = [
-  { id: "event", label: "Events", Icon: CalendarIcon, view: null },
+  { id: "event", label: "Events", Icon: EventIcon, view: null },
   { id: "notes", label: "Notes", Icon: NotesIcon, view: "notes" as const },
   { id: "item", label: "Items", Icon: ListItemIcon, view: null },
   { id: "tasks", label: "Tasks", Icon: TasksListIcon, view: "tasks" as const },
@@ -1302,6 +1318,27 @@ function formatTaskScheduleMetaLabel(
 
   const prefix = startsAt ? "Starts" : "Due";
   return `${prefix} ${datePart}, ${timePart}`;
+}
+
+function TwinelineDayScrollLabel({
+  date,
+  now,
+}: {
+  date: Date;
+  now: Date;
+}) {
+  const { stamp, relative } = formatTwinelineDateLabelParts(date, now);
+  return (
+    <>
+      {stamp}
+      {relative != null && (
+        <>
+          {" - "}
+          <span className="task-day-label-relative">{relative}</span>
+        </>
+      )}
+    </>
+  );
 }
 
 function CompactTaskRow({
@@ -1773,11 +1810,55 @@ function App() {
     const migrated = loaded
       .filter((task) => isCollectionTaskType(task.type))
       .map((task) => ({ ...task, type: "collection" as const }));
-    const rest = loaded.filter((task) => !isCollectionTaskType(task.type));
+    let rest = loaded.filter((task) => !isCollectionTaskType(task.type));
     if (migrated.length > 0) {
-      saveTasks(rest);
       saveCollections([...loadCollections(), ...migrated]);
     }
+    // Top up open recurring series through the horizon (series_id already assigned).
+    const now = new Date();
+    const through = recurringHorizonEnd(now);
+    let changed = migrated.length > 0;
+    const SERIES_MIGRATE_KEY = "twineline.recurringSeriesMigrated";
+    const needsLegacyMigrate = localStorage.getItem(SERIES_MIGRATE_KEY) !== "1";
+    if (needsLegacyMigrate) {
+      // One-time: legacy single recurring rows → assign series_id and materialize futures.
+      const legacyRecurring = rest.filter(
+        (task) =>
+          task.series_id == null &&
+          parseRecurring(task.recurring) != null &&
+          task.date != null &&
+          task.completed_at == null,
+      );
+      for (const task of legacyRecurring) {
+        const schedule = parseRecurring(task.recurring);
+        if (!schedule || task.date == null) continue;
+        const seriesId = crypto.randomUUID();
+        const anchored = { ...task, series_id: seriesId };
+        rest = rest.map((entry) => (entry.id === task.id ? anchored : entry));
+        const futures = materializeRecurringSeries(anchored, schedule, through, {
+          seriesId,
+          includeAnchor: false,
+        });
+        rest = futures.length > 0 ? [...futures, ...rest] : rest;
+        changed = true;
+      }
+      try {
+        localStorage.setItem(SERIES_MIGRATE_KEY, "1");
+      } catch {
+        /* ignore */
+      }
+    }
+    const seriesIds = new Set(
+      rest
+        .map((task) => task.series_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    );
+    for (const seriesId of seriesIds) {
+      const before = rest.length;
+      rest = topUpRecurringSeries(rest, seriesId, through);
+      if (rest.length !== before) changed = true;
+    }
+    if (changed) saveTasks(rest);
     return rest;
   });
   const [collections, setCollections] = useState<ComposerDraft[]>(() => loadCollections());
@@ -1805,6 +1886,7 @@ function App() {
   const editTaskBaselineRef = useRef(editTaskBaseline);
   editTaskBaselineRef.current = editTaskBaseline;
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
+  const [recurringSchedulePromptOpen, setRecurringSchedulePromptOpen] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [focusedOverflowTaskIds, setFocusedOverflowTaskIds] = useState<string[] | null>(null);
   const [currentFocus, setCurrentFocus] = useState<CurrentFocus | null>(() => loadCurrentFocus());
@@ -1860,6 +1942,8 @@ function App() {
     id: string;
     kind: "overflow" | "recovered" | "at-risk";
     count: number;
+    /** Epoch ms — oldest first in the list, newest at the bottom. */
+    at: number;
   };
   const [timelineNotices, setTimelineNotices] = useState<TimelineNotice[]>([]);
   const prevOverflowIdsRef = useRef<Set<string> | null>(null);
@@ -1928,7 +2012,7 @@ function App() {
   countdownNowRef.current = countdownNow;
   /** Snapshot remaining ms when Rest / Break begins so the bar can drain. */
   const focusStatusCountdownTotalRef = useRef<{
-    mode: "rest" | "reschedule" | "break" | null;
+    mode: "rest" | "pivot" | "break" | null;
     totalMs: number;
   }>({ mode: null, totalMs: 0 });
   /** Frozen pack/focus start for active timed Current focus countdown. */
@@ -2294,17 +2378,22 @@ function App() {
     }
     return true;
   });
-  // No Up next left → Reschedule if Overflow has work, else Rest.
+  // Rest is the first mode of every day until today's task window begins.
+  const beforeTaskWindow = nowMinutes < todayWindowStartMinutes;
+  // After the window: no Up next → Pivot Overflow if Overflow has work, else Rest.
   const focusRescheduleOverflowMode =
+    !beforeTaskWindow &&
     nothingCurrentlyOvertaken &&
     upNextPlanBlocksAll.length === 0 &&
     overflowTaskCount > 0;
   const focusRestMode =
-    nothingCurrentlyOvertaken &&
-    upNextPlanBlocksAll.length === 0 &&
-    overflowTaskCount === 0;
+    beforeTaskWindow ||
+    (nothingCurrentlyOvertaken &&
+      upNextPlanBlocksAll.length === 0 &&
+      overflowTaskCount === 0);
   // Break: end slack gone and nothing overtaken (gap before next / idle flush day).
   const focusBreakMode =
+    !beforeTaskWindow &&
     nothingCurrentlyOvertaken &&
     todayEndSlackMin === 0 &&
     !focusRescheduleOverflowMode &&
@@ -2367,7 +2456,7 @@ function App() {
   const focusStatusMode = focusRestMode
     ? ("rest" as const)
     : focusRescheduleOverflowMode
-      ? ("reschedule" as const)
+      ? ("pivot" as const)
       : focusBreakMode
         ? ("break" as const)
         : null;
@@ -2902,15 +2991,41 @@ function App() {
     return resolved;
   };
 
-  const upsertTaskDraft = (draft: ComposerDraft, editId?: string | null) => {
+  const upsertTaskDraft = (
+    draft: ComposerDraft,
+    editId?: string | null,
+    options?: { materializeSeries?: boolean },
+  ) => {
     const resolvedEditId = resolveComposerEditId(editId);
     if (resolvedEditId === undefined) return;
     const withLinks = applyLinkFields(draft);
     const parentIdForChild = resolvedEditId ?? withLinks.id;
+    const schedule = parseRecurring(withLinks.recurring);
+    const shouldMaterialize =
+      options?.materializeSeries === true &&
+      schedule != null &&
+      withLinks.date != null &&
+      resolvedEditId == null;
+    const seriesId =
+      withLinks.series_id ??
+      (shouldMaterialize || schedule != null ? crypto.randomUUID() : null);
+    const anchored: ComposerDraft = {
+      ...withLinks,
+      series_id: shouldMaterialize || withLinks.series_id != null ? seriesId : withLinks.series_id,
+    };
     setTasks((current) => {
       let next = current;
       if (resolvedEditId == null) {
-        next = [withLinks, ...current];
+        next = [anchored, ...current];
+        if (shouldMaterialize && schedule != null && seriesId != null) {
+          const futures = materializeRecurringSeries(
+            anchored,
+            schedule,
+            recurringHorizonEnd(new Date(countdownNowRef.current)),
+            { seriesId, includeAnchor: false },
+          );
+          if (futures.length > 0) next = [...futures, ...next];
+        }
       } else {
         next = current.map((task) => {
           if (task.id !== resolvedEditId) return task;
@@ -2925,6 +3040,8 @@ function App() {
             starts_at: withLinks.starts_at,
             due_at: withLinks.due_at,
             recurring: withLinks.recurring,
+            series_id:
+              withLinks.series_id !== undefined ? withLinks.series_id : task.series_id,
             parent_id: withLinks.parent_id,
             after_id: withLinks.after_id,
             after: withLinks.after,
@@ -2963,6 +3080,7 @@ function App() {
       starts_at: null,
       due_at: null,
       recurring: null,
+      series_id: null,
       auto_rescheduled: null,
     };
     const withLinks = applyLinkFields(containerDraft);
@@ -3168,6 +3286,7 @@ function App() {
     setEditingTaskId(null);
     setEditTaskBaseline(null);
     setComposerSavePromptOpen(false);
+    setRecurringSchedulePromptOpen(false);
   };
 
   const syncScheduleDraftRef = (
@@ -3454,12 +3573,13 @@ function App() {
     }
     setTasks((current) => {
       const completed = current.find((task) => task.id === id);
-      const without = current.filter((task) => task.id !== id);
-      if (!completed) return without;
-      // Next occurrence forced onto nextRecurringDateKey (may Overflow).
-      // Do not rehome other dated tasks already on that day.
-      const next = buildNextRecurringTask(completed, new Date(countdownNowRef.current));
-      return next ? [next, ...without] : without;
+      if (!completed) return current;
+      // Series: drop this occurrence and top up the horizon. Legacy: spawn next.
+      return completeRecurringOccurrence(
+        current,
+        completed,
+        new Date(countdownNowRef.current),
+      );
     });
     if (editingTaskId === id) {
       resetComposerFields();
@@ -3874,6 +3994,7 @@ function App() {
     setImpactMenuOpen(false);
     closeTaskToolHint();
     setComposerSavePromptOpen(false);
+    setRecurringSchedulePromptOpen(false);
     setFocusedTaskId(null);
     setFocusedOverflowTaskIds(null);
   };
@@ -3919,19 +4040,16 @@ function App() {
     });
   };
 
-  const saveComposerChanges = () => {
-    const editId = editingTaskIdRef.current;
-    if (editId == null) return;
-    const draft = buildDraftFromComposer();
-    if (draft) {
-      submitComposerDraft[composeKind](draft, editId);
-      if (
-        !isContainerComposeKind(composeKind) &&
-        isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
-      ) {
-        openOverflowForActiveView();
-      }
-    }
+  const repeatSettingsChangedVsBaseline = () => {
+    const baseline = editTaskBaselineRef.current;
+    if (baseline == null) return false;
+    return (
+      composerRecurring !== baseline.recurring ||
+      recurringActivated !== baseline.recurringActivated
+    );
+  };
+
+  const finishComposerSaveSession = () => {
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
@@ -3944,8 +4062,130 @@ function App() {
     setImpactMenuOpen(false);
     closeTaskToolHint();
     setComposerSavePromptOpen(false);
+    setRecurringSchedulePromptOpen(false);
     setFocusedTaskId(null);
     setFocusedOverflowTaskIds(null);
+  };
+
+  const applyRecurringScheduleJustThisOnce = () => {
+    const editId = editingTaskIdRef.current;
+    if (editId == null) return;
+    const draft = buildDraftFromComposer();
+    if (!draft) return;
+    const existing = tasks.find((task) => task.id === editId);
+    // Detach from series; siblings keep their prior schedule. Leaving a series
+    // just this once makes this occurrence a one-off (no recurring token).
+    const detached: ComposerDraft = {
+      ...draft,
+      series_id: null,
+      recurring: existing?.series_id != null ? null : draft.recurring,
+    };
+    upsertTaskDraft(detached, editId);
+    if (
+      !isContainerComposeKind(composeKind) &&
+      isAnchoredTaskMissed(detached, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
+    ) {
+      openOverflowForActiveView();
+    }
+    finishComposerSaveSession();
+  };
+
+  const applyRecurringScheduleAllFuture = () => {
+    const editId = editingTaskIdRef.current;
+    if (editId == null) return;
+    const draft = buildDraftFromComposer();
+    if (!draft) return;
+    const existing = tasks.find((task) => task.id === editId);
+    const schedule = parseRecurring(draft.recurring);
+    const anchorDate = draft.date;
+    const seriesId =
+      existing?.series_id ??
+      draft.series_id ??
+      (schedule != null ? crypto.randomUUID() : null);
+    const updated: ComposerDraft = {
+      ...draft,
+      id: editId,
+      series_id: schedule != null ? seriesId : null,
+    };
+    setTasks((current) => {
+      let next = current.map((task) => {
+        if (task.id !== editId) return task;
+        return {
+          ...task,
+          title: updated.title,
+          type: updated.type,
+          est_duration: updated.est_duration,
+          urgency: updated.urgency,
+          impact: updated.impact,
+          date: updated.date,
+          starts_at: updated.starts_at,
+          due_at: updated.due_at,
+          recurring: updated.recurring,
+          series_id: updated.series_id,
+          parent_id: updated.parent_id,
+          after_id: updated.after_id,
+          after: updated.after,
+          auto_rescheduled: updated.auto_rescheduled === true,
+          meta_auto: updated.meta_auto ?? null,
+        };
+      });
+      if (seriesId != null && anchorDate != null) {
+        // Drop later siblings, then rematerialize when still repeating.
+        next = removeFutureSeriesMembers(next, seriesId, anchorDate, editId);
+        if (schedule != null) {
+          const futures = materializeRecurringSeries(
+            { ...updated, series_id: seriesId },
+            schedule,
+            recurringHorizonEnd(new Date(countdownNowRef.current)),
+            { seriesId, includeAnchor: false },
+          );
+          if (futures.length > 0) next = [...futures, ...next];
+        } else {
+          // Repeat turned off for all future — clear series on the kept row.
+          next = next.map((task) =>
+            task.id === editId ? { ...task, series_id: null, recurring: null } : task,
+          );
+        }
+      }
+      return next;
+    });
+    if (
+      !isContainerComposeKind(composeKind) &&
+      isAnchoredTaskMissed(updated, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
+    ) {
+      openOverflowForActiveView();
+    }
+    finishComposerSaveSession();
+  };
+
+  const saveComposerChanges = () => {
+    const editId = editingTaskIdRef.current;
+    if (editId == null) return;
+    // Repeat settings changed → ask Just This Once vs All Future before saving.
+    if (
+      !isContainerComposeKind(composeKind) &&
+      repeatSettingsChangedVsBaseline()
+    ) {
+      setComposerSavePromptOpen(false);
+      setRecurringSchedulePromptOpen(true);
+      return;
+    }
+    const draft = buildDraftFromComposer();
+    if (draft) {
+      // Preserve series_id on ordinary edits.
+      const existing = tasks.find((task) => task.id === editId);
+      submitComposerDraft[composeKind](
+        { ...draft, series_id: existing?.series_id ?? draft.series_id },
+        editId,
+      );
+      if (
+        !isContainerComposeKind(composeKind) &&
+        isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
+      ) {
+        openOverflowForActiveView();
+      }
+    }
+    finishComposerSaveSession();
   };
 
   const submitCreate = () => {
@@ -3953,7 +4193,11 @@ function App() {
     if (editingTaskIdRef.current != null || editTaskBaselineRef.current != null) return;
     const draft = buildDraftFromComposer();
     if (!draft) return;
-    submitComposerDraft[composeKind](draft, null);
+    if (!isContainerComposeKind(composeKind) && parseRecurring(draft.recurring) != null) {
+      upsertTaskDraft(draft, null, { materializeSeries: true });
+    } else {
+      submitComposerDraft[composeKind](draft, null);
+    }
     if (
       !isContainerComposeKind(composeKind) &&
       isAnchoredTaskMissed(draft, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
@@ -4247,7 +4491,7 @@ function App() {
     return (
       <div
         className={`task-current-focus-free-time task-current-focus-reschedule${showBar ? " has-countdown" : ""}`}
-        aria-label="Reschedule Overflow"
+        aria-label="Pivot Overflow"
       >
         {showBar && (
           <div
@@ -4265,22 +4509,7 @@ function App() {
             />
           </div>
         )}
-        <p className="task-current-focus-free-time-title">Reschedule Overflow:</p>
-        <div className="task-current-focus-reschedule-actions">
-          <button
-            type="button"
-            className="task-current-focus-reschedule-btn is-automatic"
-            onClick={() => runAutomaticOverflowReschedule()}
-          >
-            Automatic
-          </button>
-          <button
-            type="button"
-            className="task-current-focus-reschedule-btn is-manual"
-          >
-            Manual
-          </button>
-        </div>
+        <p className="task-current-focus-free-time-title">Pivot Overflow</p>
       </div>
     );
   };
@@ -4443,44 +4672,45 @@ function App() {
 
   const renderTimelineNotices = () => {
     if (timelineNotices.length === 0) return null;
+    const orderedNotices = [...timelineNotices].sort((a, b) => a.at - b.at);
     return (
       <div className="task-day-label-row task-day-overflow-row task-day-notice-row">
-        {timelineNotices.map((notice) => {
-          const noun = notice.count === 1 ? "Task" : "Tasks";
+        {orderedNotices.map((notice) => {
+          const noun = notice.count === 1 ? "task" : "tasks";
           return (
             <div
               key={notice.id}
-              className={`task-timeline-notice${overflowDeferOnly && notice.kind === "overflow" ? " is-defer-only" : ""}`}
+              className={`task-timeline-notice is-${notice.kind}${
+                overflowDeferOnly && notice.kind === "overflow" ? " is-defer-only" : ""
+              }`}
               role="status"
             >
-              <span className="task-overdue-toggle-action">
-                <span className="task-overdue-toggle-reschedule">
-                  <span className="task-overdue-toggle-count">{notice.count}</span>{" "}
-                  {noun}{" "}
-                  {notice.kind === "overflow" ? (
-                    <>
-                      moved to{" "}
-                      <span className="task-overflow-notice-overflow">Overflow</span>.
-                    </>
-                  ) : notice.kind === "at-risk" ? (
-                    <>
-                      {notice.count === 1 ? "is" : "are"} currently{" "}
-                      <span className="task-overflow-notice-overflow">OVERFLOWING</span>
-                      .
-                    </>
-                  ) : (
-                    <>recovered.</>
-                  )}
-                </span>
-                <button
-                  type="button"
-                  className="task-timeline-notice-dismiss"
-                  aria-label="Dismiss"
-                  onClick={() => dismissTimelineNotice(notice.id)}
-                >
-                  ×
-                </button>
-              </span>
+              <p className="task-timeline-notice-body">
+                <span className="task-timeline-notice-count">{notice.count}</span>
+                {notice.kind === "overflow" ? (
+                  <>
+                    {" "}
+                    {noun} moved to{" "}
+                    <span className="task-overflow-notice-overflow">Overflow</span>.
+                  </>
+                ) : notice.kind === "at-risk" ? (
+                  <>
+                    {" "}
+                    {noun} {notice.count === 1 ? "is" : "are"} currently{" "}
+                    <span className="task-overflow-notice-overflow">OVERFLOWING</span>.
+                  </>
+                ) : (
+                  <> {noun} recovered.</>
+                )}
+              </p>
+              <button
+                type="button"
+                className="task-timeline-notice-dismiss"
+                aria-label="Dismiss"
+                onClick={() => dismissTimelineNotice(notice.id)}
+              >
+                ×
+              </button>
             </div>
           );
         })}
@@ -4526,6 +4756,15 @@ function App() {
               </span>
             </span>
           </button>
+          {isToday && (
+            <button
+              type="button"
+              className="task-current-focus-reschedule-btn is-automatic task-overflow-pivot-btn"
+              onClick={() => runAutomaticOverflowReschedule(dayLayout.dayKey)}
+            >
+              Pivot
+            </button>
+          )}
         </div>
         {sectionOpen && (
           <div
@@ -4862,12 +5101,14 @@ function App() {
     prevAtRiskIdRef.current = currentId;
     if (prev === undefined) return;
     if (currentId == null || currentId === prev) return;
+    const at = Date.now();
     setTimelineNotices((current) => [
       ...current,
       {
-        id: `at-risk-${Date.now()}-${currentId}`,
+        id: `at-risk-${at}-${currentId}`,
         kind: "at-risk",
         count: 1,
+        at,
       },
     ]);
   }, [atRiskTask?.id]);
@@ -4903,13 +5144,16 @@ function App() {
         id: `overflow-${stamp}-${movedIn}`,
         kind: "overflow",
         count: movedIn,
+        at: stamp,
       });
     }
     if (recovered > 0) {
       nextNotices.push({
-        id: `recovered-${stamp}-${recovered}`,
+        id: `recovered-${stamp + 1}-${recovered}`,
         kind: "recovered",
         count: recovered,
+        // Slightly later so recovered stacks under overflow in the same tick.
+        at: stamp + 1,
       });
     }
     if (nextNotices.length === 0) return;
@@ -4997,6 +5241,30 @@ function App() {
   useEffect(() => {
     if (activeViewRef.current !== "dayline") return;
     schedulePersistUiSession("dayline");
+  }, [timelineDayCount]);
+
+  // Keep recurring series filled as the timeline horizon grows.
+  useEffect(() => {
+    const through = recurringHorizonEnd(
+      new Date(countdownNowRef.current),
+      Math.max(RECURRING_MATERIALIZE_HORIZON_DAYS, timelineDayCount),
+    );
+    setTasks((current) => {
+      const seriesIds = new Set(
+        current
+          .map((task) => task.series_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0),
+      );
+      if (seriesIds.size === 0) return current;
+      let next = current;
+      let changed = false;
+      for (const seriesId of seriesIds) {
+        const before = next.length;
+        next = topUpRecurringSeries(next, seriesId, through);
+        if (next.length !== before) changed = true;
+      }
+      return changed ? next : current;
+    });
   }, [timelineDayCount]);
 
   // Tray/FAB sit above app-main; forward wheel so page scroll still works over them.
@@ -6446,7 +6714,10 @@ function App() {
                         className="task-day-label"
                         onClick={() => selectDayFromUi(day.date)}
                       >
-                        {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                        <TwinelineDayScrollLabel
+                          date={day.date}
+                          now={new Date(countdownNow)}
+                        />
                       </button>
                     </div>
                   )}
@@ -6458,6 +6729,9 @@ function App() {
                     activeView === "dayline" &&
                     !calendarOpen &&
                     renderCurrentFocus()}
+                  {isTodayGroup &&
+                    showOverdueToggle &&
+                    renderOverflowSection(day)}
                   {dayTasks.length > 0 && (
                     <div className="task-day-next">
                       {isTodayGroup && activeView === "dayline" && !calendarOpen && (
@@ -6520,7 +6794,9 @@ function App() {
                     activeView === "dayline" &&
                     !calendarOpen &&
                     renderAtRiskSection()}
-                  {showOverdueToggle && renderOverflowSection(day)}
+                  {!isTodayGroup &&
+                    showOverdueToggle &&
+                    renderOverflowSection(day)}
                 </section>
               );
             })}
@@ -6564,7 +6840,10 @@ function App() {
                       className="calendar-timeline-day-label"
                       onClick={() => selectDayFromUi(day.date)}
                     >
-                      {formatTwinelineDateLabel(day.date, new Date(countdownNow))}
+                      <TwinelineDayScrollLabel
+                        date={day.date}
+                        now={new Date(countdownNow)}
+                      />
                     </button>
                   </div>
                 )}
@@ -6576,6 +6855,9 @@ function App() {
                   activeView === "dayline" &&
                   !calendarOpen &&
                   renderCurrentFocus()}
+                {isTodayGroup &&
+                  showOverdueToggle &&
+                  renderOverflowSection(day)}
                 <div
                   className="calendar-timeline-body"
                   style={{ height: Math.max(PX_PER_MINUTE, view.visibleDisplayPx) }}
@@ -6665,7 +6947,9 @@ function App() {
                     })}
           </div>
                 </div>
-                {showOverdueToggle && renderOverflowSection(day)}
+                {!isTodayGroup &&
+                  showOverdueToggle &&
+                  renderOverflowSection(day)}
               </section>
               );
             })}
@@ -6774,25 +7058,34 @@ function App() {
                 </div>
               </div>
               <div className="app-compose-kind-menu-divider" role="separator" />
-              <button
-                type="button"
-                className="app-attach-menu-item app-compose-kind-menu-span"
-                role="menuitem"
-                onClick={() => setMoreMenuOpen(false)}
-              >
-                <LogIcon />
-                <span>Entries</span>
-              </button>
-              <div className="app-compose-kind-menu-divider" role="separator" />
-              <button
-                type="button"
-                className="app-attach-menu-item app-compose-kind-menu-span app-tray-more-search"
-                role="menuitem"
-                onClick={openSearch}
-              >
-                <SearchIcon />
-                <span>Search</span>
-              </button>
+              <div className="app-compose-kind-menu-columns">
+                <div className="app-compose-kind-menu-column">
+                  <button
+                    type="button"
+                    className="app-attach-menu-item"
+                    role="menuitem"
+                    onClick={() => setMoreMenuOpen(false)}
+                  >
+                    <LogIcon />
+                    <span>Entries</span>
+                  </button>
+                </div>
+                <div
+                  className="app-compose-kind-menu-divider app-compose-kind-menu-divider-vert"
+                  role="separator"
+                />
+                <div className="app-compose-kind-menu-column">
+                  <button
+                    type="button"
+                    className="app-attach-menu-item app-tray-more-search"
+                    role="menuitem"
+                    onClick={openSearch}
+                  >
+                    <SearchIcon />
+                    <span>Search</span>
+                  </button>
+                </div>
+              </div>
             </ComposerOverlayMenu>
             <button
               ref={moreButtonRef}
@@ -7082,6 +7375,14 @@ function App() {
             )}
             {composerSavePromptOpen && (
               <div className="twineline-save-prompt" role="dialog" aria-label="Save Changes?">
+                <button
+                  type="button"
+                  className="twineline-save-prompt-dismiss"
+                  onClick={() => setComposerSavePromptOpen(false)}
+                  aria-label="Cancel and keep editing"
+                >
+                  <CloseIcon />
+                </button>
                 <p className="twineline-save-prompt-title">Save Changes?</p>
                 <div className="twineline-save-prompt-actions">
                   <button
@@ -7097,6 +7398,39 @@ function App() {
                     onClick={saveComposerChanges}
                   >
                     Save
+                  </button>
+                </div>
+              </div>
+            )}
+            {recurringSchedulePromptOpen && (
+              <div
+                className="twineline-save-prompt"
+                role="dialog"
+                aria-label="Change Schedule For..."
+              >
+                <button
+                  type="button"
+                  className="twineline-save-prompt-dismiss"
+                  onClick={() => setRecurringSchedulePromptOpen(false)}
+                  aria-label="Cancel and keep editing"
+                >
+                  <CloseIcon />
+                </button>
+                <p className="twineline-save-prompt-title">Change Schedule For...</p>
+                <div className="twineline-save-prompt-actions">
+                  <button
+                    type="button"
+                    className="twineline-save-prompt-secondary"
+                    onClick={applyRecurringScheduleJustThisOnce}
+                  >
+                    Just This Once
+                  </button>
+                  <button
+                    type="button"
+                    className="twineline-save-prompt-primary"
+                    onClick={applyRecurringScheduleAllFuture}
+                  >
+                    All Future Tasks
                   </button>
                 </div>
               </div>
@@ -8420,36 +8754,45 @@ function App() {
                     </div>
                   </div>
                   <div className="app-compose-kind-menu-divider" role="separator" />
-                  <button
-                    type="button"
-                    className={`app-attach-menu-item app-compose-kind-menu-span${composeKind === "log" ? " is-selected" : ""}`}
-                    role="menuitem"
-                    onClick={() => {
-                      clearComposerMetaAuto("type");
-                      setComposeKind("log");
-                      setComposeKindMenuOpen(false);
-                    }}
-                  >
-                    <span className="app-compose-kind-plus is-check" aria-hidden="true">
-                      <CheckIcon />
-                    </span>
-                    <LOG_COMPOSE_KIND.Icon />
-                    <span>{LOG_COMPOSE_KIND.label}</span>
-                  </button>
-                  <div className="app-compose-kind-menu-divider" role="separator" />
-                  <button
-                    type="button"
-                    className={`app-attach-menu-item app-compose-kind-menu-span${composeKind === "assistant" ? " is-selected" : ""}`}
-                    role="menuitem"
-                    onClick={() => {
-                      clearComposerMetaAuto("type");
-                      setComposeKind("assistant");
-                      setComposeKindMenuOpen(false);
-                    }}
-                  >
-                    <ASSISTANT_COMPOSE_KIND.Icon />
-                    <span>{ASSISTANT_COMPOSE_KIND.label}</span>
-                  </button>
+                  <div className="app-compose-kind-menu-columns">
+                    <div className="app-compose-kind-menu-column">
+                      <button
+                        type="button"
+                        className={`app-attach-menu-item${composeKind === "log" ? " is-selected" : ""}`}
+                        role="menuitem"
+                        onClick={() => {
+                          clearComposerMetaAuto("type");
+                          setComposeKind("log");
+                          setComposeKindMenuOpen(false);
+                        }}
+                      >
+                        <span className="app-compose-kind-plus is-check" aria-hidden="true">
+                          <CheckIcon />
+                        </span>
+                        <LOG_COMPOSE_KIND.Icon />
+                        <span>{LOG_COMPOSE_KIND.label}</span>
+                      </button>
+                    </div>
+                    <div
+                      className="app-compose-kind-menu-divider app-compose-kind-menu-divider-vert"
+                      role="separator"
+                    />
+                    <div className="app-compose-kind-menu-column">
+                      <button
+                        type="button"
+                        className={`app-attach-menu-item${composeKind === "assistant" ? " is-selected" : ""}`}
+                        role="menuitem"
+                        onClick={() => {
+                          clearComposerMetaAuto("type");
+                          setComposeKind("assistant");
+                          setComposeKindMenuOpen(false);
+                        }}
+                      >
+                        <ASSISTANT_COMPOSE_KIND.Icon />
+                        <span>{ASSISTANT_COMPOSE_KIND.label}</span>
+                      </button>
+                    </div>
+                  </div>
                 </ComposerOverlayMenu>
                 <button
                   ref={composeKindButtonRef}

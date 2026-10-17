@@ -754,6 +754,7 @@ export function rescheduleOverdueTasksForNewDay(
         const task = working.find((entry) => entry.id === id);
         if (!task) return false;
         if (parseRecurring(task.recurring) != null) return false;
+        if (task.series_id != null) return false;
         if (classifyTask(task) === "timed") return false;
         if (classifyTask(task) === "undated") return false;
         return stillCountsAsOverflow(layout, id, now);
@@ -794,10 +795,21 @@ export function rescheduleOverdueTasksForNewDay(
     const forcedDate = forcedRecurringDateKey(current, now);
     if (forcedDate != null) {
       if (forcedDate !== current.date) {
-        working = withTaskDate(working, taskId, forcedDate, current);
-        movedThisPass.add(taskId);
-        changed = true;
-        rehomeMovedDateOnlyInOverflow();
+        // Series already materialised on the target day — do not duplicate.
+        const seriesConflict =
+          current.series_id != null &&
+          working.some(
+            (task) =>
+              task.id !== taskId &&
+              task.series_id === current.series_id &&
+              task.date === forcedDate,
+          );
+        if (!seriesConflict) {
+          working = withTaskDate(working, taskId, forcedDate, current);
+          movedThisPass.add(taskId);
+          changed = true;
+          rehomeMovedDateOnlyInOverflow();
+        }
       }
       continue;
     }

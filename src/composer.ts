@@ -30,6 +30,8 @@ export type ComposerDraft = {
   urgency: string | null;
   impact: number | null;
   recurring: string | null;
+  /** Shared id across materialized repeat occurrences; null for one-off tasks. */
+  series_id: string | null;
   after: string | null;
   location: string | null;
   tags: string | null;
@@ -127,6 +129,7 @@ export function buildComposerDraft({
     urgency: overrides.urgency ?? null,
     impact: overrides.impact ?? null,
     recurring: overrides.recurring ?? null,
+    series_id: overrides.series_id ?? null,
     after: overrides.after ?? null,
     location: overrides.location ?? null,
     tags: overrides.tags ?? null,

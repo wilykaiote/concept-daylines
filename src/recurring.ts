@@ -9,6 +9,11 @@ export type RecurringSchedule = {
   unit: RecurringUnit;
 };
 
+/** Materialize open occurrences from anchor through today + this many days. */
+export const RECURRING_MATERIALIZE_HORIZON_DAYS = 90;
+/** Safety cap so dense schedules (e.g. daily) cannot explode. */
+export const RECURRING_MATERIALIZE_MAX_OCCURRENCES = 120;
+
 const UNIT_CHAR: Record<RecurringUnit, string> = {
   day: "d",
   week: "w",
@@ -103,11 +108,13 @@ export function buildNextRecurringTask(
 ): ComposerDraft | null {
   const nextDate = forcedRecurringDateKey(task, now);
   if (nextDate == null) return null;
+  const seriesId = task.series_id ?? crypto.randomUUID();
   // Force onto the repeat day (may land in Overflow). Do not rehome bystander dated tasks.
   return withMetaAuto(
     {
       ...task,
       id: crypto.randomUUID(),
+      series_id: seriesId,
       date: nextDate,
       // Keep starts_at / due_at (timed recurring stays at the same clock times).
       completed_at: null,
@@ -115,4 +122,174 @@ export function buildNextRecurringTask(
     },
     "schedule",
   );
+}
+
+export function recurringHorizonEnd(
+  now: Date = new Date(),
+  horizonDays: number = RECURRING_MATERIALIZE_HORIZON_DAYS,
+): Date {
+  return addDays(toStartOfDay(now), Math.max(0, horizonDays));
+}
+
+/**
+ * Occurrence date keys from anchor through `throughDate` (inclusive), stepping
+ * by the schedule. Includes the anchor day.
+ */
+export function enumerateRecurringDateKeys(
+  anchorDate: Date | string,
+  schedule: RecurringSchedule,
+  throughDate: Date,
+  maxOccurrences: number = RECURRING_MATERIALIZE_MAX_OCCURRENCES,
+): string[] {
+  const through = toStartOfDay(throughDate);
+  let cursor =
+    typeof anchorDate === "string"
+      ? (parseTaskDate(anchorDate) ?? toStartOfDay(new Date()))
+      : toStartOfDay(anchorDate);
+  const keys: string[] = [];
+  let guard = 0;
+  while (cursor.getTime() <= through.getTime() && guard < maxOccurrences) {
+    keys.push(dayKey(cursor));
+    cursor = addRecurringInterval(cursor, schedule);
+    guard += 1;
+  }
+  return keys;
+}
+
+/** Clone template onto each date key (new ids, shared series_id). */
+export function materializeRecurringSeries(
+  template: ComposerDraft,
+  schedule: RecurringSchedule,
+  throughDate: Date,
+  options?: { seriesId?: string; includeAnchor?: boolean },
+): ComposerDraft[] {
+  const anchor = parseTaskDate(template.date);
+  if (anchor == null) return [];
+  const seriesId = options?.seriesId ?? template.series_id ?? crypto.randomUUID();
+  const includeAnchor = options?.includeAnchor !== false;
+  const keys = enumerateRecurringDateKeys(anchor, schedule, throughDate);
+  const dateKeys = includeAnchor ? keys : keys.slice(1);
+  const createdAt = new Date().toISOString();
+  return dateKeys.map((date) => ({
+    ...template,
+    id: crypto.randomUUID(),
+    series_id: seriesId,
+    date,
+    recurring: formatRecurring(schedule.count, schedule.unit),
+    completed_at: null,
+    created_at: createdAt,
+  }));
+}
+
+/**
+ * Ensure open series members fill the horizon from the latest dated member
+ * (or from `fromDateKey` when provided).
+ */
+export function topUpRecurringSeries(
+  tasks: ComposerDraft[],
+  seriesId: string,
+  throughDate: Date,
+  fromDateKey?: string | null,
+): ComposerDraft[] {
+  if (!seriesId) return tasks;
+  const members = tasks.filter(
+    (task) => task.series_id === seriesId && task.completed_at == null,
+  );
+  if (members.length === 0) return tasks;
+
+  const sample = members.find((task) => parseRecurring(task.recurring) != null) ?? members[0];
+  const schedule = parseRecurring(sample.recurring);
+  if (!schedule) return tasks;
+
+  const dated = members
+    .map((task) => task.date)
+    .filter((date): date is string => date != null)
+    .sort();
+  const latestKey = dated[dated.length - 1] ?? null;
+  const existingDates = new Set(dated);
+
+  let seedKey = fromDateKey ?? latestKey;
+  if (seedKey == null) return tasks;
+  // Step from the seed (latest open, or completed date) by one interval, then fill.
+  const seedDate = parseTaskDate(seedKey);
+  if (seedDate == null) return tasks;
+  let cursor = addRecurringInterval(seedDate, schedule);
+  // If we already have the seed as an open member and are topping from latest,
+  // start after latest (cursor already one step past seed).
+  const additions: ComposerDraft[] = [];
+  const through = toStartOfDay(throughDate);
+  let guard = 0;
+  while (cursor.getTime() <= through.getTime() && guard < RECURRING_MATERIALIZE_MAX_OCCURRENCES) {
+    const key = dayKey(cursor);
+    if (!existingDates.has(key)) {
+      additions.push({
+        ...sample,
+        id: crypto.randomUUID(),
+        series_id: seriesId,
+        date: key,
+        recurring: formatRecurring(schedule.count, schedule.unit),
+        completed_at: null,
+        created_at: new Date().toISOString(),
+      });
+      existingDates.add(key);
+    }
+    cursor = addRecurringInterval(cursor, schedule);
+    guard += 1;
+  }
+  if (additions.length === 0) return tasks;
+  return [...additions, ...tasks];
+}
+
+/** Remove open series members on/after `fromDateKey` except `keepId`. */
+export function removeFutureSeriesMembers(
+  tasks: ComposerDraft[],
+  seriesId: string,
+  fromDateKey: string,
+  keepId: string | null,
+): ComposerDraft[] {
+  return tasks.filter((task) => {
+    if (task.series_id !== seriesId) return true;
+    if (keepId != null && task.id === keepId) return true;
+    const date = task.date;
+    if (date == null) return true;
+    // Drop other members on or after the edit anchor.
+    return date < fromDateKey;
+  });
+}
+
+/**
+ * Complete one occurrence: drop it; top up the series. If it was the last
+ * open member (or had no series), fall back to spawning the next occurrence.
+ */
+export function completeRecurringOccurrence(
+  tasks: ComposerDraft[],
+  completed: ComposerDraft,
+  now: Date = new Date(),
+): ComposerDraft[] {
+  const without = tasks.filter((task) => task.id !== completed.id);
+  const seriesId = completed.series_id;
+  const schedule = parseRecurring(completed.recurring);
+  const through = recurringHorizonEnd(now);
+
+  if (seriesId == null || schedule == null) {
+    const next = buildNextRecurringTask(completed, now);
+    return next ? [next, ...without] : without;
+  }
+
+  const siblings = without.filter(
+    (task) => task.series_id === seriesId && task.completed_at == null,
+  );
+  if (siblings.length === 0) {
+    const next = buildNextRecurringTask(completed, now);
+    if (!next) return without;
+    // Rematerialize a full horizon from the next date.
+    const seeded = { ...next, series_id: seriesId };
+    const rest = materializeRecurringSeries(seeded, schedule, through, {
+      seriesId,
+      includeAnchor: false,
+    });
+    return [seeded, ...rest, ...without];
+  }
+
+  return topUpRecurringSeries(without, seriesId, through, completed.date);
 }
