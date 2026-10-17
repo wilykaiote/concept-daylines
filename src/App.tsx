@@ -38,7 +38,6 @@ import {
   formatRecurring,
   formatRecurringSchedule,
   materializeRecurringSeries,
-  MAX_MONTH_DAY,
   MIN_MONTH_DAY,
   normalizeWeekdays,
   parseRecurring,
