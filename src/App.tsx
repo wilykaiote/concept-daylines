@@ -1962,16 +1962,25 @@ function App() {
   const [forcedOverflowIds, setForcedOverflowIds] = useState<Set<string>>(() => new Set());
   type TimelineNotice = {
     id: string;
-    kind: "overflow" | "recovered" | "at-risk";
+    kind: "overflow" | "recovered" | "at-risk" | "deferred";
     count: number;
     /** Epoch ms — oldest first in the list, newest at the bottom. */
     at: number;
+    /** Destination day for deferred notices. */
+    dayKey?: string;
+    /** Tasks moved in a deferred notice (scroll targets first id). */
+    taskIds?: string[];
   };
   const [timelineNotices, setTimelineNotices] = useState<TimelineNotice[]>([]);
   const prevOverflowIdsRef = useRef<Set<string> | null>(null);
   const prevAtRiskIdRef = useRef<string | null | undefined>(undefined);
   /** Undated ids released by Automatic this calendar day — baseline merge must not re-add. */
   const autoReleasedBaselineIdsRef = useRef<{ dayKey: string; ids: Set<string> }>({
+    dayKey: "",
+    ids: new Set(),
+  });
+  /** Undated softs already notified as deferred for this calendar day (no date write). */
+  const deferredNoticeIdsRef = useRef<{ dayKey: string; ids: Set<string> }>({
     dayKey: "",
     ids: new Set(),
   });
@@ -2297,7 +2306,7 @@ function App() {
   };
   const overflowForDay = (dayLayout: (typeof calendarTaskLayout)[number] | undefined) => {
     const dayOverdue = dayLayout?.overdueTasks ?? [];
-    const dayDeferred = dayLayout?.deferredTasks ?? [];
+    // Overflow is dated/timed misses only — undated softs defer to future days.
     const layoutOverdueIds = new Set(
       dayOverdue.map((task) => task.id).filter((id): id is string => id != null),
     );
@@ -2310,11 +2319,10 @@ function App() {
           ),
         ]
       : dayOverdue;
-    const deferred = dayDeferred;
     const overdueIdSet = new Set(
       overdue.map((task) => task.id).filter((id): id is string => id != null),
     );
-    const rows = [...overdue, ...deferred]
+    const rows = [...overdue]
       .sort(compareOverflowTimelineOrder)
       .map((task) => ({
         task,
@@ -2324,7 +2332,7 @@ function App() {
       rows,
       tasks: rows.map((row) => row.task),
       count: rows.length,
-      deferOnly: overdue.length === 0 && deferred.length > 0,
+      deferOnly: false,
     };
   };
   const todayOverflow = overflowForDay(todayLayoutForOverflow);
@@ -4814,6 +4822,29 @@ function App() {
     setTimelineNotices((current) => current.filter((notice) => notice.id !== noticeId));
   };
 
+  const deferredNoticeDayLabel = (key: string) => {
+    const date = parseTaskDate(key);
+    if (!date) return key;
+    const today = toStartOfDay(new Date(countdownNow));
+    if (sameCalendarDay(date, today)) return "Today";
+    if (sameCalendarDay(date, addDays(today, 1))) return "Tomorrow";
+    return formatTwinelineDateLabel(date, new Date(countdownNow));
+  };
+
+  const openDeferredNoticeTarget = (notice: TimelineNotice) => {
+    const targetDay = notice.dayKey != null ? parseTaskDate(notice.dayKey) : null;
+    const taskId = notice.taskIds?.[0] ?? null;
+    if (targetDay != null) {
+      selectDayFromUi(targetDay);
+      scrollTimelineToDay(targetDay, "smooth");
+    }
+    if (taskId != null) {
+      window.setTimeout(() => {
+        scrollTaskIntoView(taskId, "smooth");
+      }, targetDay != null ? 120 : 0);
+    }
+  };
+
   const renderTimelineNotices = () => {
     if (timelineNotices.length === 0) return null;
     const orderedNotices = [...timelineNotices].sort((a, b) => a.at - b.at);
@@ -4821,6 +4852,7 @@ function App() {
       <div className="task-day-label-row task-day-overflow-row task-day-notice-row">
         {orderedNotices.map((notice) => {
           const noun = notice.count === 1 ? "task" : "tasks";
+          const verb = notice.count === 1 ? "has" : "have";
           return (
             <div
               key={notice.id}
@@ -4842,6 +4874,19 @@ function App() {
                     {" "}
                     {noun} {notice.count === 1 ? "is" : "are"} currently{" "}
                     <span className="task-overflow-notice-overflow">OVERFLOWING</span>.
+                  </>
+                ) : notice.kind === "deferred" && notice.dayKey != null ? (
+                  <>
+                    {" "}
+                    {noun} {verb} deferred to{" "}
+                    <button
+                      type="button"
+                      className="task-timeline-notice-day-link"
+                      onClick={() => openDeferredNoticeTarget(notice)}
+                    >
+                      {deferredNoticeDayLabel(notice.dayKey)}
+                    </button>
+                    .
                   </>
                 ) : (
                   <> {noun} recovered.</>
@@ -5034,7 +5079,7 @@ function App() {
     const livingIds = new Set(
       tasks.map((task) => task.id).filter((id): id is string => typeof id === "string"),
     );
-    // Baseline only tracks softs the user dated for today — never undated auto-fill.
+    // Baseline tracks dated-today softs and undated softs currently packed on today.
     const datedTodayIds = new Set(
       tasks
         .filter(
@@ -5046,10 +5091,21 @@ function App() {
         )
         .map((task) => task.id as string),
     );
+    const undatedSoftIds = new Set(
+      tasks
+        .filter(
+          (task) =>
+            typeof task.id === "string" &&
+            parseTaskDate(task.date) == null &&
+            parseTimeOfDay(task.starts_at) == null &&
+            parseTimeOfDay(task.due_at) == null,
+        )
+        .map((task) => task.id as string),
+    );
     const todaySoftIds = (todaySoftResidentKey
       ? todaySoftResidentKey.split(",").filter(Boolean)
       : []
-    ).filter((id) => datedTodayIds.has(id));
+    ).filter((id) => datedTodayIds.has(id) || undatedSoftIds.has(id));
 
     if (
       todayWindowBaseline == null ||
@@ -5074,7 +5130,7 @@ function App() {
         (id) =>
           livingIds.has(id) &&
           !released.has(id) &&
-          datedTodayIds.has(id),
+          (datedTodayIds.has(id) || undatedSoftIds.has(id)),
       ),
     );
     let changed = merged.size !== todayWindowBaseline.taskIds.length;
@@ -5097,6 +5153,71 @@ function App() {
     todaySoftResidentKey,
     tasks,
     todayWindowBaseline,
+  ]);
+
+  // After day started: undated softs that left today's window → notice only (stay undated).
+  useEffect(() => {
+    if (nowMinutes < todayWindowStartMinutes) return;
+    if (todayWindowBaseline == null || todayWindowBaseline.dayKey !== todayKeyStr) return;
+    if (deferredNoticeIdsRef.current.dayKey !== todayKeyStr) {
+      deferredNoticeIdsRef.current = { dayKey: todayKeyStr, ids: new Set() };
+    }
+    const notified = deferredNoticeIdsRef.current.ids;
+    const baselineIds = new Set(todayWindowBaseline.taskIds);
+    if (baselineIds.size === 0) return;
+
+    const packDayByTaskId = new Map<string, string>();
+    for (const day of calendarTaskLayout) {
+      for (const block of day.blocks) {
+        const id = block.taskId ?? block.task.id;
+        if (id == null || packDayByTaskId.has(id)) continue;
+        packDayByTaskId.set(id, day.dayKey);
+      }
+    }
+
+    const byDay = new Map<string, string[]>();
+    for (const task of tasks) {
+      const id = task.id;
+      if (id == null || !baselineIds.has(id) || notified.has(id)) continue;
+      if (todaySoftResidentIds.has(id)) continue;
+      if (parseTaskDate(task.date) != null) continue;
+      if (
+        parseTimeOfDay(task.starts_at) != null ||
+        parseTimeOfDay(task.due_at) != null
+      ) {
+        continue;
+      }
+      const packDay = packDayByTaskId.get(id);
+      if (packDay == null || packDay === todayKeyStr) continue;
+      const list = byDay.get(packDay) ?? [];
+      list.push(id);
+      byDay.set(packDay, list);
+    }
+    if (byDay.size === 0) return;
+
+    for (const ids of byDay.values()) {
+      for (const id of ids) notified.add(id);
+    }
+    const at = Date.now();
+    setTimelineNotices((current) => [
+      ...current,
+      ...[...byDay.entries()].map(([toDayKey, taskIds]) => ({
+        id: `deferred-${toDayKey}-${at}-${taskIds[0]}`,
+        kind: "deferred" as const,
+        count: taskIds.length,
+        at,
+        dayKey: toDayKey,
+        taskIds,
+      })),
+    ]);
+  }, [
+    nowMinutes,
+    todayWindowStartMinutes,
+    todayWindowBaseline,
+    todayKeyStr,
+    todaySoftResidentIds,
+    tasks,
+    calendarTaskLayout,
   ]);
 
   // Persist frozen soft-pack geometry for today (invalidates with day / window).
@@ -7335,6 +7456,16 @@ function App() {
               composeKind === "item" ||
               composeKind === "event") && (
               <div className="app-composer-focus-controls">
+                <button
+                  type="button"
+                  className="app-composer-pivot-btn"
+                  aria-label="Pivot"
+                  tabIndex={collapsed ? -1 : 0}
+                  onClick={() => runAutomaticOverflowReschedule(todayKeyStr)}
+                >
+                  <IntelligenceIcon />
+                  Pivot
+                </button>
                 {renderCurrentFocusControls(
                   editingTaskId != null ? content : null,
                 )}

@@ -9,8 +9,9 @@
   --accent-bg: rgba(170, 59, 255, 0.1);
   --accent-border: rgba(170, 59, 255, 0.5);
   --danger: #c62828;
-  --day-kind-anchored: color-mix(in srgb, var(--accent) 72%, var(--bg-raised));
-  --day-kind-soft: color-mix(in srgb, #3b82f6 40%, var(--bg-raised));
+  /* Dated / anchored = red; undated / soft = purple. */
+  --day-kind-anchored: color-mix(in srgb, var(--danger) 88%, var(--bg-raised));
+  --day-kind-soft: color-mix(in srgb, var(--accent) 78%, var(--bg-raised));
   --day-kind-overdue: color-mix(in srgb, var(--danger) 78%, var(--bg-raised));
   --day-elapsed: #000;
   --day-wheel-remaining: #1a1a1e;

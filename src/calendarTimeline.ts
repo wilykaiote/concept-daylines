@@ -53,7 +53,7 @@ export type CalendarDayLayout = {
   hourMarkers: Array<{ hour: number; label: string; topPx: number }>;
   /** Dated tasks that need rescheduling for this day (Overflow → Rescheduling). */
   overdueTasks: ComposerDraft[];
-  /** Undated softs that no longer fit (Overflow → Deferring). Today only. */
+  /** Legacy bucket; undated softs no longer fill this (they pack forward or defer with a date). */
   deferredTasks: ComposerDraft[];
 };
 
@@ -485,12 +485,11 @@ function packSoftTasks(
 
   const todayStart = toStartOfDay(now);
   const throughCap = layoutThrough != null ? toStartOfDay(layoutThrough) : null;
-  const tomorrowKey = dayKey(addDays(todayStart, 1));
   let day = todayStart;
   let guard = 0;
   const gap = Math.max(0, gapMinutes);
-  /** After leaving today, undated may pack on tomorrow+. */
-  let undatedMayPack = false;
+  // deferredByDay kept for API compat; undated no longer spill into Overflow/Deferring.
+  void deferredByDay;
 
   const hasRemaining = () =>
     undatedQueue.length > 0 ||
@@ -507,7 +506,7 @@ function packSoftTasks(
   while (hasRemaining() && guard < 1000) {
     guard += 1;
     if (throughCap != null && day.getTime() > throughCap.getTime()) {
-      // Past layout cap — spill leftovers onto the last packed day / tomorrow defer.
+      // Past layout cap — date-only leftovers → Overflow; undated stay undated.
       const spillKey = dayKey(throughCap);
       for (const [key, list] of dateOnlyQueues) {
         while (list.length > 0) {
@@ -518,13 +517,11 @@ function packSoftTasks(
       break;
     }
     const key = dayKey(day);
-    const isToday = day.getTime() === todayStart.getTime();
     const packEnd = getPackEnd(day);
     const windowStart = getWindowStart(day);
     const packStart = softPackStartForDay(day, now, packEnd, windowStart);
     if (packStart >= packEnd) {
       drainDateOnlyToOverdue(key);
-      if (isToday) undatedMayPack = true;
       day = addDays(day, 1);
       continue;
     }
@@ -538,7 +535,6 @@ function packSoftTasks(
     let free = freeIntervals(packStart, packEnd, occupied);
     if (free.length === 0) {
       drainDateOnlyToOverdue(key);
-      if (isToday) undatedMayPack = true;
       day = addDays(day, 1);
       continue;
     }
@@ -563,19 +559,15 @@ function packSoftTasks(
     }
     dateOnlyQueues.set(key, sameDayQueue);
 
-    // Priority 2: undated softs — never auto-fill today; pack from tomorrow+.
-    if (isToday) {
-      undatedMayPack = true;
-    } else if (undatedMayPack) {
-      while (undatedQueue.length > 0) {
-        const task = undatedQueue[0];
-        const minutes = taskDurationMinutes(task);
-        const range = firstFitRange(free, minutes);
-        if (!range) break;
-        undatedQueue.shift();
-        pushBlock(byDay, day, task, range.start, range.end, 0, false);
-        free = consumeFreeWithGap(free, range, gap);
-      }
+    // Priority 2: undated softs — fill today free time, then first-fit tomorrow+.
+    while (undatedQueue.length > 0) {
+      const task = undatedQueue[0];
+      const minutes = taskDurationMinutes(task);
+      const range = firstFitRange(free, minutes);
+      if (!range) break;
+      undatedQueue.shift();
+      pushBlock(byDay, day, task, range.start, range.end, 0, false);
+      free = consumeFreeWithGap(free, range, gap);
     }
 
     day = addDays(day, 1);
@@ -588,10 +580,7 @@ function packSoftTasks(
     }
     dateOnlyQueues.set(key, list);
   }
-  // Unplaced undated → Deferring under tomorrow (never auto-add to today).
-  while (undatedQueue.length > 0) {
-    pushDayOverflow(deferredByDay, tomorrowKey, undatedQueue.shift()!);
-  }
+  // Unplaced undated stay undated (no Overflow / Deferring bucket).
 }
 
 function sortOverdueTasks(tasks: ComposerDraft[]): ComposerDraft[] {
@@ -890,7 +879,7 @@ export type CalendarTasksLayout = {
   days: CalendarDayLayout[];
   /** Flattened dated/timed overflow across days (Overflow → Rescheduling). */
   overdueTasks: ComposerDraft[];
-  /** Today-only undated softs that no longer fit (Overflow → Deferring). */
+  /** Legacy flat deferred list; kept empty for undated (dated Overflow only). */
   deferredTasks: ComposerDraft[];
   /** Soft placements on today after this pack (for persistence / freeze). */
   todaySoftPlacements: SoftPackPlacement[];
@@ -1218,11 +1207,7 @@ export function layoutCalendarTasks(
       }
       continue;
     }
-    // Unplaced undated soft → Deferring under tomorrow (never auto-add to today).
-    if (kind === "undated") {
-      pushDayOverflow(deferredByDay, dayKey(addDays(todayStart, 1)), task);
-      deferredIds.add(task.id);
-    }
+    // Unplaced undated softs stay undated (no Overflow).
   }
 
   // Fold any pre-today overdue keys into today (timeline starts at today).

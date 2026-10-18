@@ -1675,9 +1675,10 @@
   padding: 0;
   border: 0 solid transparent;
   border-radius: 2px;
-  background: var(--bg-raised);
+  /* Match unused timeline track grey; kind shows via --schedule-block-edge. */
+  background: color-mix(in srgb, var(--border) 88%, var(--text));
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--schedule-block-edge) 28%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--schedule-block-edge) 42%, transparent),
     0 0 0 2px color-mix(in srgb, var(--bg) 70%, transparent);
   cursor: pointer;
   isolation: isolate;
@@ -1709,12 +1710,14 @@
   );
 }
 
-/* Kind colors only tint the border/shadow until the block is fully past. */
+/* Kind colors fill the chip; edge is a slightly darker shade of the same hue. */
 .twineline-schedule-block.is-anchored {
+  background: var(--day-kind-anchored);
   --schedule-block-edge: color-mix(in srgb, var(--day-kind-anchored) 55%, #000);
 }
 
 .twineline-schedule-block.is-soft {
+  background: var(--day-kind-soft);
   --schedule-block-edge: color-mix(in srgb, var(--day-kind-soft) 55%, #000);
 }
 
@@ -1964,10 +1967,40 @@
   background: color-mix(in srgb, var(--accent, #6f4bb8) 8%, var(--bg-raised));
 }
 
+.task-timeline-notice.is-deferred {
+  border-left-color: color-mix(in srgb, #22a06b 70%, var(--border));
+  background: color-mix(in srgb, #22a06b 8%, var(--bg-raised));
+}
+
 .task-timeline-notice.is-defer-only {
   border-left-color: color-mix(in srgb, var(--text) 22%, var(--border));
   background: color-mix(in srgb, var(--bg-raised) 92%, var(--text) 3%);
   color: var(--text);
+}
+
+.task-timeline-notice-day-link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-h);
+  font: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.task-timeline-notice-day-link:hover,
+.task-timeline-notice-day-link:focus-visible {
+  color: #1f7a52;
+}
+
+.task-timeline-notice-day-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .task-timeline-notice-body {
@@ -4566,8 +4599,9 @@
 
 .app-composer-focus-controls {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 2px 40px 6px 8px;
   box-sizing: border-box;
@@ -4579,11 +4613,49 @@
   color: var(--text);
 }
 
+.app-composer-focus-controls .task-current-focus-controls {
+  margin-left: auto;
+}
+
+.app-composer-pivot-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 0;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, #22a06b 55%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, #22a06b 14%, var(--bg-raised));
+  color: #1f7a52;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-composer-pivot-btn:hover,
+.app-composer-pivot-btn:focus-visible {
+  background: color-mix(in srgb, #22a06b 22%, var(--bg-raised));
+}
+
+.app-composer-pivot-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.app-composer-pivot-btn:active {
+  transform: translateY(0.5px);
+}
+
 /* Beat .app-composer svg { 24px } so these match Current focus (16px). */
 .app-composer .app-composer-focus-controls .task-current-focus-tool svg,
-.app-composer .app-composer-focus-controls .task-row-focus-lock svg {
+.app-composer .app-composer-focus-controls .task-row-focus-lock svg,
+.app-composer .app-composer-focus-controls .app-composer-pivot-btn svg {
   width: 16px;
   height: 16px;
+  display: block;
+  flex-shrink: 0;
 }
 
 @media (prefers-color-scheme: dark) {
