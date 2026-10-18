@@ -1540,6 +1540,46 @@
   color: #fff;
 }
 
+.task-delete-prompt {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.task-delete-prompt-scrim {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: color-mix(in srgb, #000 35%, transparent);
+  cursor: pointer;
+}
+
+.task-delete-prompt-panel {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 320px);
+  margin: 0;
+  box-shadow: var(--shadow);
+}
+
+.task-delete-prompt-body {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.task-delete-prompt.is-danger .twineline-save-prompt-primary {
+  background: #c23b22;
+}
+
 .twineline-schedule {
   width: 100%;
   display: flex;
@@ -1925,8 +1965,48 @@
   padding-top: 12px;
 }
 
+/* Match .task-timeline-notice.is-overflow chrome for the overflow toggle row. */
 .task-day-overflow-row:not(.task-day-notice-row) {
-  padding-top: 0;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent, #6f4bb8) 55%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent, #6f4bb8) 8%, var(--bg-raised));
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent);
+}
+
+.task-day-overflow-row:not(.task-day-notice-row):has(.task-overdue-toggle.is-defer-only) {
+  border-left-color: color-mix(in srgb, var(--text) 22%, var(--border));
+  background: color-mix(in srgb, var(--bg-raised) 92%, var(--text) 3%);
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent);
+}
+
+.task-day-overflow-row:not(.task-day-notice-row) .task-overdue-toggle-action,
+.task-day-overflow-row:not(.task-day-notice-row) .task-overdue-toggle:hover .task-overdue-toggle-action,
+.task-day-overflow-row:not(.task-day-notice-row) .task-overdue-toggle:focus-visible .task-overdue-toggle-action,
+.task-day-overflow-row:not(.task-day-notice-row) .task-overdue-toggle.is-open .task-overdue-toggle-action,
+.task-day-overflow-row:not(.task-day-notice-row) .task-overdue-toggle.is-defer-only .task-overdue-toggle-action,
+.task-day-overflow-row:not(.task-day-notice-row)
+  .task-overdue-toggle.is-defer-only:hover
+  .task-overdue-toggle-action,
+.task-day-overflow-row:not(.task-day-notice-row)
+  .task-overdue-toggle.is-defer-only.is-open
+  .task-overdue-toggle-action {
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.task-day-overflow-row:not(.task-day-notice-row) .task-overdue-toggle:focus-visible .task-overdue-toggle-action {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 .task-day-overflow-row .task-overdue-toggle {
@@ -2141,7 +2221,7 @@
 .task-day-label-row .task-overdue-toggle-action {
   width: 100%;
   box-sizing: border-box;
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .task-overdue-toggle {
@@ -2731,7 +2811,8 @@
 }
 
 .task-row.has-countdown {
-  overflow: hidden;
+  /* Keep visible so the corner delete control isn't clipped. */
+  overflow: visible;
 }
 
 .task-row-countdown {
@@ -2901,12 +2982,6 @@
   margin-top: 2px;
   width: 18px;
   height: 18px;
-}
-
-/* Overflow bin: complete ring uses overtaken/day-sky accent. */
-.task-overdue-tasks .task-complete.is-soft,
-.task-overdue-tasks .task-complete.is-anchored {
-  border-color: var(--accent);
 }
 
 .task-overdue-tasks .task-complete.is-checked {
@@ -3773,6 +3848,15 @@
   margin: 0;
   font-size: 0.88rem;
   color: var(--text);
+}
+
+.typed-kind-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .named-empty {
@@ -4768,17 +4852,49 @@
   margin-left: auto;
 }
 
+.app-composer-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.app-composer-delete-btn:hover,
+.app-composer-delete-btn:focus-visible {
+  color: var(--text-h);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.app-composer-delete-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.app-composer-delete-btn:active {
+  transform: translateY(0.5px);
+}
+
 .app-composer-pivot-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-left: 0;
+  margin-left: 4px;
   min-height: 28px;
   padding: 0 12px;
-  border: 1px solid color-mix(in srgb, #22a06b 55%, var(--border));
+  border: none;
   border-radius: 999px;
-  background: color-mix(in srgb, #22a06b 14%, var(--bg-raised));
-  color: #1f7a52;
+  background: transparent;
+  color: var(--text);
   font: inherit;
   font-size: 0.85rem;
   font-weight: 600;
@@ -4787,7 +4903,18 @@
 
 .app-composer-pivot-btn:hover,
 .app-composer-pivot-btn:focus-visible {
-  background: color-mix(in srgb, #22a06b 22%, var(--bg-raised));
+  color: var(--text-h);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.app-composer-pivot-btn.is-ready {
+  color: #1f7a52;
+}
+
+.app-composer-pivot-btn.is-ready:hover,
+.app-composer-pivot-btn.is-ready:focus-visible {
+  color: #1a6b47;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
 .app-composer-pivot-btn:focus-visible {

@@ -16,6 +16,9 @@ import { SettingsView } from "./SettingsView";
 import { CollectionsView } from "./CollectionsView";
 import { PlansView } from "./PlansView";
 import { ListsView } from "./ListsView";
+import { NotebooksView } from "./NotebooksView";
+import { CalendarsView } from "./CalendarsView";
+import { TypedKindView } from "./TypedKindView";
 import { DayScheduleTrack } from "./DayScheduleTrack";
 import { type DayWheelSlice } from "./DayWheelChart";
 import { daySkyColorAtMinutes } from "./daySky";
@@ -1202,11 +1205,15 @@ const MAIN_SWIPE_MAX_SLOPE = 0.75;
 const MORE_OPTIONS = [
   { id: "tasks", label: "Tasks", Icon: TasksListIcon },
   { id: "lists", label: "Lists", Icon: MenuBarsIcon },
+  { id: "events", label: "Events", Icon: EventIcon },
+  { id: "items", label: "Items", Icon: ListItemIcon },
+  { id: "notebooks", label: "Notebooks", Icon: NotebookIcon },
+  { id: "calendars", label: "Calendars", Icon: CalendarIcon },
   { id: "groceries", label: "Groceries", Icon: FoodIcon },
   { id: "nutrition", label: "Nutrition", Icon: AppleIcon },
   { id: "fitness", label: "Fitness", Icon: FitnessIcon },
   { id: "recipes", label: "Recipes", Icon: RecipeIcon },
-  { id: "logs", label: "Logs", Icon: LogIcon },
+  { id: "logs", label: "Entries", Icon: LogIcon },
   { id: "profile", label: "Profile", Icon: ProfileIcon },
   { id: "settings", label: "Settings", Icon: SettingsIcon },
 ] as const;
@@ -1217,16 +1224,16 @@ const TEND_MENU_LISTS = { id: "lists", label: "Lists", Icon: MenuBarsIcon } as c
 const TEND_MENU_TASKS = { id: "tasks", label: "Tasks", Icon: TasksListIcon } as const;
 /** Left column (compose layout): Calendars · Notebooks · Lists · Plans. */
 const TEND_MENU_LEFT = [
-  { id: "calendar", label: "Calendars", Icon: CalendarIcon, view: null },
-  { id: "notebook", label: "Notebooks", Icon: NotebookIcon, view: null },
+  { id: "calendar", label: "Calendars", Icon: CalendarIcon, view: "calendars" as const },
+  { id: "notebook", label: "Notebooks", Icon: NotebookIcon, view: "notebooks" as const },
   { id: "lists", label: "Lists", Icon: MenuBarsIcon, view: "lists" as const },
   { id: "plans", label: "Plans", Icon: PlansIcon, view: "plans" as const },
 ] as const;
 /** Right column (compose layout): Events · Notes · Items · Tasks. */
 const TEND_MENU_RIGHT = [
-  { id: "event", label: "Events", Icon: EventIcon, view: null },
+  { id: "event", label: "Events", Icon: EventIcon, view: "events" as const },
   { id: "notes", label: "Notes", Icon: NotesIcon, view: "notes" as const },
-  { id: "item", label: "Items", Icon: ListItemIcon, view: null },
+  { id: "item", label: "Items", Icon: ListItemIcon, view: "items" as const },
   { id: "tasks", label: "Tasks", Icon: TasksListIcon, view: "tasks" as const },
 ] as const;
 const TEND_MENU_ITEMS = [
@@ -1549,6 +1556,10 @@ const COMPOSE_KIND_BY_VIEW: Record<ActiveView, ComposeKind> = {
   plans: "plan",
   lists: "list",
   collections: "collection",
+  events: "event",
+  items: "item",
+  notebooks: "notebook",
+  calendars: "calendar",
   groceries: "item",
   nutrition: "item",
   fitness: "task",
@@ -1832,6 +1843,10 @@ function App() {
   });
   const [collections, setCollections] = useState<ComposerDraft[]>(() => loadCollections());
   const [poppingTaskIds, setPoppingTaskIds] = useState<string[]>([]);
+  const [deletePrompt, setDeletePrompt] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const editingTaskIdRef = useRef<string | null>(null);
   editingTaskIdRef.current = editingTaskId;
@@ -1855,6 +1870,8 @@ function App() {
   const editTaskBaselineRef = useRef(editTaskBaseline);
   editTaskBaselineRef.current = editTaskBaseline;
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
+  const [overflowReschedulePromptDayKey, setOverflowReschedulePromptDayKey] =
+    useState<string | null>(null);
   const [recurringSchedulePromptOpen, setRecurringSchedulePromptOpen] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [focusedOverflowTaskIds, setFocusedOverflowTaskIds] = useState<string[] | null>(null);
@@ -2115,7 +2132,14 @@ function App() {
   const FabComposeIcon = fabComposeKind.Icon;
 
   const DaylineIcon = DAYLINE_TAB.Icon;
-  const moreMenuViewIds = new Set<ActiveView>(TEND_MENU_ITEMS.map((item) => item.id));
+  const moreMenuViewIds = new Set<ActiveView>([
+    ...TEND_MENU_ITEMS.map((item) => item.id),
+    "events",
+    "items",
+    "notebooks",
+    "calendars",
+    "logs",
+  ]);
   const moreMenuViewSelected = moreMenuViewIds.has(activeView);
   const moreButtonActive = moreMenuOpen || moreMenuViewSelected;
   const todayStart = toStartOfDay(new Date(countdownNow));
@@ -3733,6 +3757,43 @@ function App() {
     }, TASK_POP_MS);
   };
 
+  const requestDeleteTask = (id: string | null) => {
+    if (!id) return;
+    const target =
+      tasks.find((task) => task.id === id) ??
+      collections.find((collection) => collection.id === id);
+    const title = target?.title?.trim() || "this";
+    setDeletePrompt({ id, title });
+  };
+
+  const cancelDeletePrompt = () => setDeletePrompt(null);
+
+  const confirmDeleteTask = () => {
+    const id = deletePrompt?.id;
+    if (id == null) return;
+    setDeletePrompt(null);
+    setTasks((current) => current.filter((task) => task.id !== id));
+    setCollections((current) =>
+      current.filter((collection) => collection.id !== id),
+    );
+    if (editingTaskId === id) {
+      resetComposerFields();
+      setCollapsed(true);
+    }
+    if (focusedTaskId === id) setFocusedTaskId(null);
+    if (focusedOverflowTaskIds?.includes(id)) {
+      setFocusedOverflowTaskIds((ids) => {
+        if (!ids) return null;
+        const next = ids.filter((taskId) => taskId !== id);
+        return next.length > 0 ? next : null;
+      });
+    }
+    if (currentFocus?.taskId === id) {
+      setCurrentFocus(null);
+      clearCurrentFocusStorage();
+    }
+  };
+
   const isTaskPopping = (id: string | null | undefined) =>
     id != null && poppingTaskIds.includes(id);
 
@@ -4347,6 +4408,16 @@ function App() {
       openOverflowForActiveView();
     }
     resetComposerFields();
+  };
+
+  /** Save from the leave-composer prompt — edit update or create, then close. */
+  const confirmComposerSavePrompt = () => {
+    if (editingTaskIdRef.current != null) {
+      saveComposerChanges();
+      return;
+    }
+    submitCreate();
+    finishComposerSaveSession();
   };
 
   const syncDurationInput = (minutes: number | null, unit: "minutes" | "hours" = durationUnit) => {
@@ -4974,13 +5045,13 @@ function App() {
               </span>
             </span>
           </button>
-          {isToday && (
+          {isToday && sectionOpen && (
             <button
               type="button"
               className="task-current-focus-reschedule-btn is-automatic task-overflow-pivot-btn"
-              onClick={() => runAutomaticOverflowReschedule(dayLayout.dayKey)}
+              onClick={() => setOverflowReschedulePromptDayKey(dayLayout.dayKey)}
             >
-              Pivot
+              Reschedule All
             </button>
           )}
         </div>
@@ -6040,6 +6111,8 @@ function App() {
       if (linkQaScheduleMenuRef.current?.contains(target)) return;
       if (linkQaImpactMenuRef.current?.contains(target)) return;
       if (linkQaUrgencyMenuRef.current?.contains(target)) return;
+      // Portaled confirm dialogs live on document.body — don't treat as outside.
+      if (target instanceof Element && target.closest(".task-delete-prompt")) return;
 
       // Native date/time pickers render outside the popover; keep Date & Time open
       // while those inputs are focused so the selection can commit.
@@ -6400,6 +6473,147 @@ function App() {
 
   return (
     <div className="app">
+      {deletePrompt != null &&
+        createPortal(
+          <div className="task-delete-prompt is-danger" role="presentation">
+            <button
+              type="button"
+              className="task-delete-prompt-scrim"
+              aria-label="Cancel delete"
+              onClick={cancelDeletePrompt}
+            />
+            <div
+              className="task-delete-prompt-panel twineline-save-prompt"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Delete confirmation"
+            >
+              <button
+                type="button"
+                className="twineline-save-prompt-dismiss"
+                onClick={cancelDeletePrompt}
+                aria-label="Cancel delete"
+              >
+                <CloseIcon />
+              </button>
+              <p className="twineline-save-prompt-title">
+                Delete “{deletePrompt.title}”?
+              </p>
+              <p className="task-delete-prompt-body">This cannot be undone.</p>
+              <div className="twineline-save-prompt-actions">
+                <button
+                  type="button"
+                  className="twineline-save-prompt-secondary"
+                  onClick={cancelDeletePrompt}
+                >
+                  Don&apos;t delete
+                </button>
+                <button
+                  type="button"
+                  className="twineline-save-prompt-primary"
+                  onClick={confirmDeleteTask}
+                >
+                  Yes, delete
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      {composerSavePromptOpen &&
+        createPortal(
+          <div className="task-delete-prompt" role="presentation">
+            <button
+              type="button"
+              className="task-delete-prompt-scrim"
+              aria-label="Cancel and keep editing"
+              onClick={() => setComposerSavePromptOpen(false)}
+            />
+            <div
+              className="task-delete-prompt-panel twineline-save-prompt"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Save Changes?"
+            >
+              <button
+                type="button"
+                className="twineline-save-prompt-dismiss"
+                onClick={() => setComposerSavePromptOpen(false)}
+                aria-label="Cancel and keep editing"
+              >
+                <CloseIcon />
+              </button>
+              <p className="twineline-save-prompt-title">Save Changes?</p>
+              <div className="twineline-save-prompt-actions">
+                <button
+                  type="button"
+                  className="twineline-save-prompt-secondary"
+                  onClick={discardComposerChanges}
+                >
+                  No Thanks
+                </button>
+                <button
+                  type="button"
+                  className="twineline-save-prompt-primary"
+                  onClick={confirmComposerSavePrompt}
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      {overflowReschedulePromptDayKey != null &&
+        createPortal(
+          <div className="task-delete-prompt" role="presentation">
+            <button
+              type="button"
+              className="task-delete-prompt-scrim"
+              aria-label="Cancel reschedule"
+              onClick={() => setOverflowReschedulePromptDayKey(null)}
+            />
+            <div
+              className="task-delete-prompt-panel twineline-save-prompt"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Reschedule all overflow tasks?"
+            >
+              <button
+                type="button"
+                className="twineline-save-prompt-dismiss"
+                onClick={() => setOverflowReschedulePromptDayKey(null)}
+                aria-label="Cancel reschedule"
+              >
+                <CloseIcon />
+              </button>
+              <p className="twineline-save-prompt-title">
+                Automatically reschedule all overflow tasks?
+              </p>
+              <div className="twineline-save-prompt-actions">
+                <button
+                  type="button"
+                  className="twineline-save-prompt-secondary"
+                  onClick={() => setOverflowReschedulePromptDayKey(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="twineline-save-prompt-primary"
+                  onClick={() => {
+                    const dayKeyToReschedule = overflowReschedulePromptDayKey;
+                    setOverflowReschedulePromptDayKey(null);
+                    runAutomaticOverflowReschedule(dayKeyToReschedule);
+                  }}
+                >
+                  Reschedule All
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
       {timelineMenuOpen &&
         createPortal(
           <div className="profile-drawer" role="presentation">
@@ -6802,6 +7016,135 @@ function App() {
             )}
           />
         )}
+        {activeView === "notebooks" && (
+          <NotebooksView
+            notebooks={tasks.filter((task) => task.type === "notebook")}
+            tasks={tasks}
+            onEditNotebook={(notebook) => {
+              setFocusedOverflowTaskIds(null);
+              setFocusedTaskId(null);
+              editTask(notebook);
+            }}
+            renderChild={(task, notebook) => (
+              <CompactTaskRow
+                key={task.id ?? task.title}
+                task={task}
+                overdue={false}
+                editing={editingTaskId === task.id}
+                highlighted={isTaskHighlighted(task.id)}
+                popping={isTaskPopping(task.id)}
+                now={new Date(countdownNow)}
+                parentTitle={notebook.title}
+                onComplete={() => requestCompleteTask(task.id)}
+                onEdit={() => {
+                  if (task.id) {
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                  }
+                  editTask(task);
+                }}
+                isCurrentFocus={todayFocusTask?.id === task.id}
+              />
+            )}
+          />
+        )}
+        {activeView === "calendars" && (
+          <CalendarsView
+            calendars={tasks.filter((task) => task.type === "calendar")}
+            tasks={tasks}
+            onEditCalendar={(calendar) => {
+              setFocusedOverflowTaskIds(null);
+              setFocusedTaskId(null);
+              editTask(calendar);
+            }}
+            renderChild={(task, calendar) => (
+              <CompactTaskRow
+                key={task.id ?? task.title}
+                task={task}
+                overdue={false}
+                editing={editingTaskId === task.id}
+                highlighted={isTaskHighlighted(task.id)}
+                popping={isTaskPopping(task.id)}
+                now={new Date(countdownNow)}
+                parentTitle={calendar.title}
+                onComplete={() => requestCompleteTask(task.id)}
+                onEdit={() => {
+                  if (task.id) {
+                    setFocusedOverflowTaskIds(null);
+                    setFocusedTaskId(task.id);
+                  }
+                  editTask(task);
+                }}
+                isCurrentFocus={todayFocusTask?.id === task.id}
+              />
+            )}
+          />
+        )}
+        {(activeView === "notes" ||
+          activeView === "tasks" ||
+          activeView === "events" ||
+          activeView === "items" ||
+          activeView === "logs") &&
+          (() => {
+            const kindConfig = {
+              notes: {
+                type: "note" as const,
+                title: "Notes",
+                emptyText: "No notes yet. Name one in the composer.",
+              },
+              tasks: {
+                type: "task" as const,
+                title: "Tasks",
+                emptyText: "No tasks yet. Describe one in the composer.",
+              },
+              events: {
+                type: "event" as const,
+                title: "Events",
+                emptyText: "No events yet. Add one in the composer.",
+              },
+              items: {
+                type: "item" as const,
+                title: "Items",
+                emptyText: "No items yet. Add one in the composer.",
+              },
+              logs: {
+                type: "log" as const,
+                title: "Entries",
+                emptyText: "No entries yet. Log one in the composer.",
+              },
+            }[activeView];
+            const kindItems = tasks
+              .filter((task) => task.type === kindConfig.type)
+              .sort(compareSoftPriority);
+            return (
+              <TypedKindView
+                title={kindConfig.title}
+                emptyText={kindConfig.emptyText}
+                items={kindItems}
+                renderRow={(task) => (
+                  <CompactTaskRow
+                    key={task.id ?? task.title}
+                    task={task}
+                    overdue={false}
+                    editing={editingTaskId === task.id}
+                    highlighted={isTaskHighlighted(task.id)}
+                    popping={isTaskPopping(task.id)}
+                    now={new Date(countdownNow)}
+                    parentTitle={parentTitleFor(task.parent_id)}
+                    onComplete={() => requestCompleteTask(task.id)}
+                    onEdit={() => {
+                      if (task.id) {
+                        setFocusedOverflowTaskIds(null);
+                        setFocusedTaskId(task.id);
+                      }
+                      editTask(task);
+                    }}
+                    isCurrentFocus={todayFocusTask?.id === task.id}
+                  />
+                )}
+              />
+            );
+          })()}
         {activeView === "dayline" && (
           <div className="twineline-chrome" ref={twinelineChromeRef}>
             <div className="twineline-chrome-slot" ref={twinelineSlotRef} aria-hidden="true" />
@@ -6991,6 +7334,13 @@ function App() {
           activeView !== "collections" &&
           activeView !== "plans" &&
           activeView !== "lists" &&
+          activeView !== "notebooks" &&
+          activeView !== "calendars" &&
+          activeView !== "notes" &&
+          activeView !== "tasks" &&
+          activeView !== "events" &&
+          activeView !== "items" &&
+          activeView !== "logs" &&
           (tasks.length === 0 ? (
           <p className="task-list-empty">No tasks yet. Add one below.</p>
         ) : tasksCompact ? (
@@ -7372,9 +7722,9 @@ function App() {
                 <div className="app-compose-kind-menu-column">
                   <button
                     type="button"
-                    className="app-attach-menu-item"
+                    className={`app-attach-menu-item${activeView === "logs" ? " is-selected" : ""}`}
                     role="menuitem"
-                    onClick={() => setMoreMenuOpen(false)}
+                    onClick={() => selectView("logs")}
                   >
                     <LogIcon />
                     <span>Entries</span>
@@ -7515,13 +7865,34 @@ function App() {
             >
               <CloseIcon />
             </button>
-            {(composeKind === "task" ||
-              composeKind === "item" ||
-              composeKind === "event") && (
-              <div className="app-composer-focus-controls">
+            <div className="app-composer-focus-controls">
+              {editingTaskId != null ? (
                 <button
                   type="button"
-                  className="app-composer-pivot-btn"
+                  className="app-composer-delete-btn"
+                  aria-label="Delete"
+                  tabIndex={collapsed ? -1 : 0}
+                  onClick={() => requestDeleteTask(editingTaskId)}
+                >
+                  Delete
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="app-composer-delete-btn"
+                  aria-label="Cancel"
+                  tabIndex={collapsed ? -1 : 0}
+                  onClick={requestCloseComposer}
+                >
+                  Cancel
+                </button>
+              )}
+              {(composeKind === "task" ||
+                composeKind === "item" ||
+                composeKind === "event") && (
+                <button
+                  type="button"
+                  className={`app-composer-pivot-btn${hasText ? " is-ready" : ""}`}
                   aria-label="Pivot"
                   tabIndex={collapsed ? -1 : 0}
                   onClick={() => runAutomaticOverflowReschedule(todayKeyStr)}
@@ -7529,11 +7900,14 @@ function App() {
                   <IntelligenceIcon />
                   Pivot
                 </button>
-                {renderCurrentFocusControls(
+              )}
+              {(composeKind === "task" ||
+                composeKind === "item" ||
+                composeKind === "event") &&
+                renderCurrentFocusControls(
                   editingTaskId != null ? content : null,
                 )}
-              </div>
-            )}
+            </div>
             {showComposerTaskRowChrome ? (
               <div className={`task-row is-${composerScheduleKind} app-composer-task-row`}>
                 <div className="task-row-primary">
@@ -7691,35 +8065,6 @@ function App() {
                   autoComplete="off"
                   tabIndex={collapsed ? -1 : 0}
                 />
-              </div>
-            )}
-            {composerSavePromptOpen && (
-              <div className="twineline-save-prompt" role="dialog" aria-label="Save Changes?">
-                <button
-                  type="button"
-                  className="twineline-save-prompt-dismiss"
-                  onClick={() => setComposerSavePromptOpen(false)}
-                  aria-label="Cancel and keep editing"
-                >
-                  <CloseIcon />
-                </button>
-                <p className="twineline-save-prompt-title">Save Changes?</p>
-                <div className="twineline-save-prompt-actions">
-                  <button
-                    type="button"
-                    className="twineline-save-prompt-secondary"
-                    onClick={discardComposerChanges}
-                  >
-                    No Thanks
-                  </button>
-                  <button
-                    type="button"
-                    className="twineline-save-prompt-primary"
-                    onClick={saveComposerChanges}
-                  >
-                    Save
-                  </button>
-                </div>
               </div>
             )}
             {recurringSchedulePromptOpen && (
