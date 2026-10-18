@@ -209,6 +209,32 @@ export function compareSoftPriority(a: ComposerDraft, b: ComposerDraft): number 
   return idA < idB ? -1 : idA > idB ? 1 : 0;
 }
 
+/** Missing parent for undated soft sort — lowest urgency, zero impact. */
+const EMPTY_SOFT_PRIORITY = {
+  id: "",
+  title: "",
+  urgency: null,
+  impact: null,
+  created_at: null,
+} as ComposerDraft;
+
+function compareUndatedSoftPriority(
+  a: ComposerDraft,
+  b: ComposerDraft,
+  parentById: ReadonlyMap<string, ComposerDraft>,
+): number {
+  const parentA =
+    a.parent_id != null ? parentById.get(a.parent_id) : undefined;
+  const parentB =
+    b.parent_id != null ? parentById.get(b.parent_id) : undefined;
+  const parentDelta = compareSoftPriority(
+    parentA ?? EMPTY_SOFT_PRIORITY,
+    parentB ?? EMPTY_SOFT_PRIORITY,
+  );
+  if (parentDelta !== 0) return parentDelta;
+  return compareSoftPriority(a, b);
+}
+
 type TaskKind = "timed" | "dateOnly" | "undated";
 
 function classifyTask(task: ComposerDraft): TaskKind {
@@ -473,11 +499,14 @@ function packSoftTasks(
   todaySoftBaselineIds: ReadonlySet<string>,
   _frozenPlacements: ReadonlyMap<string, SoftPackPlacement>,
   layoutThrough: Date | null = null,
+  parentById: ReadonlyMap<string, ComposerDraft> = new Map(),
 ) {
   void _frozenPlacements;
   // Baseline no longer soft-fills today; dated-today softs use Overflow instead.
   void todaySoftBaselineIds;
-  const undatedQueue = [...undated].sort(compareSoftPriority);
+  const undatedQueue = [...undated].sort((a, b) =>
+    compareUndatedSoftPriority(a, b, parentById),
+  );
   const dateOnlyQueues = new Map<string, ComposerDraft[]>();
   for (const [key, list] of dateOnlyByDay) {
     dateOnlyQueues.set(key, [...list].sort(compareSoftPriority));
@@ -1150,6 +1179,11 @@ export function layoutCalendarTasks(
     }
   }
 
+  const parentById = new Map<string, ComposerDraft>();
+  for (const task of tasks) {
+    if (task.id != null) parentById.set(task.id, task);
+  }
+
   packSoftTasks(
     byDay,
     dateOnlyByDay,
@@ -1163,6 +1197,7 @@ export function layoutCalendarTasks(
     todaySoftBaselineIds,
     frozenById,
     layoutThrough,
+    parentById,
   );
 
   // Safety: missed/unplaced tasks still belong in the right Overflow bucket.

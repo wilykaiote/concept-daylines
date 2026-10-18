@@ -1,4 +1,4 @@
-import { addDays, dayKey, parseTaskDate } from "./calendarTimeline";
+import { addDays, dayKey, parseTaskDate, parseTimeOfDay } from "./calendarTimeline";
 import { withMetaAuto, type ComposerDraft } from "./composer";
 import { toStartOfDay } from "./taskStorage";
 
@@ -516,4 +516,77 @@ export function completeRecurringOccurrence(
   }
 
   return topUpRecurringSeries(without, seriesId, through, completed.date);
+}
+
+function occurrenceInstantMs(task: ComposerDraft): number | null {
+  const date = parseTaskDate(task.date);
+  if (date == null) return null;
+  const minutes =
+    parseTimeOfDay(task.starts_at) ?? parseTimeOfDay(task.due_at) ?? 0;
+  return toStartOfDay(date).getTime() + minutes * 60_000;
+}
+
+/**
+ * For list UIs: keep non-series tasks; for each `series_id` keep only the
+ * occurrence closest to `now` (prefer future on ties).
+ */
+export function dedupeSeriesClosestToNow(
+  tasks: ComposerDraft[],
+  now: Date = new Date(),
+): ComposerDraft[] {
+  const nowMs = now.getTime();
+  const singles: ComposerDraft[] = [];
+  const bySeries = new Map<string, ComposerDraft[]>();
+
+  for (const task of tasks) {
+    const seriesId = task.series_id;
+    if (seriesId == null || seriesId.length === 0) {
+      singles.push(task);
+      continue;
+    }
+    const list = bySeries.get(seriesId) ?? [];
+    list.push(task);
+    bySeries.set(seriesId, list);
+  }
+
+  const picked: ComposerDraft[] = [];
+  for (const group of bySeries.values()) {
+    let best = group[0]!;
+    let bestDist = Number.POSITIVE_INFINITY;
+    let bestIsFuture = false;
+    for (const task of group) {
+      const instant = occurrenceInstantMs(task);
+      if (instant == null) {
+        if (bestDist === Number.POSITIVE_INFINITY) best = task;
+        continue;
+      }
+      const dist = Math.abs(instant - nowMs);
+      const isFuture = instant >= nowMs;
+      if (
+        dist < bestDist ||
+        (dist === bestDist && isFuture && !bestIsFuture)
+      ) {
+        best = task;
+        bestDist = dist;
+        bestIsFuture = isFuture;
+      }
+    }
+    picked.push(best);
+  }
+
+  // Preserve input order using first-seen ids from the deduped set.
+  const keepIds = new Set(
+    [...singles, ...picked]
+      .map((task) => task.id)
+      .filter((id): id is string => id != null),
+  );
+  const seen = new Set<string>();
+  const ordered: ComposerDraft[] = [];
+  for (const task of tasks) {
+    const id = task.id;
+    if (id == null || !keepIds.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    ordered.push(task);
+  }
+  return ordered;
 }

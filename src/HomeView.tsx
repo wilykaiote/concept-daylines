@@ -17,65 +17,11 @@ type HomePlanTile = {
   tasks: readonly HomePlanTask[];
 };
 
-const PLACEHOLDER_PLANS: HomePlanTile[] = [
-  {
-    id: "placeholder-nutrition",
-    title: "Nutrition",
-    completedCount: 1,
-    taskCount: 4,
-    nextUpTask: {
-      id: "ph-nutrition-1",
-      title: "Prep lunch",
-      scheduleKind: "soft",
-    },
-    tasks: [
-      { id: "ph-nutrition-2", title: "Fill water bottle", scheduleKind: "soft" },
-      { id: "ph-nutrition-3", title: "Evening protein", scheduleKind: "anchored" },
-    ],
-  },
-  {
-    id: "placeholder-focus",
-    title: "Deep Focus",
-    completedCount: 1,
-    taskCount: 4,
-    nextUpTask: {
-      id: "ph-focus-1",
-      title: "Outline the draft",
-      scheduleKind: "soft",
-    },
-    tasks: [
-      { id: "ph-focus-2", title: "Write the intro", scheduleKind: "soft" },
-      { id: "ph-focus-3", title: "Review notes", scheduleKind: "anchored" },
-    ],
-  },
-  {
-    id: "placeholder-move",
-    title: "Daily Move",
-    completedCount: 0,
-    taskCount: 3,
-    nextUpTask: {
-      id: "ph-move-1",
-      title: "10-minute walk",
-      scheduleKind: "soft",
-    },
-    tasks: [
-      { id: "ph-move-2", title: "Stretch break", scheduleKind: "soft" },
-    ],
-  },
-  {
-    id: "placeholder-reset",
-    title: "Evening Reset",
-    completedCount: 2,
-    taskCount: 2,
-    nextUpTask: null,
-    tasks: [],
-  },
-];
-
 function pickFocusPlan(
   plans: readonly HomePlanTile[],
   preferredPlanId: string | null,
-): HomePlanTile {
+): HomePlanTile | null {
+  if (plans.length === 0) return null;
   if (preferredPlanId != null) {
     const preferred = plans.find((plan) => plan.id === preferredPlanId);
     if (preferred != null) return preferred;
@@ -85,7 +31,7 @@ function pickFocusPlan(
   );
   if (named != null) return named;
   const withNext = plans.find((plan) => plan.nextUpTask != null);
-  return withNext ?? plans[0]!;
+  return withNext ?? plans[0] ?? null;
 }
 
 type HomeViewProps = {
@@ -116,9 +62,9 @@ export function HomeView({
   onCompletePlanTask,
   onEditPlanTask,
 }: HomeViewProps) {
-  const planTiles = plans.length > 0 ? plans : [...PLACEHOLDER_PLANS];
-  const focusPlan = pickFocusPlan(planTiles, focusPlanId);
-  const gridPlans = planTiles.filter((plan) => plan.id !== focusPlan.id);
+  const focusPlan = pickFocusPlan(plans, focusPlanId);
+  const gridPlans =
+    focusPlan != null ? plans.filter((plan) => plan.id !== focusPlan.id) : plans;
 
   const renderPlanTaskRow = (task: HomePlanTask) => (
     <li key={task.id} className="home-plan-task">
@@ -219,9 +165,11 @@ export function HomeView({
         <header className="home-header">
           <div className="home-top-row">
             <div className="home-top-main">
-              <div className="home-focus-plan" aria-label="Current focus plan">
-                {renderPlanCard(focusPlan, true)}
-              </div>
+              {focusPlan != null && (
+                <div className="home-focus-plan" aria-label="Current focus plan">
+                  {renderPlanCard(focusPlan, true)}
+                </div>
+              )}
             </div>
           </div>
         </header>

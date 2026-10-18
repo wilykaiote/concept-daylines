@@ -35,6 +35,7 @@ import {
   completeRecurringOccurrence,
   DEFAULT_RECURRING_COUNT,
   DEFAULT_RECURRING_UNIT,
+  dedupeSeriesClosestToNow,
   formatRecurring,
   formatRecurringSchedule,
   materializeRecurringSeries,
@@ -106,10 +107,12 @@ import {
   type UiSessionViewId,
 } from "./taskStorage";
 import { buildScheduleLayoutForWindow } from "./schedule";
+import { formatTaskScheduleMetaLabel } from "./taskRowMeta";
 import {
   addDays,
   buildDayRange,
   buildOutsideCollapsedDayView,
+  compareSoftPriority,
   dayKey,
   formatHourLabel,
   formatMinutesLabel,
@@ -1234,7 +1237,7 @@ const TEND_MENU_ITEMS = [
   TEND_MENU_TASKS,
 ] as const;
 
-const PROFILE_MENU_NAME = "Kai";
+const PROFILE_MENU_NAME = "Pivot User";
 
 const URGENCY_OPTIONS = ["Future", "Later", "Soon", "ASAP"] as const;
 type UrgencyOption = (typeof URGENCY_OPTIONS)[number];
@@ -1264,74 +1267,6 @@ function normalizeOptionalField(value: string | null | undefined): string | null
   if (value == null) return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-const TASK_META_MONTHS = [
-  "JAN",
-  "FEB",
-  "MAR",
-  "APR",
-  "MAY",
-  "JUN",
-  "JUL",
-  "AUG",
-  "SEP",
-  "OCT",
-  "NOV",
-  "DEC",
-] as const;
-
-function dayOrdinal(day: number): string {
-  const mod100 = day % 100;
-  if (mod100 >= 11 && mod100 <= 13) return `${day}th`;
-  switch (day % 10) {
-    case 1:
-      return `${day}st`;
-    case 2:
-      return `${day}nd`;
-    case 3:
-      return `${day}rd`;
-    default:
-      return `${day}th`;
-  }
-}
-
-function formatTaskClockLabel(hhmm: string): string | null {
-  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(hhmm.trim());
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
-  const hour12 = hours % 12 || 12;
-  const period = hours >= 12 ? "pm" : "am";
-  return `${hour12}:${String(minutes).padStart(2, "0")}${period}`;
-}
-
-function formatTaskScheduleMetaLabel(
-  task: Pick<ComposerDraft, "date" | "starts_at" | "due_at">,
-  now: Date,
-): string | null {
-  const date = parseTaskDate(task.date);
-  if (!date) return null;
-
-  const today = toStartOfDay(now);
-  const tomorrow = addDays(today, 1);
-  let datePart: string;
-  if (sameCalendarDay(date, today)) datePart = "Today";
-  else if (sameCalendarDay(date, tomorrow)) datePart = "Tomorrow";
-  else datePart = `${TASK_META_MONTHS[date.getMonth()]} ${dayOrdinal(date.getDate())}`;
-
-  const startsAt = normalizeOptionalField(task.starts_at);
-  const dueAt = normalizeOptionalField(task.due_at);
-  const timeRaw = startsAt ?? dueAt;
-  if (!timeRaw) return datePart;
-
-  const timePart = formatTaskClockLabel(timeRaw);
-  if (!timePart) return datePart;
-
-  const prefix = startsAt ? "Starts" : "Due";
-  return `${prefix} ${datePart}, ${timePart}`;
 }
 
 function TwinelineDayScrollLabel({
@@ -1418,6 +1353,9 @@ function CompactTaskRow({
             ? "ENTRY"
             : "TASK";
   const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
+  const isItem = task.type === "item";
+  const itemCompleted = isItem && task.completed_at != null;
+  const completeChecked = Boolean(popping) || itemCompleted;
   // Repeat tasks keep grey schedule text even when completion/Automatic moved the date.
   const scheduleAuto = hasMetaAuto(task, "schedule") && !isRecurring;
   const urgencyAuto = hasMetaAuto(task, "urgency");
@@ -1433,7 +1371,7 @@ function CompactTaskRow({
   return (
     <li data-task-id={task.id ?? undefined} className="task-row-shell">
       <div
-        className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}${showCountdownBar ? " has-countdown" : ""}`}
+        className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}${itemCompleted ? " is-item-done" : ""}${showCountdownBar ? " has-countdown" : ""}`}
       >
         {showCountdownBar && (
           <div
@@ -1508,8 +1446,17 @@ function CompactTaskRow({
               <div className="task-row-main">
                 <button
                   type="button"
-                  className={`task-complete is-${scheduleKind}${popping ? " is-checked" : ""}`}
-                  aria-label="Mark complete"
+                  className={`task-complete is-${scheduleKind}${
+                    isItem ? " is-item" : ""
+                  }${completeChecked ? " is-checked" : ""}`}
+                  aria-label={
+                    isItem
+                      ? itemCompleted
+                        ? "Mark incomplete"
+                        : "Mark complete"
+                      : "Mark complete"
+                  }
+                  aria-pressed={isItem ? itemCompleted : undefined}
                   disabled={popping}
                   onClick={onComplete}
                 >
@@ -2198,7 +2145,11 @@ function App() {
     const list = daySnoozed
       ? nonContainerTasks.filter((task) => !isUndatedTask(task))
       : nonContainerTasks;
-    return list.filter((task) => task.id == null || !forcedOverflowIds.has(task.id));
+    return list.filter(
+      (task) =>
+        (task.id == null || !forcedOverflowIds.has(task.id)) &&
+        !(task.type === "item" && task.completed_at != null),
+    );
   }, [nonContainerTasks, daySnoozed, forcedOverflowIds]);
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
@@ -3164,18 +3115,26 @@ function App() {
   const upsertContainerDraft = (draft: ComposerDraft, editId?: string | null) => {
     const resolvedEditId = resolveComposerEditId(editId);
     if (resolvedEditId === undefined) return;
-    const containerDraft: ComposerDraft = {
-      ...draft,
-      est_duration: null,
-      urgency: null,
-      impact: null,
-      date: null,
-      starts_at: null,
-      due_at: null,
-      recurring: null,
-      series_id: null,
-      auto_rescheduled: null,
-    };
+    const isPlan = draft.type === "plan";
+    const containerDraft: ComposerDraft = isPlan
+      ? {
+          ...draft,
+          est_duration: null,
+          recurring: null,
+          series_id: null,
+        }
+      : {
+          ...draft,
+          est_duration: null,
+          urgency: null,
+          impact: null,
+          date: null,
+          starts_at: null,
+          due_at: null,
+          recurring: null,
+          series_id: null,
+          auto_rescheduled: null,
+        };
     const withLinks = applyLinkFields(containerDraft);
     const parentIdForChild = resolvedEditId ?? withLinks.id;
     setTasks((current) => {
@@ -3185,6 +3144,25 @@ function App() {
       } else {
         next = current.map((task) => {
           if (task.id !== resolvedEditId) return task;
+          if (isPlan) {
+            return {
+              ...task,
+              title: withLinks.title,
+              type: withLinks.type,
+              est_duration: null,
+              urgency: withLinks.urgency,
+              impact: withLinks.impact,
+              date: withLinks.date,
+              starts_at: withLinks.starts_at,
+              due_at: withLinks.due_at,
+              recurring: null,
+              parent_id: withLinks.parent_id,
+              after_id: withLinks.after_id,
+              after: withLinks.after,
+              auto_rescheduled: withLinks.auto_rescheduled === true,
+              meta_auto: withLinks.meta_auto ?? null,
+            };
+          }
           return {
             ...task,
             title: withLinks.title,
@@ -3255,19 +3233,27 @@ function App() {
     }
   };
 
+  /** Plan / list — full schedule/impact/recurring, never estimated duration. */
+  const upsertRichContainerDraft = (
+    draft: ComposerDraft,
+    editId?: string | null,
+  ) => {
+    upsertTaskDraft({ ...draft, est_duration: null }, editId);
+  };
+
   const submitComposerDraft: Record<
     ComposeKind,
     (draft: ComposerDraft, editId?: string | null) => void
   > = {
     task: upsertTaskDraft,
-    plan: upsertContainerDraft,
+    plan: upsertRichContainerDraft,
     collection: upsertCollectionDraft,
     notebook: upsertContainerDraft,
     calendar: upsertContainerDraft,
     event: (_draft) => {},
-    list: upsertContainerDraft,
+    list: upsertRichContainerDraft,
     note: (_draft) => {},
-    item: (_draft) => {},
+    item: upsertTaskDraft,
     log: (_draft) => {},
     assistant: (_draft) => {},
   };
@@ -3526,7 +3512,24 @@ function App() {
       })
     : null;
 
-  const showComposerTaskRowChrome = !isContainerComposeKind(composeKind);
+  const isRichContainerCompose =
+    composeKind === "plan" || composeKind === "list";
+  const showComposerTaskRowChrome =
+    !isContainerComposeKind(composeKind) || isRichContainerCompose;
+  const composerHasScheduleImpactTools =
+    composeKind === "task" ||
+    composeKind === "plan" ||
+    composeKind === "list" ||
+    composeKind === "item";
+  const composerHasRecurringTool =
+    composeKind === "task" ||
+    composeKind === "plan" ||
+    composeKind === "list" ||
+    composeKind === "item";
+  const composerHasDurationTool =
+    composeKind === "task" || composeKind === "item";
+  const composerSupportsRecurringSeries =
+    !isContainerComposeKind(composeKind) || isRichContainerCompose;
   const composerPreviewNow = new Date(countdownNow);
   const composerPreviewScheduleLabel = formatTaskScheduleMetaLabel(
     {
@@ -3698,8 +3701,28 @@ function App() {
     }
   };
 
+  /** Items stay in the list and toggle checked / unchecked. */
+  const toggleItemComplete = (id: string) => {
+    setTasks((current) =>
+      current.map((task) => {
+        if (task.id !== id || task.type !== "item") return task;
+        const isDone = task.completed_at != null;
+        return {
+          ...task,
+          completed_at: isDone ? null : new Date().toISOString(),
+          status: isDone ? null : "completed",
+        };
+      }),
+    );
+  };
+
   const requestCompleteTask = (id: string | null) => {
     if (!id) return;
+    const target = tasks.find((task) => task.id === id);
+    if (target?.type === "item") {
+      toggleItemComplete(id);
+      return;
+    }
     setPoppingTaskIds((current) => {
       if (current.includes(id)) return current;
       return [...current, id];
@@ -4110,7 +4133,7 @@ function App() {
   };
 
   const buildDraftFromComposer = () => {
-    if (isContainerComposeKind(composeKind)) {
+    if (isContainerComposeKind(composeKind) && !isRichContainerCompose) {
       return buildComposerDraft({
         title: content,
         type: composeKind === "collection" ? "collection" : composeKind,
@@ -4131,14 +4154,14 @@ function App() {
       metaKeys.delete("schedule");
       if (!(urgencyActivated && urgency != null)) metaKeys.delete("urgency");
     }
-    if (estDurationMinutes == null) metaKeys.delete("duration");
+    if (isRichContainerCompose || estDurationMinutes == null) metaKeys.delete("duration");
     if (impact == null) metaKeys.delete("impact");
     if (composerRecurring == null) metaKeys.delete("recurring");
     if (pendingParentId == null && pendingChildId == null) metaKeys.delete("parent");
     return buildComposerDraft({
       title: content,
       type: composeKind,
-      est_duration: estDurationMinutes,
+      est_duration: isRichContainerCompose ? null : estDurationMinutes,
       urgency: hasSchedule ? null : urgencyActivated ? urgency : null,
       impact,
       date: schedule.date,
@@ -4276,7 +4299,7 @@ function App() {
     if (editId == null) return;
     // Repeat settings changed → ask Just This Once vs All Future before saving.
     if (
-      !isContainerComposeKind(composeKind) &&
+      composerSupportsRecurringSeries &&
       repeatSettingsChangedVsBaseline()
     ) {
       setComposerSavePromptOpen(false);
@@ -4306,8 +4329,14 @@ function App() {
     if (editingTaskIdRef.current != null || editTaskBaselineRef.current != null) return;
     const draft = buildDraftFromComposer();
     if (!draft) return;
-    if (!isContainerComposeKind(composeKind) && parseRecurring(draft.recurring) != null) {
-      upsertTaskDraft(draft, null, { materializeSeries: true });
+    if (
+      composerSupportsRecurringSeries &&
+      parseRecurring(draft.recurring) != null
+    ) {
+      const toSave = isRichContainerCompose
+        ? { ...draft, est_duration: null }
+        : draft;
+      upsertTaskDraft(toSave, null, { materializeSeries: true });
     } else {
       submitComposerDraft[composeKind](draft, null);
     }
@@ -6594,15 +6623,20 @@ function App() {
             }
             plans={tasks
               .filter((task) => isPlanTaskType(task.type) && task.id != null)
+              .sort(compareSoftPriority)
               .map((plan) => {
                 const planId = plan.id as string;
-                const openChildren = tasks.filter(
-                  (task) =>
-                    task.parent_id === planId &&
-                    task.id != null &&
-                    task.id !== planId &&
-                    !isPlanTaskType(task.type) &&
-                    !isContainerTaskType(task.type),
+                const nowForDedupe = new Date(countdownNow);
+                const openChildren = dedupeSeriesClosestToNow(
+                  tasks.filter(
+                    (task) =>
+                      task.parent_id === planId &&
+                      task.id != null &&
+                      task.id !== planId &&
+                      !isPlanTaskType(task.type) &&
+                      !isContainerTaskType(task.type),
+                  ),
+                  nowForDedupe,
                 );
                 const completedCount = planCompletedCounts[planId] ?? 0;
                 const toPlanTask = (task: ComposerDraft) => ({
@@ -6613,16 +6647,21 @@ function App() {
                     | "soft",
                   popping: isTaskPopping(task.id),
                 });
-                const todayNext =
-                  (todayLayout?.blocks ?? []).find(
-                    (block) =>
-                      !block.overdue &&
-                      block.task.parent_id === planId &&
-                      block.task.id != null &&
-                      block.task.id !== planId &&
-                      !isPlanTaskType(block.task.type) &&
-                      !isContainerTaskType(block.task.type),
-                  )?.task ?? null;
+                const todayCandidates = dedupeSeriesClosestToNow(
+                  (todayLayout?.blocks ?? [])
+                    .filter(
+                      (block) =>
+                        !block.overdue &&
+                        block.task.parent_id === planId &&
+                        block.task.id != null &&
+                        block.task.id !== planId &&
+                        !isPlanTaskType(block.task.type) &&
+                        !isContainerTaskType(block.task.type),
+                    )
+                    .map((block) => block.task),
+                  nowForDedupe,
+                );
+                const todayNext = todayCandidates[0] ?? null;
                 const nextUpSource = todayNext ?? openChildren[0] ?? null;
                 const nextUpTask =
                   nextUpSource?.id != null ? toPlanTask(nextUpSource) : null;
@@ -6638,7 +6677,15 @@ function App() {
                     .map(toPlanTask),
                 };
               })}
-            onSelectPlan={() => selectView("plans")}
+            onSelectPlan={(planId) => {
+              const plan = tasks.find(
+                (task) => task.id === planId && isPlanTaskType(task.type),
+              );
+              if (!plan) return;
+              setFocusedOverflowTaskIds(null);
+              setFocusedTaskId(null);
+              editTask(plan);
+            }}
             onCompletePlanTask={(taskId) => requestCompleteTask(taskId)}
             onEditPlanTask={(taskId) => {
               const task = tasks.find((item) => item.id === taskId);
@@ -6687,8 +6734,19 @@ function App() {
         )}
         {activeView === "plans" && (
           <PlansView
-            plans={tasks.filter((task) => isPlanTaskType(task.type))}
+            plans={tasks
+              .filter((task) => isPlanTaskType(task.type))
+              .sort(compareSoftPriority)}
             tasks={tasks}
+            now={new Date(countdownNow)}
+            onEditPlan={(plan) => {
+              setFocusedOverflowTaskIds(null);
+              setFocusedTaskId(null);
+              editTask(plan);
+            }}
+            getCompletedCount={(plan) =>
+              plan.id != null ? (planCompletedCounts[plan.id] ?? 0) : 0
+            }
             renderChild={(task, plan) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
@@ -6716,6 +6774,11 @@ function App() {
           <ListsView
             lists={tasks.filter((task) => task.type === "list")}
             tasks={tasks}
+            onEditList={(list) => {
+              setFocusedOverflowTaskIds(null);
+              setFocusedTaskId(null);
+              editTask(list);
+            }}
             renderChild={(task, list) => (
               <CompactTaskRow
                 key={task.id ?? task.title}
@@ -8628,8 +8691,7 @@ function App() {
                     <NotesIcon />
                   </button>
                 )}
-                {composeKind === "task" && (
-                  <>
+                {composerHasRecurringTool && (
                     <div className="app-composer-recurring">
                       <ComposerOverlayMenu
                         open={recurringMenuOpen}
@@ -8797,6 +8859,8 @@ function App() {
                         <CycleIcon />
                       </button>
                     </div>
+                )}
+                {composerHasScheduleImpactTools && (
                     <div className="app-composer-impact">
                       <ComposerOverlayMenu
                         open={impactMenuOpen}
@@ -8867,9 +8931,8 @@ function App() {
                         <ImpactIcon />
                       </button>
                     </div>
-                  </>
                 )}
-                {composeKind === "task" && (
+                {composerHasDurationTool && (
                   <div className="app-composer-duration">
                     <ComposerOverlayMenu
                       open={durationMenuOpen}
@@ -8964,7 +9027,7 @@ function App() {
                   </button>
                   </div>
                 )}
-                {composeKind === "task" && (
+                {composerHasScheduleImpactTools && (
                   <button
                     ref={dueDateButtonRef}
                     type="button"
