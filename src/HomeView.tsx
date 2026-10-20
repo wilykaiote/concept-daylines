@@ -4,7 +4,7 @@ import { DayWheelChart, type DayWheelSlice } from "./DayWheelChart";
 type HomePlanTask = {
   id: string;
   title: string;
-  scheduleKind: "anchored" | "soft";
+  scheduleKind: "anchored" | "soft" | "undated";
   popping?: boolean;
 };
 

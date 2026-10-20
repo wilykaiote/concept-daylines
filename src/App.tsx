@@ -141,19 +141,20 @@ function isUndatedTask(task: ComposerDraft): boolean {
   return parseTaskDate(task.date) == null;
 }
 
-function isAnchoredTask(task: ComposerDraft): boolean {
-  return (
-    parseTaskDate(task.date) != null ||
-    parseTimeOfDay(task.starts_at) != null ||
-    parseTimeOfDay(task.due_at) != null
-  );
-}
-
-/** Timed = has clock time; soft = date-only or undated (slides on the timeline). */
+/** Timed = has clock time; soft = date-only; undated = no date/time. */
 function isTimedTask(task: ComposerDraft): boolean {
   return (
     parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null
   );
+}
+
+type TaskScheduleKind = "anchored" | "soft" | "undated";
+
+/** Visual schedule kind: timed → red, date-only → purple, undated → grey. */
+function taskScheduleKind(task: ComposerDraft): TaskScheduleKind {
+  if (isTimedTask(task)) return "anchored";
+  if (parseTaskDate(task.date) != null) return "soft";
+  return "undated";
 }
 
 function buildDayWheelSlices(
@@ -176,7 +177,7 @@ function buildDayWheelSlices(
       title: block.title,
       startMin: block.startMin,
       endMin: block.endMin,
-      kind: isAnchoredTask(block.task) ? "anchored" : "soft",
+      kind: taskScheduleKind(block.task),
       overdue: false,
     });
   }
@@ -1359,7 +1360,7 @@ function CompactTaskRow({
           : task.type === "log"
             ? "ENTRY"
             : "TASK";
-  const scheduleKind = isAnchoredTask(task) ? "anchored" : "soft";
+  const scheduleKind = taskScheduleKind(task);
   const isItem = task.type === "item";
   const itemCompleted = isItem && task.completed_at != null;
   const completeChecked = Boolean(popping) || itemCompleted;
@@ -3505,10 +3506,12 @@ function App() {
   const composerDate = normalizeOptionalField(taskDate);
   const composerStartsAt = normalizeOptionalField(taskStartsAt);
   const composerDueAt = normalizeOptionalField(taskDueAt);
-  const composerScheduleKind =
-    composerDate != null || composerStartsAt != null || composerDueAt != null
+  const composerScheduleKind: TaskScheduleKind =
+    composerStartsAt != null || composerDueAt != null
       ? "anchored"
-      : "soft";
+      : composerDate != null
+        ? "soft"
+        : "undated";
   const dueDateActivated = composerDate != null;
   // Repeat tasks: green schedule icon + no orange auto chip (completion / Automatic).
   const scheduleIsGreen =
@@ -6856,9 +6859,7 @@ function App() {
                 const toPlanTask = (task: ComposerDraft) => ({
                   id: task.id as string,
                   title: task.title,
-                  scheduleKind: (isAnchoredTask(task) ? "anchored" : "soft") as
-                    | "anchored"
-                    | "soft",
+                  scheduleKind: taskScheduleKind(task),
                   popping: isTaskPopping(task.id),
                 });
                 const todayCandidates = dedupeSeriesClosestToNow(
@@ -7573,7 +7574,7 @@ function App() {
                   </button>
                 ))}
                     {view.blocks.map((block) => {
-                      const scheduleKind = isAnchoredTask(block.task) ? "anchored" : "soft";
+                      const scheduleKind = taskScheduleKind(block.task);
                       return (
                       <div
                         key={block.key}

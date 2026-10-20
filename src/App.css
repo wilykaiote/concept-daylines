@@ -1761,6 +1761,11 @@
   --schedule-block-edge: color-mix(in srgb, var(--day-kind-soft) 55%, #000);
 }
 
+.twineline-schedule-block.is-undated {
+  background: var(--day-kind-undated);
+  --schedule-block-edge: color-mix(in srgb, var(--day-kind-undated) 55%, #000);
+}
+
 .twineline-schedule-block.is-overdue {
   --schedule-block-edge: color-mix(in srgb, var(--danger) 55%, #000);
 }
@@ -1775,6 +1780,11 @@
   --schedule-block-edge: color-mix(in srgb, var(--day-kind-soft) 55%, #000);
 }
 
+.twineline-schedule-block.is-past.is-undated {
+  background: color-mix(in srgb, var(--day-kind-undated) 62%, var(--bg-raised));
+  --schedule-block-edge: color-mix(in srgb, var(--day-kind-undated) 55%, #000);
+}
+
 .twineline-schedule-block.is-past.is-overdue {
   background: color-mix(in srgb, var(--danger) 55%, var(--bg-raised));
   --schedule-block-edge: color-mix(in srgb, var(--danger) 55%, #000);
@@ -1782,6 +1792,7 @@
 
 .twineline-schedule-block.has-elapsed.is-anchored,
 .twineline-schedule-block.has-elapsed.is-soft,
+.twineline-schedule-block.has-elapsed.is-undated,
 .twineline-schedule-block.has-elapsed.is-overdue {
   background: color-mix(in srgb, var(--text) 22%, var(--bg-raised));
   --schedule-block-edge: color-mix(
@@ -2017,7 +2028,10 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-bottom: 10px;
   padding-top: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
 }
 
 .task-timeline-notice {
@@ -2037,8 +2051,23 @@
 }
 
 .task-timeline-notice.is-recovered {
-  border-left-color: color-mix(in srgb, #22a06b 70%, var(--border));
-  background: color-mix(in srgb, #22a06b 8%, var(--bg-raised));
+  padding: 6px 10px 6px 12px;
+  border-color: color-mix(in srgb, var(--border) 55%, transparent);
+  border-left-color: color-mix(in srgb, var(--border) 80%, transparent);
+  border-left-width: 1px;
+  background: transparent;
+  box-shadow: none;
+  color: color-mix(in srgb, var(--text) 78%, var(--bg-raised));
+}
+
+.task-timeline-notice.is-recovered .task-timeline-notice-count {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: inherit;
+  font-weight: 600;
+}
+
+.task-timeline-notice.is-recovered .task-timeline-notice-dismiss {
+  opacity: 0.45;
 }
 
 .task-timeline-notice.is-overflow,
@@ -3369,6 +3398,10 @@
   border-color: var(--day-kind-anchored);
 }
 
+.task-complete.is-undated {
+  border-color: var(--day-kind-undated);
+}
+
 /* Items use a square checkbox (tasks stay circular). */
 .task-complete.is-item {
   border-radius: 4px;
@@ -4379,6 +4412,12 @@
   stroke-width: 1;
 }
 
+.day-wheel-slice.is-undated {
+  fill: color-mix(in srgb, var(--day-kind-undated) 28%, var(--bg-raised));
+  stroke: color-mix(in srgb, var(--day-kind-undated) 55%, var(--border));
+  stroke-width: 1;
+}
+
 .day-wheel-slice.is-overdue {
   fill: color-mix(in srgb, var(--danger) 18%, var(--bg-raised));
   stroke: color-mix(in srgb, var(--danger) 50%, var(--border));
@@ -4437,6 +4476,10 @@
 
 .day-wheel-legend-item.is-soft::before {
   background: var(--day-kind-soft);
+}
+
+.day-wheel-legend-item.is-undated::before {
+  background: var(--day-kind-undated);
 }
 
 .day-wheel-legend-item.is-now::before {
@@ -7188,12 +7231,21 @@
   background: color-mix(in srgb, var(--day-kind-anchored) 28%, var(--bg-raised));
 }
 
+.calendar-timeline-block.is-undated {
+  border-color: color-mix(in srgb, var(--day-kind-undated) 55%, var(--border));
+  background: color-mix(in srgb, var(--day-kind-undated) 28%, var(--bg-raised));
+}
+
 .calendar-timeline-block.is-soft .calendar-timeline-block-title {
   color: color-mix(in srgb, var(--day-kind-soft) 45%, var(--text-h));
 }
 
 .calendar-timeline-block.is-anchored .calendar-timeline-block-title {
   color: color-mix(in srgb, var(--day-kind-anchored) 45%, var(--text-h));
+}
+
+.calendar-timeline-block.is-undated .calendar-timeline-block-title {
+  color: color-mix(in srgb, var(--day-kind-undated) 45%, var(--text-h));
 }
 
 .calendar-timeline-block.is-editing {

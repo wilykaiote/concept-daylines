@@ -9,16 +9,16 @@ const SCHEDULE_DAY_SKY = daySkyCssStops();
 function scheduleBlockKind(
   task: ComposerDraft,
   overdue?: boolean,
-): "anchored" | "soft" | "overdue" {
+): "anchored" | "soft" | "undated" | "overdue" {
   if (overdue) return "overdue";
   if (
-    parseTaskDate(task.date) != null ||
     parseTimeOfDay(task.starts_at) != null ||
     parseTimeOfDay(task.due_at) != null
   ) {
     return "anchored";
   }
-  return "soft";
+  if (parseTaskDate(task.date) != null) return "soft";
+  return "undated";
 }
 
 export type DayScheduleTrackProps = {

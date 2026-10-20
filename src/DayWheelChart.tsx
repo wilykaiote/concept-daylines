@@ -10,7 +10,7 @@ export type DayWheelSlice = {
   title: string;
   startMin: number;
   endMin: number;
-  kind: "anchored" | "soft";
+  kind: "anchored" | "soft" | "undated";
   overdue?: boolean;
 };
 
@@ -260,8 +260,9 @@ export function DayWheelChart({
       </svg>
       {showLegend && (
         <div className="day-wheel-legend">
-          <span className="day-wheel-legend-item is-anchored">Anchored</span>
-          <span className="day-wheel-legend-item is-soft">Soft</span>
+          <span className="day-wheel-legend-item is-anchored">Timed</span>
+          <span className="day-wheel-legend-item is-soft">Dated</span>
+          <span className="day-wheel-legend-item is-undated">Undated</span>
         </div>
       )}
       {slices.length === 0 && showLegend && (
