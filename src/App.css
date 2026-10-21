@@ -2041,50 +2041,12 @@
   width: 100%;
   box-sizing: border-box;
   margin: 0;
-  padding: 10px 12px 10px 14px;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--text) 28%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-raised) 88%, var(--text) 4%);
-  color: var(--text);
-  box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent);
-}
-
-.task-timeline-notice.is-recovered {
   padding: 6px 10px 6px 12px;
-  border-color: color-mix(in srgb, var(--border) 55%, transparent);
-  border-left-color: color-mix(in srgb, var(--border) 80%, transparent);
-  border-left-width: 1px;
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 12px;
   background: transparent;
-  box-shadow: none;
   color: color-mix(in srgb, var(--text) 78%, var(--bg-raised));
-}
-
-.task-timeline-notice.is-recovered .task-timeline-notice-count {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-  color: inherit;
-  font-weight: 600;
-}
-
-.task-timeline-notice.is-recovered .task-timeline-notice-dismiss {
-  opacity: 0.45;
-}
-
-.task-timeline-notice.is-overflow,
-.task-timeline-notice.is-at-risk {
-  border-left-color: color-mix(in srgb, var(--accent, #6f4bb8) 55%, var(--border));
-  background: color-mix(in srgb, var(--accent, #6f4bb8) 8%, var(--bg-raised));
-}
-
-.task-timeline-notice.is-deferred {
-  border-left-color: color-mix(in srgb, #22a06b 70%, var(--border));
-  background: color-mix(in srgb, #22a06b 8%, var(--bg-raised));
-}
-
-.task-timeline-notice.is-defer-only {
-  border-left-color: color-mix(in srgb, var(--text) 22%, var(--border));
-  background: color-mix(in srgb, var(--bg-raised) 92%, var(--text) 3%);
-  color: var(--text);
+  box-shadow: none;
 }
 
 .task-timeline-notice-day-link {
@@ -2094,7 +2056,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: var(--text-h);
+  color: inherit;
   font: inherit;
   font-weight: 650;
   text-decoration: underline;
@@ -2104,7 +2066,7 @@
 
 .task-timeline-notice-day-link:hover,
 .task-timeline-notice-day-link:focus-visible {
-  color: #1f7a52;
+  color: var(--text-h);
 }
 
 .task-timeline-notice-day-link:focus-visible {
@@ -2132,17 +2094,17 @@
   margin-right: 0.15em;
   padding: 0.05em 0.35em;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 10%, transparent);
-  color: var(--text-h);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: inherit;
   font-size: 0.82rem;
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.25;
   vertical-align: 0.05em;
 }
 
 .task-timeline-notice .task-overflow-notice-overflow {
-  color: var(--text-h);
+  color: inherit;
   font-weight: 650;
 }
 
@@ -2158,13 +2120,13 @@
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: var(--text);
+  color: inherit;
   font: inherit;
   font-size: 1.15rem;
   font-weight: 500;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.65;
+  opacity: 0.45;
 }
 
 .task-timeline-notice-dismiss:hover {
@@ -2245,6 +2207,9 @@
 .task-day-overflow-row .task-overflow-pivot-btn {
   flex: 0 0 auto;
   margin-left: auto;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-raised));
+  color: var(--accent);
 }
 
 .task-day-label-row .task-overdue-toggle-action {
@@ -2795,9 +2760,9 @@
 }
 
 .task-current-focus-reschedule-btn.is-automatic {
-  border-color: color-mix(in srgb, #22a06b 55%, var(--border));
-  background: color-mix(in srgb, #22a06b 14%, var(--bg-raised));
-  color: #1f7a52;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-raised));
+  color: var(--accent);
 }
 
 .task-current-focus-reschedule-btn:focus-visible {
@@ -4876,12 +4841,12 @@
 }
 
 .app-composer-focus-controls {
-  display: flex;
-  justify-content: flex-start;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 2px 40px 6px 8px;
+  padding: 2px 8px 6px;
   box-sizing: border-box;
   /* Match Current focus tools — escape composer field chrome palette. */
   --text: #6b6375;
@@ -4891,8 +4856,18 @@
   color: var(--text);
 }
 
+.app-composer-focus-controls .app-composer-delete-btn {
+  justify-self: start;
+}
+
 .app-composer-focus-controls .task-current-focus-controls {
-  margin-left: auto;
+  justify-self: center;
+  margin-left: 0;
+}
+
+.app-composer-focus-controls .app-composer-pivot-btn {
+  justify-self: end;
+  margin-left: 0;
 }
 
 .app-composer-delete-btn {
@@ -4988,41 +4963,6 @@
   }
 }
 
-.app-composer-collapse {
-  position: absolute;
-  top: -10px;
-  right: -10px;
-  z-index: 4;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: var(--shadow);
-  opacity: 1;
-  transition: opacity 0.2s ease 0.12s;
-}
-
-.app-composer.is-collapsed .app-composer-collapse {
-  opacity: 0;
-  pointer-events: none;
-  transition-delay: 0s;
-}
-
-.app-composer-collapse svg {
-  width: 14px;
-  height: 14px;
-}
-
-.app-composer-collapse:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 .app-composer.is-collapsed .app-composer-field {
   left: calc(100% - var(--tap));
   padding: 0;
@@ -5080,12 +5020,6 @@
 .ui-outer-fade > * {
   position: relative;
   z-index: 1;
-}
-
-/* Keep collapse control absolutely pinned (don't let the fade stacking rule win). */
-.app-composer-field.ui-outer-fade > .app-composer-collapse {
-  position: absolute;
-  z-index: 4;
 }
 
 .app-composer-field-row {

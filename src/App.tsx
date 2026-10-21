@@ -1048,7 +1048,7 @@ const COMPOSE_KINDS = [
   { id: "log", label: "Entry", placeholder: "What happened?", Icon: LogIcon },
   {
     id: "assistant",
-    label: "AI Assistant",
+    label: "Ask",
     placeholder: "Ask the AI assistant...",
     Icon: IntelligenceIcon,
   },
@@ -2008,7 +2008,7 @@ function App() {
   countdownNowRef.current = countdownNow;
   /** Snapshot remaining ms when Rest / Break begins so the bar can drain. */
   const focusStatusCountdownTotalRef = useRef<{
-    mode: "rest" | "pivot" | "break" | null;
+    mode: "rest" | "break" | null;
     totalMs: number;
   }>({ mode: null, totalMs: 0 });
   /** Frozen pack/focus start for active timed Current focus countdown. */
@@ -2508,7 +2508,7 @@ function App() {
     return Math.max(0, anchor.durationMs - (countdownNow - anchor.startedAtMs));
   })();
   const focusCountdownMs =
-    focusRestMode || focusRescheduleOverflowMode
+    focusRestMode
       ? restCountdownTargetMs - countdownNow
       : focusBreakMode && focusPackedStartMin != null
         ? todayStart.getTime() + focusPackedStartMin * 60_000 - countdownNow
@@ -2521,11 +2521,9 @@ function App() {
       : null;
   const focusStatusMode = focusRestMode
     ? ("rest" as const)
-    : focusRescheduleOverflowMode
-      ? ("pivot" as const)
-      : focusBreakMode
-        ? ("break" as const)
-        : null;
+    : focusBreakMode
+      ? ("break" as const)
+      : null;
   if (focusStatusMode != null && focusCountdownMs != null && focusCountdownMs > 0) {
     if (focusStatusCountdownTotalRef.current.mode !== focusStatusMode) {
       focusStatusCountdownTotalRef.current = {
@@ -4738,52 +4736,13 @@ function App() {
     );
   };
 
-  const renderFocusRescheduleOverflowBox = () => {
-    const showBar =
-      showFocusCountdownBarOnCurrent &&
-      typeof focusCountdownProgress === "number" &&
-      Number.isFinite(focusCountdownProgress);
-    return (
-      <div
-        className={`task-current-focus-free-time task-current-focus-reschedule${showBar ? " has-countdown" : ""}`}
-        aria-label="Pivot Overflow"
-      >
-        {showBar && (
-          <div
-            className="task-row-countdown"
-            aria-hidden="true"
-            style={
-              nowSkyColor != null ? { background: nowSkyColor } : undefined
-            }
-          >
-            <div
-              className="task-row-countdown-fill"
-              style={{
-                width: `${Math.min(1, Math.max(0, focusCountdownProgress)) * 100}%`,
-              }}
-            />
-          </div>
-        )}
-        <p className="task-current-focus-free-time-title">Pivot Overflow</p>
-      </div>
-    );
-  };
-
   const renderCurrentFocus = () => {
     if (focusRescheduleOverflowMode) {
       return (
         <div className="task-current-focus">
           <div className="task-current-focus-label-row">
-            <p className="task-current-focus-label">
-              Current focus
-              {showFocusCountdownOnCurrent && (
-                <span className="task-current-focus-countdown" aria-live="polite">
-                  {focusCountdownLabel}
-                </span>
-              )}
-            </p>
+            <p className="task-current-focus-label">Current focus</p>
           </div>
-          {renderFocusRescheduleOverflowBox()}
         </div>
       );
     }
@@ -5054,7 +5013,7 @@ function App() {
               className="task-current-focus-reschedule-btn is-automatic task-overflow-pivot-btn"
               onClick={() => setOverflowReschedulePromptDayKey(dayLayout.dayKey)}
             >
-              Reschedule All
+              Pivot The Plan
             </button>
           )}
         </div>
@@ -6610,7 +6569,7 @@ function App() {
                     runAutomaticOverflowReschedule(dayKeyToReschedule);
                   }}
                 >
-                  Reschedule All
+                  Pivot The Plan
                 </button>
               </div>
             </div>
@@ -7857,15 +7816,6 @@ function App() {
             aria-hidden={collapsed}
             {...(collapsed ? { inert: true } : {})}
           >
-            <button
-              type="button"
-              className="app-composer-collapse"
-              onClick={requestCloseComposer}
-              aria-label="Collapse input"
-              tabIndex={collapsed ? -1 : 0}
-            >
-              <CloseIcon />
-            </button>
             <div className="app-composer-focus-controls">
               {editingTaskId != null ? (
                 <button
@@ -7890,24 +7840,24 @@ function App() {
               )}
               {(composeKind === "task" ||
                 composeKind === "item" ||
-                composeKind === "event") && (
-                <button
-                  type="button"
-                  className={`app-composer-pivot-btn${hasText ? " is-ready" : ""}`}
-                  aria-label="Pivot"
-                  tabIndex={collapsed ? -1 : 0}
-                  onClick={() => runAutomaticOverflowReschedule(todayKeyStr)}
-                >
-                  <IntelligenceIcon />
-                  Pivot
-                </button>
-              )}
-              {(composeKind === "task" ||
-                composeKind === "item" ||
                 composeKind === "event") &&
                 renderCurrentFocusControls(
                   editingTaskId != null ? content : null,
                 )}
+              {(composeKind === "task" ||
+                composeKind === "item" ||
+                composeKind === "event") && (
+                <button
+                  type="button"
+                  className={`app-composer-pivot-btn${hasText ? " is-ready" : ""}`}
+                  aria-label="Assist"
+                  tabIndex={collapsed ? -1 : 0}
+                  onClick={() => runAutomaticOverflowReschedule(todayKeyStr)}
+                >
+                  <IntelligenceIcon />
+                  Assist
+                </button>
+              )}
             </div>
             {showComposerTaskRowChrome ? (
               <div className={`task-row is-${composerScheduleKind} app-composer-task-row`}>
