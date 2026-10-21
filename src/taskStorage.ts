@@ -12,6 +12,7 @@ const WINDOW_START_OVERRIDES_STORAGE_KEY = "twineline.windowStartOverrides";
 const DAY_SNOOZE_STORAGE_KEY = "twineline.daySnooze";
 const TASK_GAP_STORAGE_KEY = "twineline.taskGapMinutes";
 const LAST_AUTO_RESCHEDULE_DAY_KEY = "twineline.lastAutoRescheduleDay";
+const LEFTOVER_OVERFLOW_KEY = "twineline.leftoverOverflow";
 const TODAY_WINDOW_BASELINE_KEY = "twineline.todayWindowBaseline";
 const TODAY_SOFT_PACK_PLAN_KEY = "twineline.todaySoftPackPlan";
 const CURRENT_FOCUS_KEY = "twineline.currentFocus";
@@ -348,7 +349,7 @@ export function saveTaskGapMinutes(minutes: number): void {
   }
 }
 
-/** YYYY-MM-DD of the last day midnight auto-reschedule already ran. */
+/** YYYY-MM-DD of the last calendar day the midnight rollover already ran. */
 export function loadLastAutoRescheduleDay(): string | null {
   try {
     const raw = localStorage.getItem(LAST_AUTO_RESCHEDULE_DAY_KEY);
@@ -363,6 +364,56 @@ export function saveLastAutoRescheduleDay(dayKey: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return;
   try {
     localStorage.setItem(LAST_AUTO_RESCHEDULE_DAY_KEY, dayKey);
+  } catch {
+    // Ignore quota / private-mode write failures.
+  }
+}
+
+export type LeftoverOverflowBucket = {
+  /** Calendar day the leftover overflow came from (YYYY-MM-DD). */
+  sourceDayKey: string;
+  taskIds: string[];
+};
+
+function isStoredDayKey(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+export function loadLeftoverOverflow(): LeftoverOverflowBucket[] {
+  try {
+    const raw = localStorage.getItem(LEFTOVER_OVERFLOW_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const buckets: LeftoverOverflowBucket[] = [];
+    const seenDays = new Set<string>();
+    for (const entry of parsed) {
+      if (entry == null || typeof entry !== "object") continue;
+      const sourceDayKey = (entry as { sourceDayKey?: unknown }).sourceDayKey;
+      const taskIdsRaw = (entry as { taskIds?: unknown }).taskIds;
+      if (!isStoredDayKey(sourceDayKey) || seenDays.has(sourceDayKey)) continue;
+      if (!Array.isArray(taskIdsRaw)) continue;
+      const taskIds: string[] = [];
+      const seenIds = new Set<string>();
+      for (const id of taskIdsRaw) {
+        if (typeof id !== "string" || id.length === 0 || seenIds.has(id)) continue;
+        seenIds.add(id);
+        taskIds.push(id);
+      }
+      if (taskIds.length === 0) continue;
+      seenDays.add(sourceDayKey);
+      buckets.push({ sourceDayKey, taskIds });
+    }
+    buckets.sort((a, b) => a.sourceDayKey.localeCompare(b.sourceDayKey));
+    return buckets;
+  } catch {
+    return [];
+  }
+}
+
+export function saveLeftoverOverflow(buckets: LeftoverOverflowBucket[]): void {
+  try {
+    localStorage.setItem(LEFTOVER_OVERFLOW_KEY, JSON.stringify(buckets));
   } catch {
     // Ignore quota / private-mode write failures.
   }

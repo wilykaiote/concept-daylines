@@ -61,6 +61,7 @@ import {
   formatTwinelineDateLabelParts,
   loadDaySnooze,
   loadLastAutoRescheduleDay,
+  loadLeftoverOverflow,
   loadRecentLinkIds,
   loadTargetTime,
   loadTargetTimeOverrides,
@@ -89,6 +90,7 @@ import {
   sameCalendarDay,
   saveDaySnooze,
   saveLastAutoRescheduleDay,
+  saveLeftoverOverflow,
   saveTargetTime,
   saveTargetTimeOverrides,
   saveTaskGapMinutes,
@@ -104,6 +106,7 @@ import {
   toStartOfDay,
   WEEKDAY_BUTTONS,
   type CurrentFocus,
+  type LeftoverOverflowBucket,
   type TodaySoftPackPlan,
   type TodayWindowBaseline,
   type UiSession,
@@ -155,6 +158,101 @@ function taskScheduleKind(task: ComposerDraft): TaskScheduleKind {
   if (isTimedTask(task)) return "anchored";
   if (parseTaskDate(task.date) != null) return "soft";
   return "undated";
+}
+
+function leftoverOverflowIdSet(buckets: LeftoverOverflowBucket[]): Set<string> {
+  const ids = new Set<string>();
+  for (const bucket of buckets) {
+    for (const id of bucket.taskIds) ids.add(id);
+  }
+  return ids;
+}
+
+function leftoverBucketsEqual(
+  a: LeftoverOverflowBucket[],
+  b: LeftoverOverflowBucket[],
+): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (left.sourceDayKey !== right.sourceDayKey) return false;
+    if (left.taskIds.length !== right.taskIds.length) return false;
+    for (let j = 0; j < left.taskIds.length; j += 1) {
+      if (left.taskIds[j] !== right.taskIds[j]) return false;
+    }
+  }
+  return true;
+}
+
+function mergeLeftoverOverflow(
+  buckets: LeftoverOverflowBucket[],
+  sourceDayKey: string,
+  taskIds: Iterable<string>,
+): LeftoverOverflowBucket[] {
+  const existingIds = leftoverOverflowIdSet(buckets);
+  const incoming: string[] = [];
+  for (const id of taskIds) {
+    if (!id || existingIds.has(id)) continue;
+    existingIds.add(id);
+    incoming.push(id);
+  }
+  if (incoming.length === 0) return buckets;
+  const next = buckets.map((bucket) => ({
+    ...bucket,
+    taskIds: [...bucket.taskIds],
+  }));
+  const existing = next.find((bucket) => bucket.sourceDayKey === sourceDayKey);
+  if (existing) existing.taskIds.push(...incoming);
+  else next.push({ sourceDayKey, taskIds: incoming });
+  next.sort((a, b) => a.sourceDayKey.localeCompare(b.sourceDayKey));
+  return next;
+}
+
+/** Drop leftover tasks that no longer exist, are done, or were moved onto today/future. */
+function pruneLeftoverOverflow(
+  buckets: LeftoverOverflowBucket[],
+  tasks: ComposerDraft[],
+  todayKey: string,
+): LeftoverOverflowBucket[] {
+  const byId = new Map<string, ComposerDraft>();
+  for (const task of tasks) {
+    if (task.id) byId.set(task.id, task);
+  }
+  const next: LeftoverOverflowBucket[] = [];
+  for (const bucket of buckets) {
+    const taskIds = bucket.taskIds.filter((id) => {
+      const task = byId.get(id);
+      if (!task) return false;
+      if (task.type === "item" && task.completed_at != null) return false;
+      const scheduled = parseTaskDate(task.date);
+      if (scheduled != null && dayKey(scheduled) >= todayKey) return false;
+      return true;
+    });
+    if (taskIds.length === 0) continue;
+    next.push({ sourceDayKey: bucket.sourceDayKey, taskIds });
+  }
+  return next;
+}
+
+/** Closed-app rollover: past-dated tasks stay leftover for the day they came from. */
+function capturePastDatedLeftover(
+  buckets: LeftoverOverflowBucket[],
+  tasks: ComposerDraft[],
+  todayKey: string,
+): LeftoverOverflowBucket[] {
+  let next = buckets;
+  for (const task of tasks) {
+    if (!task.id) continue;
+    if (task.type === "item" && task.completed_at != null) continue;
+    const scheduled = parseTaskDate(task.date);
+    if (scheduled == null) continue;
+    const sourceDayKey = dayKey(scheduled);
+    if (sourceDayKey >= todayKey) continue;
+    next = mergeLeftoverOverflow(next, sourceDayKey, [task.id]);
+  }
+  return next;
 }
 
 function buildDayWheelSlices(
@@ -1925,6 +2023,23 @@ function App() {
   );
   /** Softs whose At Risk countdown expired — stay in Overflow until rescheduled. */
   const [forcedOverflowIds, setForcedOverflowIds] = useState<Set<string>>(() => new Set());
+  const [leftoverOverflow, setLeftoverOverflow] = useState<LeftoverOverflowBucket[]>(
+    () => loadLeftoverOverflow(),
+  );
+  const leftoverOverflowRef = useRef(leftoverOverflow);
+  leftoverOverflowRef.current = leftoverOverflow;
+  const leftoverOverflowIds = useMemo(
+    () => leftoverOverflowIdSet(leftoverOverflow),
+    [leftoverOverflow],
+  );
+  const forcedOverflowIdsRef = useRef(forcedOverflowIds);
+  forcedOverflowIdsRef.current = forcedOverflowIds;
+  const overflowLiveRef = useRef<{ dayKey: string; ids: Set<string> }>({
+    dayKey: "",
+    ids: new Set(),
+  });
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
   type TimelineNotice = {
     id: string;
     kind: "overflow" | "recovered" | "at-risk" | "deferred";
@@ -2172,10 +2287,11 @@ function App() {
       : nonContainerTasks;
     return list.filter(
       (task) =>
-        (task.id == null || !forcedOverflowIds.has(task.id)) &&
+        (task.id == null ||
+          (!forcedOverflowIds.has(task.id) && !leftoverOverflowIds.has(task.id))) &&
         !(task.type === "item" && task.completed_at != null),
     );
-  }, [nonContainerTasks, daySnoozed, forcedOverflowIds]);
+  }, [nonContainerTasks, daySnoozed, forcedOverflowIds, leftoverOverflowIds]);
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const appliedTodayBegins = resolveWindowStartTime(
@@ -2287,14 +2403,15 @@ function App() {
       dayOverdue.map((task) => task.id).filter((id): id is string => id != null),
     );
     const isToday = dayLayout?.dayKey === todayKeyStr;
-    const overdue = isToday
+    const overdue = (isToday
       ? [
           ...dayOverdue,
           ...forcedOverflowTasks.filter(
             (task) => task.id != null && !layoutOverdueIds.has(task.id),
           ),
         ]
-      : dayOverdue;
+      : dayOverdue
+    ).filter((task) => task.id == null || !leftoverOverflowIds.has(task.id));
     const overdueIdSet = new Set(
       overdue.map((task) => task.id).filter((id): id is string => id != null),
     );
@@ -2315,6 +2432,15 @@ function App() {
   const overflowTasks = todayOverflow.tasks;
   const overflowTaskCount = todayOverflow.count;
   const overflowDeferOnly = todayOverflow.deferOnly;
+  overflowLiveRef.current = {
+    dayKey: todayKeyStr,
+    ids: new Set([
+      ...overflowTasks
+        .map((task) => task.id)
+        .filter((id): id is string => id != null),
+      ...forcedOverflowIds,
+    ]),
+  };
   const unlockedFocusInOverflow =
     currentFocus != null &&
     currentFocus.dayKey === todayKeyStr &&
@@ -4969,27 +5095,43 @@ function App() {
     );
   };
 
-  const renderOverflowSection = (dayLayout: (typeof calendarTaskLayout)[number]) => {
-    const dayOverflow = overflowForDay(dayLayout);
-    if (dayOverflow.count <= 0) return null;
-    const isToday = dayLayout.dayKey === todayKeyStr;
-    const sectionOpen = overdueSectionOpenByDay[dayLayout.dayKey] ?? false;
-    const listId = `task-overdue-list-${dayLayout.dayKey}`;
+  const renderOverflowBucket = ({
+    sectionKey,
+    rows,
+    label,
+    ariaLabel,
+    showPivot,
+    attachTodayRefs,
+    deferOnly,
+    pivotDayKey,
+  }: {
+    sectionKey: string;
+    rows: Array<{ task: ComposerDraft; overdue: boolean }>;
+    label: ReactNode;
+    ariaLabel: string;
+    showPivot: boolean;
+    attachTodayRefs: boolean;
+    deferOnly: boolean;
+    pivotDayKey?: string;
+  }) => {
+    if (rows.length === 0) return null;
+    const sectionOpen = overdueSectionOpenByDay[sectionKey] ?? false;
+    const listId = `task-overdue-list-${sectionKey}`;
     return (
-      <>
+      <div key={sectionKey}>
         <div className="task-day-label-row task-day-overflow-row">
           <button
-            ref={isToday ? overflowToggleRef : undefined}
+            ref={attachTodayRefs ? overflowToggleRef : undefined}
             type="button"
-            className={`task-overdue-toggle${sectionOpen ? " is-open" : ""}${dayOverflow.deferOnly ? " is-defer-only" : ""}`}
+            className={`task-overdue-toggle${sectionOpen ? " is-open" : ""}${deferOnly ? " is-defer-only" : ""}`}
             aria-expanded={sectionOpen}
             aria-controls={listId}
-            aria-label="Overflow tasks"
+            aria-label={ariaLabel}
             onClick={() => {
               setOverdueSectionOpenByDay((current) => {
                 const next = {
                   ...current,
-                  [dayLayout.dayKey]: !(current[dayLayout.dayKey] ?? false),
+                  [sectionKey]: !(current[sectionKey] ?? false),
                 };
                 overdueSectionOpenByDayRef.current = next;
                 persistUiSession();
@@ -4999,19 +5141,21 @@ function App() {
           >
             <span className="task-overdue-toggle-action">
               <span className="task-overdue-toggle-reschedule">
-                <span className="task-overdue-toggle-count">{dayOverflow.count}</span>
-                OVERFLOW
+                <span className="task-overdue-toggle-count">{rows.length}</span>
+                {label}
               </span>
               <span className="task-overdue-toggle-chevron" aria-hidden="true">
                 {sectionOpen ? "∨" : ">"}
               </span>
             </span>
           </button>
-          {isToday && sectionOpen && (
+          {showPivot && sectionOpen && (
             <button
               type="button"
               className="task-current-focus-reschedule-btn is-automatic task-overflow-pivot-btn"
-              onClick={() => setOverflowReschedulePromptDayKey(dayLayout.dayKey)}
+              onClick={() =>
+                setOverflowReschedulePromptDayKey(pivotDayKey ?? todayKeyStr)
+              }
             >
               Pivot The Plan
             </button>
@@ -5020,17 +5164,17 @@ function App() {
         {sectionOpen && (
           <div
             className="task-overdue-scroll-block"
-            ref={isToday ? overdueScrollBlockRef : undefined}
+            ref={attachTodayRefs ? overdueScrollBlockRef : undefined}
           >
             <section
-              ref={isToday ? overdueSectionRef : undefined}
+              ref={attachTodayRefs ? overdueSectionRef : undefined}
               id={listId}
-              className={`task-overdue-section${dayOverflow.deferOnly ? " is-defer-only" : ""}`}
-              aria-label="Overflow tasks"
+              className={`task-overdue-section${deferOnly ? " is-defer-only" : ""}`}
+              aria-label={ariaLabel}
             >
               <div className="task-overflow-bucket">
                 <ul className="task-day-tasks task-overdue-tasks">
-                  {dayOverflow.rows.map(({ task, overdue }) => (
+                  {rows.map(({ task, overdue }) => (
                     <CompactTaskRow
                       key={task.id ?? task.title}
                       task={task}
@@ -5056,8 +5200,52 @@ function App() {
             </section>
           </div>
         )}
-      </>
+      </div>
     );
+  };
+
+  const renderOverflowSection = (dayLayout: (typeof calendarTaskLayout)[number]) => {
+    const dayOverflow = overflowForDay(dayLayout);
+    const isToday = dayLayout.dayKey === todayKeyStr;
+    return renderOverflowBucket({
+      sectionKey: dayLayout.dayKey,
+      rows: dayOverflow.rows,
+      label: "OVERFLOW",
+      ariaLabel: "Overflow tasks",
+      showPivot: isToday,
+      attachTodayRefs: isToday,
+      deferOnly: dayOverflow.deferOnly,
+      pivotDayKey: dayLayout.dayKey,
+    });
+  };
+
+  const renderLeftoverOverflowSections = () => {
+    if (leftoverOverflow.length === 0) return null;
+    const byId = new Map<string, ComposerDraft>();
+    for (const task of tasks) {
+      if (task.id) byId.set(task.id, task);
+    }
+    return leftoverOverflow.map((bucket) => {
+      const sourceDate = parseTaskDate(bucket.sourceDayKey);
+      const dateLabel =
+        sourceDate != null
+          ? formatTwinelineDateLabel(sourceDate, new Date(countdownNow))
+          : bucket.sourceDayKey;
+      const rows = bucket.taskIds
+        .map((id) => byId.get(id))
+        .filter((task): task is ComposerDraft => task != null)
+        .sort(compareOverflowTimelineOrder)
+        .map((task) => ({ task, overdue: true as const }));
+      return renderOverflowBucket({
+        sectionKey: `leftover:${bucket.sourceDayKey}`,
+        rows,
+        label: `OVERFLOW - ${dateLabel}`,
+        ariaLabel: `Overflow from ${dateLabel}`,
+        showPivot: false,
+        attachTodayRefs: false,
+        deferOnly: false,
+      });
+    });
   };
 
   const openComposer = () => {
@@ -5355,16 +5543,6 @@ function App() {
     setTaskGapInput(String(next));
   };
 
-  const packingConfigRef = useRef({
-    getTargetTimeForDay,
-    getWindowStartTimeForDay,
-    taskGapMinutes,
-  });
-  packingConfigRef.current = {
-    getTargetTimeForDay,
-    getWindowStartTimeForDay,
-    taskGapMinutes,
-  };
   const lastAutoRescheduleDayRef = useRef<string | null>(loadLastAutoRescheduleDay());
 
   useEffect(() => {
@@ -5372,47 +5550,61 @@ function App() {
 
     const tick = () => {
       const nowMs = Date.now();
-      setCountdownNow(nowMs);
       const todayKey = dayKey(toStartOfDay(new Date(nowMs)));
       const lastKey = lastAutoRescheduleDayRef.current;
-      if (lastKey === todayKey) return;
-
-      // Calendar day advanced (midnight) or first run after a prior day.
-      lastAutoRescheduleDayRef.current = todayKey;
-      saveLastAutoRescheduleDay(todayKey);
-      const config = packingConfigRef.current;
-      const through = recurringHorizonEnd(
-        new Date(nowMs),
-        recurringMaterializeHorizonDays(),
-      );
-      setTasks((current) => {
-        const { tasks: next } = rescheduleOverdueTasksForNewDay(
-          current,
-          new Date(nowMs),
-          config.getTargetTimeForDay,
-          config.taskGapMinutes,
-          config.getWindowStartTimeForDay,
-          undefined,
-          toStartOfDay(new Date(nowMs)),
-        );
-        // Refresh fixed-horizon series for the new calendar day.
-        let refreshed = pruneRecurringSeriesBeyondHorizon(next, through);
-        const seriesIds = new Set(
-          refreshed
-            .map((task) => task.series_id)
-            .filter((id): id is string => typeof id === "string" && id.length > 0),
-        );
-        for (const seriesId of seriesIds) {
-          refreshed = topUpRecurringSeries(refreshed, seriesId, through);
+      if (lastKey !== todayKey) {
+        lastAutoRescheduleDayRef.current = todayKey;
+        saveLastAutoRescheduleDay(todayKey);
+        if (lastKey != null && lastKey < todayKey) {
+          let leftover = leftoverOverflowRef.current;
+          const live = overflowLiveRef.current;
+          if (live.dayKey === lastKey) {
+            leftover = mergeLeftoverOverflow(leftover, lastKey, [
+              ...live.ids,
+              ...forcedOverflowIdsRef.current,
+            ]);
+          }
+          leftover = capturePastDatedLeftover(leftover, tasksRef.current, todayKey);
+          leftover = pruneLeftoverOverflow(leftover, tasksRef.current, todayKey);
+          if (!leftoverBucketsEqual(leftover, leftoverOverflowRef.current)) {
+            leftoverOverflowRef.current = leftover;
+            saveLeftoverOverflow(leftover);
+            setLeftoverOverflow(leftover);
+          }
         }
-        return refreshed;
-      });
+        const through = recurringHorizonEnd(
+          new Date(nowMs),
+          recurringMaterializeHorizonDays(),
+        );
+        setTasks((current) => {
+          let refreshed = pruneRecurringSeriesBeyondHorizon(current, through);
+          const seriesIds = new Set(
+            refreshed
+              .map((task) => task.series_id)
+              .filter((id): id is string => typeof id === "string" && id.length > 0),
+          );
+          for (const seriesId of seriesIds) {
+            refreshed = topUpRecurringSeries(refreshed, seriesId, through);
+          }
+          return refreshed;
+        });
+      }
+      setCountdownNow(nowMs);
     };
 
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
   }, [activeView]);
+
+  useEffect(() => {
+    let next = capturePastDatedLeftover(leftoverOverflow, tasks, todayKeyStr);
+    next = pruneLeftoverOverflow(next, tasks, todayKeyStr);
+    if (leftoverBucketsEqual(next, leftoverOverflow)) return;
+    leftoverOverflowRef.current = next;
+    saveLeftoverOverflow(next);
+    setLeftoverOverflow(next);
+  }, [leftoverOverflow, tasks, todayKeyStr]);
 
   // Clear forced At Risk → Overflow ids on calendar day change.
   useEffect(() => {
@@ -7350,6 +7542,10 @@ function App() {
                     !calendarOpen &&
                     renderCurrentFocus()}
                   {isTodayGroup &&
+                    activeView === "dayline" &&
+                    !calendarOpen &&
+                    renderLeftoverOverflowSections()}
+                  {isTodayGroup &&
                     showOverdueToggle &&
                     renderOverflowSection(day)}
                   {dayTasks.length > 0 && (
@@ -7475,6 +7671,10 @@ function App() {
                   activeView === "dayline" &&
                   !calendarOpen &&
                   renderCurrentFocus()}
+                {isTodayGroup &&
+                  activeView === "dayline" &&
+                  !calendarOpen &&
+                  renderLeftoverOverflowSections()}
                 {isTodayGroup &&
                   showOverdueToggle &&
                   renderOverflowSection(day)}
