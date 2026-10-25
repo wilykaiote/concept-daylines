@@ -4810,12 +4810,12 @@
 }
 
 .app-composer-focus-controls {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   width: 100%;
-  padding: 2px 8px 6px;
+  padding: 2px 16px 6px 8px;
   box-sizing: border-box;
   /* Match Current focus tools — escape composer field chrome palette. */
   --text: #6b6375;
@@ -4826,12 +4826,10 @@
 }
 
 .app-composer-focus-controls .task-current-focus-controls {
-  justify-self: center;
-  margin-left: 0;
+  margin-left: auto;
 }
 
 .app-composer-focus-controls .app-composer-pivot-btn {
-  justify-self: start;
   margin-left: 0;
 }
 
@@ -5505,7 +5503,6 @@
   height: 30px;
 }
 
-/* Fill the FAB so the glyph centers in the circle; pin + to prior corner. */
 .app-composer-fab.app-composer-fab--toggle .app-compose-add-icon {
   width: 100%;
   height: 100%;
@@ -5806,6 +5803,76 @@
   width: 100%;
 }
 
+.app-recurring-title-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.app-recurring-title-row .app-duration-title {
+  grid-column: 2;
+  text-align: center;
+}
+
+.app-recurring-title-row .app-recurring-onoff {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.app-recurring-onoff {
+  flex-shrink: 0;
+  min-width: 48px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.app-recurring-onoff.is-on {
+  border-color: color-mix(in srgb, #2f9e5f 55%, var(--border));
+  background: color-mix(in srgb, #2f9e5f 22%, var(--bg));
+  color: #1f7a52;
+}
+
+.app-recurring-onoff:focus-visible {
+  outline: 2px solid #2f9e5f;
+  outline-offset: 2px;
+}
+
+.app-recurring-linked {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 12px;
+  width: 100%;
+}
+
+.app-recurring-linked-mode {
+  flex: 0 0 auto;
+  width: auto;
+  grid-template-columns: auto auto;
+}
+
+.app-recurring-linked-mode.is-on {
+  background: color-mix(in srgb, #2f9e5f 14%, var(--bg-raised));
+}
+
+.app-recurring-linked-mode .app-duration-unit-button.is-active {
+  background: color-mix(in srgb, #2f9e5f 22%, var(--bg));
+  color: #1f7a52;
+  box-shadow: none;
+}
+
 .app-recurring-toggle-row {
   display: flex;
   align-items: center;
@@ -5818,6 +5885,57 @@
   color: var(--text-h);
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+.app-recurring-link-cycle {
+  display: inline-flex;
+  flex-direction: row;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.app-recurring-link-cycle-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-recurring-link-cycle svg,
+.app-composer .app-recurring-link-cycle svg {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+.app-recurring-link-cycle:hover,
+.app-recurring-link-cycle:focus-visible {
+  color: var(--text-h);
+  background: var(--bg);
+}
+
+.app-recurring-link-cycle:focus-visible {
+  outline: 2px solid #2f9e5f;
+  outline-offset: 2px;
 }
 
 .app-recurring-switch {

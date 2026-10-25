@@ -1177,6 +1177,7 @@ const CONTAINER_QUICK_ADD_KIND_IDS = [
   "calendar",
 ] as const;
 type ContainerQuickAddKind = (typeof CONTAINER_QUICK_ADD_KIND_IDS)[number];
+type LinkQuickAddKind = ContainerQuickAddKind | "task";
 
 /** Named containers — not scheduled like tasks. */
 const CONTAINER_COMPOSE_KIND_IDS = [
@@ -1294,6 +1295,20 @@ function isLinkingToolComposeKind(kind: ComposeKind): kind is LinkingToolCompose
 }
 
 const LINKING_TOOL_HINT = "Linking";
+const CYCLE_LINK_TOOL_HINT = "Link or start a cycle";
+const CYCLE_LINK_TYPE_ITEMS = [
+  LINK_ITEM_TYPE_ITEMS.find((item) => item.id === "task")!,
+  LINK_CONTAINER_TYPE_ITEMS.find((item) => item.id === "plan")!,
+  LINK_ALL_TYPE_ITEM,
+] as const;
+const CYCLE_LINK_QUICK_ADD_ITEMS = [
+  { id: "task", label: "Task", Icon: TasksListIcon },
+  { id: "plan", label: "Plan", Icon: PlansIcon },
+] as const;
+
+function isLinkingOverlayHint(hint: string | null): boolean {
+  return hint === LINKING_TOOL_HINT || hint === CYCLE_LINK_TOOL_HINT;
+}
 /** Row balloon first, short pause, then schedule green hold + balloon. */
 const TASK_ROW_POP_MS = 420;
 const SCHEDULE_POP_GAP_MS = 160;
@@ -1829,6 +1844,8 @@ function App() {
   const [durationActivated, setDurationActivated] = useState(false);
   const [recurringMenuOpen, setRecurringMenuOpen] = useState(false);
   const [recurringActivated, setRecurringActivated] = useState(false);
+  const [repeatAfterLinked, setRepeatAfterLinked] = useState(false);
+  const [repeatAfterLinkedSide, setRepeatAfterLinkedSide] = useState<"before" | "after">("after");
   const [recurringUnit, setRecurringUnit] = useState<RecurringUnit>(DEFAULT_RECURRING_UNIT);
   const [recurringCount, setRecurringCount] = useState(DEFAULT_RECURRING_COUNT);
   const [recurringInput, setRecurringInput] = useState(String(DEFAULT_RECURRING_COUNT));
@@ -1858,7 +1875,7 @@ function App() {
   const [recentLinkIds, setRecentLinkIds] = useState<string[]>(() => loadRecentLinkIds());
   const [linkQuickAddOpen, setLinkQuickAddOpen] = useState(false);
   const [linkQuickAddTitle, setLinkQuickAddTitle] = useState("");
-  const [linkQuickAddKind, setLinkQuickAddKind] = useState<ContainerQuickAddKind>("collection");
+  const [linkQuickAddKind, setLinkQuickAddKind] = useState<LinkQuickAddKind>("collection");
   const [linkQuickAddKindMenuOpen, setLinkQuickAddKindMenuOpen] = useState(false);
   const [linkQaUrgencyMenuOpen, setLinkQaUrgencyMenuOpen] = useState(false);
   const [linkQaUrgencyActivated, setLinkQaUrgencyActivated] = useState(false);
@@ -2248,16 +2265,16 @@ function App() {
     LINK_TYPE_PICKER_ITEMS.find((item) => item.id === linkContainerType) ??
     LINK_TYPE_PICKER_ITEMS[0];
   const SelectedLinkContainerIcon = selectedLinkContainerType.Icon;
+  const isCycleLinkHint = taskToolHint === CYCLE_LINK_TOOL_HINT;
+  const linkQuickAddTypeItems = isCycleLinkHint
+    ? CYCLE_LINK_QUICK_ADD_ITEMS
+    : COMPOSE_CONTAINER_TYPE_ITEMS;
   const selectedLinkQuickAddType =
-    COMPOSE_CONTAINER_TYPE_ITEMS.find((item) => item.id === linkQuickAddKind) ??
-    COMPOSE_CONTAINER_TYPE_ITEMS[0];
+    linkQuickAddTypeItems.find((item) => item.id === linkQuickAddKind) ??
+    linkQuickAddTypeItems[0];
   const SelectedLinkQuickAddIcon = selectedLinkQuickAddType.Icon;
   const selectedLinkId =
     linkRelation === "child" ? pendingChildId : pendingParentId;
-  const fabComposeKind =
-    COMPOSE_KINDS.find((kind) => kind.id === COMPOSE_KIND_BY_VIEW[activeView]) ?? COMPOSE_KINDS[0];
-  const FabComposeIcon = fabComposeKind.Icon;
-
   const DaylineIcon = DAYLINE_TAB.Icon;
   const moreMenuViewIds = new Set<ActiveView>([
     ...TEND_MENU_ITEMS.map((item) => item.id),
@@ -3524,6 +3541,8 @@ function App() {
     setDurationActivated(false);
     setRecurringMenuOpen(false);
     setRecurringActivated(false);
+    setRepeatAfterLinked(false);
+    setRepeatAfterLinkedSide("after");
     setRecurringUnit(DEFAULT_RECURRING_UNIT);
     setRecurringCount(DEFAULT_RECURRING_COUNT);
     setRecurringInput(String(DEFAULT_RECURRING_COUNT));
@@ -3642,7 +3661,7 @@ function App() {
       setScheduleToolActivated(true);
       clearComposerMetaAuto("schedule", "urgency");
     }
-    if (title === LINKING_TOOL_HINT) {
+    if (isLinkingOverlayHint(title)) {
       clearComposerMetaAuto("parent");
     }
     taskToolHintAnchorRef.current = anchor;
@@ -3664,6 +3683,17 @@ function App() {
         if (!(editingTaskId != null && pendingParentId != null && linkRelation === "cycle")) {
           setLinkPrecedence(null);
         }
+      } else if (next === CYCLE_LINK_TOOL_HINT) {
+        setLinkRelation("cycle");
+        setLinkSearchQuery("");
+        setLinkContainerTypeMenuOpen(false);
+        setLinkContainerType("all");
+        setLinkQuickAddOpen(false);
+        resetLinkQuickAddFields();
+        setLinkQuickAddKind("task");
+        setLinkPrecedence(
+          repeatAfterLinked ? repeatAfterLinkedSide : (linkPrecedence ?? "before"),
+        );
       }
       return next;
     });
@@ -3754,6 +3784,10 @@ function App() {
   const composerDurationLabel = formatTaskDurationLabel(estDurationMinutes);
   const composerParentTitle = parentTitleFor(pendingParentId);
   const composerHasParent = normalizeOptionalField(composerParentTitle) != null;
+  const cycleLinkButtonTitle =
+    linkRelation === "cycle" && pendingParentId != null
+      ? (normalizeOptionalField(composerParentTitle) ?? "Untitled")
+      : null;
   const composerIsRecurring = composerRecurring != null;
   const composerTypeLabel =
     composeKind === "event"
@@ -6244,7 +6278,7 @@ function App() {
   }, [collapsed]);
 
   useEffect(() => {
-    if (taskToolHint === LINKING_TOOL_HINT && !isLinkingToolComposeKind(composeKind)) {
+    if (isLinkingOverlayHint(taskToolHint) && !isLinkingToolComposeKind(composeKind)) {
       setTaskToolHint(null);
     }
   }, [composeKind, taskToolHint]);
@@ -8079,11 +8113,11 @@ function App() {
             type="button"
             className={`app-composer-fab app-composer-fab--toggle${collapsed ? "" : " is-hidden"}`}
             onClick={openComposer}
-            aria-label={`Add ${fabComposeKind.label.toLowerCase()}`}
+            aria-label="Compose"
             tabIndex={collapsed ? 0 : -1}
             {...(!collapsed ? { inert: true } : {})}
           >
-            <ComposeAddIcon Icon={FabComposeIcon} />
+            <ComposeAddIcon Icon={TasksListIcon} />
           </button>
 
           <div
@@ -8393,7 +8427,7 @@ function App() {
                   anchorRef={taskToolHintAnchorRef}
                   menuRef={taskToolHintMenuRef}
                   matchWidthRef={
-                    taskToolHint === LINKING_TOOL_HINT || taskToolHint === "Date & Time"
+                    isLinkingOverlayHint(taskToolHint) || taskToolHint === "Date & Time"
                       ? composerFieldRef
                       : undefined
                   }
@@ -8401,7 +8435,7 @@ function App() {
                   className={`app-composer-tool-hint${
                     taskToolHint === "Date & Time"
                       ? " is-due-date"
-                      : taskToolHint === LINKING_TOOL_HINT
+                      : isLinkingOverlayHint(taskToolHint)
                         ? " is-linking"
                         : ""
                   }`}
@@ -8599,7 +8633,7 @@ function App() {
                         })()}
                       </div>
                     </>
-                  ) : taskToolHint === LINKING_TOOL_HINT && isLinkingToolComposeKind(composeKind) ? (
+                  ) : isLinkingOverlayHint(taskToolHint) && isLinkingToolComposeKind(composeKind) ? (
                     <>
                       <div className="app-composer-link-header">
                         <span className="app-composer-link-search-label">
@@ -8859,7 +8893,7 @@ function App() {
                                 className="app-compose-kind-menu"
                                 aria-label="Collection type"
                               >
-                                {COMPOSE_CONTAINER_TYPE_ITEMS.map(({ id, label, Icon }) => (
+                                {linkQuickAddTypeItems.map(({ id, label, Icon }) => (
                                   <button
                                     key={id}
                                     type="button"
@@ -8947,6 +8981,8 @@ function App() {
                                 // keep all
                               } else if (typeFilter === "task") {
                                 if (task.type != null && task.type !== "task") continue;
+                              } else if (typeFilter === "plan") {
+                                if (!isPlanTaskType(task.type)) continue;
                               } else if (task.type !== typeFilter) {
                                 continue;
                               }
@@ -8965,7 +9001,11 @@ function App() {
                                             : isCollectionTaskType(task.type)
                                               ? "Collection"
                                               : "Task"
-                                  : selectedLinkContainerType.label;
+                                  : isCycleLinkHint && typeFilter === "task"
+                                    ? "Task"
+                                    : isCycleLinkHint && typeFilter === "plan"
+                                      ? "Plan"
+                                      : selectedLinkContainerType.label;
                               linkItems.push({
                                 id: task.id,
                                 label: task.title,
@@ -8973,7 +9013,17 @@ function App() {
                               });
                             }
                           };
-                          if (linkContainerType === "all") {
+                          if (isCycleLinkHint) {
+                            if (linkContainerType === "all") {
+                              pushTasks("task");
+                              pushTasks("plan");
+                            } else if (
+                              linkContainerType === "task" ||
+                              linkContainerType === "plan"
+                            ) {
+                              pushTasks(linkContainerType);
+                            }
+                          } else if (linkContainerType === "all") {
                             pushCollections();
                             pushTasks("any");
                           } else if (linkContainerType === "collection") {
@@ -9094,6 +9144,24 @@ function App() {
                             className="app-compose-kind-menu"
                             aria-label="Link type"
                           >
+                            {isCycleLinkHint
+                              ? CYCLE_LINK_TYPE_ITEMS.map(({ id, label, Icon }) => (
+                                  <button
+                                    key={id}
+                                    type="button"
+                                    className={`app-attach-menu-item${linkContainerType === id ? " is-selected" : ""}`}
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setLinkContainerType(id);
+                                      setLinkContainerTypeMenuOpen(false);
+                                    }}
+                                  >
+                                    <Icon />
+                                    <span>{label}</span>
+                                  </button>
+                                ))
+                              : (
+                                <>
                             {LINK_ITEM_TYPE_ITEMS.map(({ id, label, Icon }) => (
                               <button
                                 key={id}
@@ -9138,6 +9206,8 @@ function App() {
                               <LINK_ALL_TYPE_ITEM.Icon />
                               <span>{LINK_ALL_TYPE_ITEM.label}</span>
                             </button>
+                                </>
+                              )}
                           </ComposerOverlayMenu>
                           <button
                             ref={linkContainerTypeButtonRef}
@@ -9154,6 +9224,8 @@ function App() {
                           </button>
                         </div>
                       </div>
+                      {!isCycleLinkHint && (
+                      <>
                       <div className="app-duration-divider" aria-hidden="true" />
                       <div className="app-composer-link-footer">
                         <span className="app-composer-link-type-lead">As a</span>
@@ -9231,6 +9303,8 @@ function App() {
                       </div>
                       </>
                       )}
+                      </>
+                      )}
                     </>
                   ) : (
                     <p className="app-composer-tool-hint-title">{taskToolHint}</p>
@@ -9251,32 +9325,20 @@ function App() {
                         className="app-duration-menu app-recurring-menu"
                         aria-label="Repeat Every"
                       >
-                        <p className="app-duration-title">Repeat Every...</p>
-                        <div className="app-duration-divider" aria-hidden="true" />
-                        <div
-                          className="app-duration-unit app-duration-unit-quad"
-                          role="group"
-                          aria-label="Repeat unit"
-                        >
-                          {(
-                            [
-                              { id: "day", label: "Days" },
-                              { id: "week", label: "Weeks" },
-                              { id: "month", label: "Months" },
-                              { id: "year", label: "Years" },
-                            ] as const
-                          ).map(({ id, label }) => (
-                            <button
-                              key={id}
-                              type="button"
-                              className={`app-duration-unit-button${recurringUnit === id ? " is-active" : ""}`}
-                              aria-pressed={recurringUnit === id}
-                              onClick={() => setRecurringUnitValue(id)}
-                            >
-                              {label}
-                            </button>
-                          ))}
+                        <div className="app-recurring-title-row">
+                          <p className="app-duration-title">Repeat Every...</p>
+                          <button
+                            type="button"
+                            className={`app-recurring-onoff${recurringActivated ? " is-on" : ""}`}
+                            role="switch"
+                            aria-checked={recurringActivated}
+                            aria-label="Repeat"
+                            onClick={() => setRecurringEnabled(!recurringActivated)}
+                          >
+                            {recurringActivated ? "ON" : "OFF"}
+                          </button>
                         </div>
+                        <div className="app-duration-divider" aria-hidden="true" />
                         <div className="app-duration-stepper">
                           <button
                             type="button"
@@ -9310,6 +9372,30 @@ function App() {
                           >
                             +
                           </button>
+                        </div>
+                        <div
+                          className="app-duration-unit app-duration-unit-quad"
+                          role="group"
+                          aria-label="Repeat unit"
+                        >
+                          {(
+                            [
+                              { id: "day", label: "Days" },
+                              { id: "week", label: "Weeks" },
+                              { id: "month", label: "Months" },
+                              { id: "year", label: "Years" },
+                            ] as const
+                          ).map(({ id, label }) => (
+                            <button
+                              key={id}
+                              type="button"
+                              className={`app-duration-unit-button${recurringUnit === id ? " is-active" : ""}`}
+                              aria-pressed={recurringUnit === id}
+                              onClick={() => setRecurringUnitValue(id)}
+                            >
+                              {label}
+                            </button>
+                          ))}
                         </div>
                         {recurringUnit === "week" && (
                           <div
@@ -9373,19 +9459,57 @@ function App() {
                             </div>
                           </div>
                         )}
-                        <div className="app-recurring-toggle-row">
-                          <span className="app-recurring-toggle-label" id="app-recurring-toggle-label">
-                            Repeat
-                          </span>
+                        <div className="app-recurring-linked">
+                          <div
+                            className={`app-duration-unit app-recurring-linked-mode${repeatAfterLinked ? " is-on" : ""}`}
+                            role="radiogroup"
+                            aria-label="Repeat relative to linked task"
+                          >
+                            {(
+                              [
+                                { id: "before", label: "Before" },
+                                { id: "after", label: "After" },
+                              ] as const
+                            ).map(({ id, label }) => {
+                              const selected = repeatAfterLinked && repeatAfterLinkedSide === id;
+                              return (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  role="radio"
+                                  className={`app-duration-unit-button${selected ? " is-active" : ""}`}
+                                  aria-checked={selected}
+                                  onClick={() => {
+                                    if (repeatAfterLinked && repeatAfterLinkedSide === id) {
+                                      setRepeatAfterLinked(false);
+                                      return;
+                                    }
+                                    setRepeatAfterLinked(true);
+                                    setRepeatAfterLinkedSide(id);
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
                           <button
                             type="button"
-                            className={`app-recurring-switch${recurringActivated ? " is-on" : ""}`}
-                            role="switch"
-                            aria-checked={recurringActivated}
-                            aria-labelledby="app-recurring-toggle-label"
-                            onClick={() => setRecurringEnabled(!recurringActivated)}
+                            className="app-recurring-link-cycle"
+                            id="app-recurring-linked-toggle-label"
+                            aria-label={
+                              cycleLinkButtonTitle
+                                ? `Cycle link ${cycleLinkButtonTitle}`
+                                : "Link or start a cycle"
+                            }
+                            onClick={() => {
+                              openTaskToolHint(cycleButtonRef.current, CYCLE_LINK_TOOL_HINT);
+                            }}
                           >
-                            <span className="app-recurring-switch-thumb" aria-hidden="true" />
+                            <span className="app-recurring-link-cycle-label">
+                              {cycleLinkButtonTitle ?? "Link or start a cycle"}
+                            </span>
+                            {cycleLinkButtonTitle == null && <PlusIcon />}
                           </button>
                         </div>
                       </ComposerOverlayMenu>
