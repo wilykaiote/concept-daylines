@@ -215,6 +215,7 @@ function pruneLeftoverOverflow(
   buckets: LeftoverOverflowBucket[],
   tasks: ComposerDraft[],
   todayKey: string,
+  packedTodayIds: ReadonlySet<string> = new Set(),
 ): LeftoverOverflowBucket[] {
   const byId = new Map<string, ComposerDraft>();
   for (const task of tasks) {
@@ -226,6 +227,7 @@ function pruneLeftoverOverflow(
       const task = byId.get(id);
       if (!task) return false;
       if (task.type === "item" && task.completed_at != null) return false;
+      if (packedTodayIds.has(id)) return false;
       const scheduled = parseTaskDate(task.date);
       if (scheduled != null && dayKey(scheduled) >= todayKey) return false;
       return true;
@@ -857,6 +859,28 @@ function PinIcon({ filled = false }: { filled?: boolean }) {
   );
 }
 
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M5 7.5h14M10 7.5V5.8c0-.4.3-.8.8-.8h2.4c.4 0 .8.4.8.8v1.7M9 10.5v6M12 10.5v6M15 10.5v6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.2 7.5 8 18.2c.1.8.8 1.3 1.6 1.3h4.8c.8 0 1.5-.5 1.6-1.3L17.8 7.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function StopwatchIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1084,21 +1108,19 @@ function ComposeAddIcon({
   badge = "plus",
 }: {
   Icon: () => ReactElement;
-  badge?: "plus" | "edit" | "check" | "none";
+  badge?: "plus" | "edit" | "check";
 }) {
   return (
     <span className="app-compose-add-icon">
       <Icon />
-      {badge !== "none" && (
-        <span
-          className={`app-compose-add-plus${
-            badge === "edit" ? " is-edit" : badge === "check" ? " is-check" : ""
-          }`}
-          aria-hidden="true"
-        >
-          {badge === "edit" ? <EditIcon /> : badge === "check" ? <CheckIcon /> : "+"}
-        </span>
-      )}
+      <span
+        className={`app-compose-add-plus${
+          badge === "edit" ? " is-edit" : badge === "check" ? " is-check" : ""
+        }`}
+        aria-hidden="true"
+      >
+        {badge === "edit" ? <EditIcon /> : badge === "check" ? <CheckIcon /> : "+"}
+      </span>
     </span>
   );
 }
@@ -1144,12 +1166,6 @@ const COMPOSE_KINDS = [
   { id: "item", label: "Item", placeholder: "What item(s) should I add to your list?", Icon: ListItemIcon },
   { id: "task", label: "Task", placeholder: "Describe your task(s)...", Icon: TasksListIcon },
   { id: "log", label: "Entry", placeholder: "What happened?", Icon: LogIcon },
-  {
-    id: "assistant",
-    label: "Ask",
-    placeholder: "Ask the AI assistant...",
-    Icon: IntelligenceIcon,
-  },
 ] as const;
 
 /** Kept for view-specific compose; hidden from the compose-type menu. */
@@ -1237,7 +1253,7 @@ function defaultLinkPickerType(composeKind: string): LinkPickerType {
   return isLinkPickerType(composeKind) ? composeKind : "all";
 }
 
-/** Compose-type menu: Collection (top) · left/right columns · Entry · AI Assistant (bottom). */
+/** Compose-type menu: Collection (top) · left/right columns · Entry (bottom). */
 const COMPOSE_KIND_MENU_TOP = COMPOSE_KINDS.find((kind) => kind.id === "collection")!;
 /** Left column top→bottom: Calendar, Notebook, List, Plan (Plan nearest the composer). */
 const COMPOSE_KIND_MENU_LEFT_IDS = ["calendar", "notebook", "list", "plan"] as const;
@@ -1249,7 +1265,6 @@ const COMPOSE_KIND_MENU_RIGHT = COMPOSE_KIND_MENU_RIGHT_IDS.map(
   (id) => COMPOSE_KINDS.find((kind) => kind.id === id)!,
 );
 const LOG_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "log")!;
-const ASSISTANT_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "assistant")!;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
 type LinkRelation = "parent" | "child" | "cycle";
@@ -1270,10 +1285,8 @@ function composeKindFromTaskType(type: string | null | undefined): ComposeKind {
   return "task";
 }
 
-/** Linking tool — available on every non-assistant compose type. */
-const LINKING_TOOL_COMPOSE_KINDS = COMPOSE_KINDS.filter((kind) => kind.id !== "assistant").map(
-  (kind) => kind.id,
-);
+/** Linking tool — available on every compose type. */
+const LINKING_TOOL_COMPOSE_KINDS = COMPOSE_KINDS.map((kind) => kind.id);
 type LinkingToolComposeKind = (typeof LINKING_TOOL_COMPOSE_KINDS)[number];
 
 function isLinkingToolComposeKind(kind: ComposeKind): kind is LinkingToolComposeKind {
@@ -1812,7 +1825,6 @@ function App() {
   const [collapsed, setCollapsed] = useState(true);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [composeKindMenuOpen, setComposeKindMenuOpen] = useState(false);
-  const [assistProPromptOpen, setAssistProPromptOpen] = useState(false);
   const [durationMenuOpen, setDurationMenuOpen] = useState(false);
   const [durationActivated, setDurationActivated] = useState(false);
   const [recurringMenuOpen, setRecurringMenuOpen] = useState(false);
@@ -2178,7 +2190,6 @@ function App() {
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const composeKindMenuRef = useRef<HTMLDivElement>(null);
   const composeKindButtonRef = useRef<HTMLButtonElement>(null);
-  const assistProPromptMenuRef = useRef<HTMLDivElement>(null);
   const composeAddButtonRef = useRef<HTMLButtonElement>(null);
   const durationMenuRef = useRef<HTMLDivElement>(null);
   const durationButtonRef = useRef<HTMLButtonElement>(null);
@@ -2287,11 +2298,10 @@ function App() {
       : nonContainerTasks;
     return list.filter(
       (task) =>
-        (task.id == null ||
-          (!forcedOverflowIds.has(task.id) && !leftoverOverflowIds.has(task.id))) &&
+        (task.id == null || !forcedOverflowIds.has(task.id)) &&
         !(task.type === "item" && task.completed_at != null),
     );
-  }, [nonContainerTasks, daySnoozed, forcedOverflowIds, leftoverOverflowIds]);
+  }, [nonContainerTasks, daySnoozed, forcedOverflowIds]);
   const calendarDays = buildMonthCalendarDays(calendarMonth);
   const calendarMonthLabel = formatMonthYearLabel(calendarMonth);
   const appliedTodayBegins = resolveWindowStartTime(
@@ -2428,6 +2438,38 @@ function App() {
       deferOnly: false,
     };
   };
+  const packedTodayIds = (() => {
+    const ids = new Set<string>();
+    for (const block of todayLayoutForOverflow?.blocks ?? []) {
+      if (block.taskId) ids.add(block.taskId);
+    }
+    for (const block of todayLayoutForOverflow?.scheduleBlocks ?? []) {
+      if (block.taskId) ids.add(block.taskId);
+    }
+    return ids;
+  })();
+  const packedTodayKey = [...packedTodayIds].sort().join("\0");
+  const leftoverOverDueRows = (() => {
+    const byId = new Map<string, ComposerDraft>();
+    for (const task of tasks) {
+      if (task.id) byId.set(task.id, task);
+    }
+    const list: ComposerDraft[] = [];
+    const seen = new Set<string>();
+    for (const bucket of leftoverOverflow) {
+      for (const id of bucket.taskIds) {
+        if (seen.has(id) || packedTodayIds.has(id)) continue;
+        const task = byId.get(id);
+        if (!task) continue;
+        seen.add(id);
+        list.push(task);
+      }
+    }
+    return list.sort(compareOverflowTimelineOrder).map((task) => ({
+      task,
+      overdue: true as const,
+    }));
+  })();
   const todayOverflow = overflowForDay(todayLayoutForOverflow);
   const overflowTasks = todayOverflow.tasks;
   const overflowTaskCount = todayOverflow.count;
@@ -2445,7 +2487,8 @@ function App() {
     currentFocus != null &&
     currentFocus.dayKey === todayKeyStr &&
     currentFocus.locked !== true &&
-    overflowTasks.some((task) => task.id === currentFocus.taskId);
+    (overflowTasks.some((task) => task.id === currentFocus.taskId) ||
+      leftoverOverDueRows.some((row) => row.task.id === currentFocus.taskId));
   const parentTitleById = (() => {
     const map = new Map<string, string>();
     for (const collection of collections) {
@@ -3404,7 +3447,6 @@ function App() {
     note: (_draft) => {},
     item: upsertTaskDraft,
     log: (_draft) => {},
-    assistant: (_draft) => {},
   };
 
   const resetLinkQuickAddFields = () => {
@@ -3805,14 +3847,8 @@ function App() {
       composerAutoRescheduled !== editTaskBaseline.auto_rescheduled);
   const isCreateDirty = editingTaskId == null && content.trim() !== "";
   const isComposerDirty = isEditDirty || isCreateDirty;
-  // Assist never becomes a real Send action; gold ready opens the Pro upsell instead.
-  const assistActionReady = composeKind === "assistant" && hasText;
   const composeActionReady =
-    composeKind === "assistant"
-      ? false
-      : editingTaskId != null
-        ? isEditDirty
-        : hasText;
+    editingTaskId != null ? isEditDirty : hasText;
 
   const completeTask = (id: string | null) => {
     if (!id) return;
@@ -4279,6 +4315,7 @@ function App() {
     setImpactMenuOpen(false);
     closeTaskToolHint();
     setComposerSavePromptOpen(false);
+    setRecurringSchedulePromptOpen(false);
     setFocusedTaskId(null);
     setFocusedOverflowTaskIds(null);
     if (editingTaskId) {
@@ -4289,6 +4326,7 @@ function App() {
   };
 
   const requestCloseComposer = () => {
+    if (recurringSchedulePromptOpen) return;
     if (isComposerDirty) {
       setAttachMenuOpen(false);
       setComposeKindMenuOpen(false);
@@ -4370,6 +4408,14 @@ function App() {
     );
   };
 
+  const shouldAskRecurringSaveScope = (editId: string) => {
+    if (!composerSupportsRecurringSeries) return false;
+    if (repeatSettingsChangedVsBaseline()) return true;
+    const existing = tasks.find((task) => task.id === editId);
+    if (existing == null) return false;
+    return existing.series_id != null || parseRecurring(existing.recurring) != null;
+  };
+
   const finishComposerSaveSession = () => {
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
@@ -4394,17 +4440,22 @@ function App() {
     const draft = buildDraftFromComposer();
     if (!draft) return;
     const existing = tasks.find((task) => task.id === editId);
-    // Detach from series; siblings keep their prior schedule. Leaving a series
-    // just this once makes this occurrence a one-off (no recurring token).
-    const detached: ComposerDraft = {
-      ...draft,
-      series_id: null,
-      recurring: existing?.series_id != null ? null : draft.recurring,
-    };
-    upsertTaskDraft(detached, editId);
+    // Repeat-interval change: detach this occurrence. Ordinary field edits stay
+    // in the series so siblings keep sharing series_id.
+    const updated: ComposerDraft = repeatSettingsChangedVsBaseline()
+      ? {
+          ...draft,
+          series_id: null,
+          recurring: existing?.series_id != null ? null : draft.recurring,
+        }
+      : {
+          ...draft,
+          series_id: existing?.series_id ?? draft.series_id,
+        };
+    upsertTaskDraft(updated, editId);
     if (
       !isContainerComposeKind(composeKind) &&
-      isAnchoredTaskMissed(detached, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
+      isAnchoredTaskMissed(updated, new Date(countdownNow), todayPackEnd, todayWindowStartMinutes)
     ) {
       openOverflowForActiveView();
     }
@@ -4451,8 +4502,12 @@ function App() {
         };
       });
       if (seriesId != null && anchorDate != null) {
-        // Drop later siblings, then rematerialize when still repeating.
-        next = removeFutureSeriesMembers(next, seriesId, anchorDate, editId);
+        // Drop later siblings from the earlier of original/new date so a date
+        // shift does not leave in-between occurrences behind.
+        const originalDate = existing?.date ?? null;
+        const fromDateKey =
+          originalDate != null && originalDate < anchorDate ? originalDate : anchorDate;
+        next = removeFutureSeriesMembers(next, seriesId, fromDateKey, editId);
         if (schedule != null) {
           const futures = materializeRecurringSeries(
             { ...updated, series_id: seriesId },
@@ -4485,11 +4540,8 @@ function App() {
   const saveComposerChanges = () => {
     const editId = editingTaskIdRef.current;
     if (editId == null) return;
-    // Repeat settings changed → ask Just This Once vs All Future before saving.
-    if (
-      composerSupportsRecurringSeries &&
-      repeatSettingsChangedVsBaseline()
-    ) {
+    // Series / Repeat change → ask Just This Once vs All Future before saving.
+    if (shouldAskRecurringSaveScope(editId)) {
       setComposerSavePromptOpen(false);
       setRecurringSchedulePromptOpen(true);
       return;
@@ -4734,8 +4786,12 @@ function App() {
     );
   };
 
-  const renderCurrentFocusControls = (taskTitle?: string | null) => (
+  const renderCurrentFocusControls = (
+    taskTitle?: string | null,
+    leading?: ReactNode,
+  ) => (
     <div className="task-current-focus-controls">
+      {leading}
       <button
         type="button"
         className="task-current-focus-tool"
@@ -4759,7 +4815,13 @@ function App() {
   const runAutomaticOverflowReschedule = (sourceDayKey: string = todayKeyStr) => {
     const sourceLayout = calendarTaskLayout.find((day) => day.dayKey === sourceDayKey);
     const sourceOverflow = overflowForDay(sourceLayout);
-    const overflowToReschedule = sourceOverflow.tasks;
+    const overflowToReschedule =
+      sourceDayKey === todayKeyStr
+        ? [
+            ...leftoverOverDueRows.map((row) => row.task),
+            ...sourceOverflow.tasks,
+          ]
+        : sourceOverflow.tasks;
     const overflowIds = new Set(
       overflowToReschedule
         .map((task) => task.id)
@@ -5095,9 +5157,35 @@ function App() {
     );
   };
 
+  const renderOverflowTaskRow = (
+    task: ComposerDraft,
+    overdue: boolean,
+  ) => (
+    <CompactTaskRow
+      key={task.id ?? task.title}
+      task={task}
+      overdue={overdue}
+      editing={editingTaskId === task.id}
+      highlighted={isTaskHighlighted(task.id)}
+      popping={isTaskPopping(task.id)}
+      now={new Date(countdownNow)}
+      parentTitle={parentTitleFor(task.parent_id)}
+      onComplete={() => requestCompleteTask(task.id)}
+      onEdit={() => {
+        if (task.id) {
+          setFocusedOverflowTaskIds(null);
+          setFocusedTaskId(task.id);
+        }
+        editTask(task);
+      }}
+      isCurrentFocus={todayFocusTask?.id === task.id}
+    />
+  );
+
   const renderOverflowBucket = ({
     sectionKey,
     rows,
+    overDueRows = [],
     label,
     ariaLabel,
     showPivot,
@@ -5107,6 +5195,7 @@ function App() {
   }: {
     sectionKey: string;
     rows: Array<{ task: ComposerDraft; overdue: boolean }>;
+    overDueRows?: Array<{ task: ComposerDraft; overdue: boolean }>;
     label: ReactNode;
     ariaLabel: string;
     showPivot: boolean;
@@ -5114,7 +5203,8 @@ function App() {
     deferOnly: boolean;
     pivotDayKey?: string;
   }) => {
-    if (rows.length === 0) return null;
+    const totalCount = overDueRows.length + rows.length;
+    if (totalCount === 0) return null;
     const sectionOpen = overdueSectionOpenByDay[sectionKey] ?? false;
     const listId = `task-overdue-list-${sectionKey}`;
     return (
@@ -5141,7 +5231,7 @@ function App() {
           >
             <span className="task-overdue-toggle-action">
               <span className="task-overdue-toggle-reschedule">
-                <span className="task-overdue-toggle-count">{rows.length}</span>
+                <span className="task-overdue-toggle-count">{totalCount}</span>
                 {label}
               </span>
               <span className="task-overdue-toggle-chevron" aria-hidden="true">
@@ -5172,31 +5262,27 @@ function App() {
               className={`task-overdue-section${deferOnly ? " is-defer-only" : ""}`}
               aria-label={ariaLabel}
             >
-              <div className="task-overflow-bucket">
-                <ul className="task-day-tasks task-overdue-tasks">
-                  {rows.map(({ task, overdue }) => (
-                    <CompactTaskRow
-                      key={task.id ?? task.title}
-                      task={task}
-                      overdue={overdue}
-                      editing={editingTaskId === task.id}
-                      highlighted={isTaskHighlighted(task.id)}
-                      popping={isTaskPopping(task.id)}
-                      now={new Date(countdownNow)}
-                      parentTitle={parentTitleFor(task.parent_id)}
-                      onComplete={() => requestCompleteTask(task.id)}
-                      onEdit={() => {
-                        if (task.id) {
-                          setFocusedOverflowTaskIds(null);
-                          setFocusedTaskId(task.id);
-                        }
-                        editTask(task);
-                      }}
-                      isCurrentFocus={todayFocusTask?.id === task.id}
-                    />
-                  ))}
-                </ul>
-              </div>
+              {overDueRows.length > 0 && (
+                <div className="task-overflow-bucket task-overflow-overdue">
+                  <div className="task-overflow-bucket-header">
+                    <p className="task-overflow-bucket-label">Over Due</p>
+                  </div>
+                  <ul className="task-day-tasks task-overdue-tasks">
+                    {overDueRows.map(({ task, overdue }) =>
+                      renderOverflowTaskRow(task, overdue),
+                    )}
+                  </ul>
+                </div>
+              )}
+              {rows.length > 0 && (
+                <div className="task-overflow-bucket">
+                  <ul className="task-day-tasks task-overdue-tasks">
+                    {rows.map(({ task, overdue }) =>
+                      renderOverflowTaskRow(task, overdue),
+                    )}
+                  </ul>
+                </div>
+              )}
             </section>
           </div>
         )}
@@ -5210,41 +5296,15 @@ function App() {
     return renderOverflowBucket({
       sectionKey: dayLayout.dayKey,
       rows: dayOverflow.rows,
+      overDueRows: isToday ? leftoverOverDueRows : [],
       label: "OVERFLOW",
-      ariaLabel: "Overflow tasks",
+      ariaLabel: isToday && leftoverOverDueRows.length > 0
+        ? "Overflow and overdue tasks"
+        : "Overflow tasks",
       showPivot: isToday,
       attachTodayRefs: isToday,
       deferOnly: dayOverflow.deferOnly,
       pivotDayKey: dayLayout.dayKey,
-    });
-  };
-
-  const renderLeftoverOverflowSections = () => {
-    if (leftoverOverflow.length === 0) return null;
-    const byId = new Map<string, ComposerDraft>();
-    for (const task of tasks) {
-      if (task.id) byId.set(task.id, task);
-    }
-    return leftoverOverflow.map((bucket) => {
-      const sourceDate = parseTaskDate(bucket.sourceDayKey);
-      const dateLabel =
-        sourceDate != null
-          ? formatTwinelineDateLabel(sourceDate, new Date(countdownNow))
-          : bucket.sourceDayKey;
-      const rows = bucket.taskIds
-        .map((id) => byId.get(id))
-        .filter((task): task is ComposerDraft => task != null)
-        .sort(compareOverflowTimelineOrder)
-        .map((task) => ({ task, overdue: true as const }));
-      return renderOverflowBucket({
-        sectionKey: `leftover:${bucket.sourceDayKey}`,
-        rows,
-        label: `OVERFLOW - ${dateLabel}`,
-        ariaLabel: `Overflow from ${dateLabel}`,
-        showPivot: false,
-        attachTodayRefs: false,
-        deferOnly: false,
-      });
     });
   };
 
@@ -5599,12 +5659,12 @@ function App() {
 
   useEffect(() => {
     let next = capturePastDatedLeftover(leftoverOverflow, tasks, todayKeyStr);
-    next = pruneLeftoverOverflow(next, tasks, todayKeyStr);
+    next = pruneLeftoverOverflow(next, tasks, todayKeyStr, packedTodayIds);
     if (leftoverBucketsEqual(next, leftoverOverflow)) return;
     leftoverOverflowRef.current = next;
     saveLeftoverOverflow(next);
     setLeftoverOverflow(next);
-  }, [leftoverOverflow, tasks, todayKeyStr]);
+  }, [leftoverOverflow, tasks, todayKeyStr, packedTodayKey]);
 
   // Clear forced At Risk → Overflow ids on calendar day change.
   useEffect(() => {
@@ -6301,7 +6361,6 @@ function App() {
       if (
         attachMenuOpen ||
         composeKindMenuOpen ||
-        assistProPromptOpen ||
         durationMenuOpen ||
         recurringMenuOpen ||
         impactMenuOpen ||
@@ -6309,7 +6368,6 @@ function App() {
       ) {
         setAttachMenuOpen(false);
         setComposeKindMenuOpen(false);
-        setAssistProPromptOpen(false);
         setDurationMenuOpen(false);
         setRecurringMenuOpen(false);
         setImpactMenuOpen(false);
@@ -6326,33 +6384,12 @@ function App() {
     collapsed,
     attachMenuOpen,
     composeKindMenuOpen,
-    assistProPromptOpen,
     durationMenuOpen,
     recurringMenuOpen,
     impactMenuOpen,
     taskToolHint,
     isComposerDirty,
   ]);
-
-  useEffect(() => {
-    if (!assistProPromptOpen) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (assistProPromptMenuRef.current?.contains(target)) return;
-      if (composeAddButtonRef.current?.contains(target)) return;
-      setAssistProPromptOpen(false);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [assistProPromptOpen]);
-
-  useEffect(() => {
-    if (composeKind === "assistant" && hasText) return;
-    setAssistProPromptOpen(false);
-  }, [composeKind, hasText]);
 
   useEffect(() => {
     if (!attachMenuOpen) return;
@@ -6712,6 +6749,52 @@ function App() {
                   onClick={confirmComposerSavePrompt}
                 >
                   Save
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      {recurringSchedulePromptOpen &&
+        createPortal(
+          <div className="task-delete-prompt" role="presentation">
+            <button
+              type="button"
+              className="task-delete-prompt-scrim"
+              aria-label="Cancel and keep editing"
+              onClick={() => setRecurringSchedulePromptOpen(false)}
+            />
+            <div
+              className="task-delete-prompt-panel twineline-save-prompt"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Change this task or all future?"
+            >
+              <button
+                type="button"
+                className="twineline-save-prompt-dismiss"
+                onClick={() => setRecurringSchedulePromptOpen(false)}
+                aria-label="Cancel and keep editing"
+              >
+                <CloseIcon />
+              </button>
+              <p className="twineline-save-prompt-title">
+                Change this task or all future?
+              </p>
+              <div className="twineline-save-prompt-actions">
+                <button
+                  type="button"
+                  className="twineline-save-prompt-secondary"
+                  onClick={applyRecurringScheduleJustThisOnce}
+                >
+                  Just This Once
+                </button>
+                <button
+                  type="button"
+                  className="twineline-save-prompt-primary"
+                  onClick={applyRecurringScheduleAllFuture}
+                >
+                  All Future Tasks
                 </button>
               </div>
             </div>
@@ -7100,9 +7183,12 @@ function App() {
         )}
         {activeView === "plans" && (
           <PlansView
-            plans={tasks
-              .filter((task) => isPlanTaskType(task.type))
-              .sort(compareSoftPriority)}
+            plans={dedupeSeriesClosestToNow(
+              tasks
+                .filter((task) => isPlanTaskType(task.type))
+                .sort(compareSoftPriority),
+              new Date(countdownNow),
+            )}
             tasks={tasks}
             now={new Date(countdownNow)}
             onEditPlan={(plan) => {
@@ -7138,8 +7224,12 @@ function App() {
         )}
         {activeView === "lists" && (
           <ListsView
-            lists={tasks.filter((task) => task.type === "list")}
+            lists={dedupeSeriesClosestToNow(
+              tasks.filter((task) => task.type === "list"),
+              new Date(countdownNow),
+            )}
             tasks={tasks}
+            now={new Date(countdownNow)}
             onEditList={(list) => {
               setFocusedOverflowTaskIds(null);
               setFocusedTaskId(null);
@@ -7265,9 +7355,12 @@ function App() {
                 emptyText: "No entries yet. Log one in the composer.",
               },
             }[activeView];
-            const kindItems = tasks
-              .filter((task) => task.type === kindConfig.type)
-              .sort(compareSoftPriority);
+            const kindItems = dedupeSeriesClosestToNow(
+              tasks
+                .filter((task) => task.type === kindConfig.type)
+                .sort(compareSoftPriority),
+              new Date(countdownNow),
+            );
             return (
               <TypedKindView
                 title={kindConfig.title}
@@ -7509,10 +7602,11 @@ function App() {
                 return true;
               });
               const dayOverflow = overflowForDay(day);
+              const leftoverCount = isTodayGroup ? leftoverOverDueRows.length : 0;
               const showOverdueToggle =
                 activeView === "dayline" &&
                 !calendarOpen &&
-                dayOverflow.count > 0;
+                (dayOverflow.count > 0 || leftoverCount > 0);
               return (
                 <section
                   key={day.dayKey}
@@ -7538,16 +7632,12 @@ function App() {
                     !calendarOpen &&
                     renderTimelineNotices()}
                   {isTodayGroup &&
+                    showOverdueToggle &&
+                    renderOverflowSection(day)}
+                  {isTodayGroup &&
                     activeView === "dayline" &&
                     !calendarOpen &&
                     renderCurrentFocus()}
-                  {isTodayGroup &&
-                    activeView === "dayline" &&
-                    !calendarOpen &&
-                    renderLeftoverOverflowSections()}
-                  {isTodayGroup &&
-                    showOverdueToggle &&
-                    renderOverflowSection(day)}
                   {dayTasks.length > 0 && (
                     <div className="task-day-next">
                       {isTodayGroup && activeView === "dayline" && !calendarOpen && (
@@ -7626,10 +7716,11 @@ function App() {
               );
               const isTodayGroup = day.dayKey === todayKey;
               const dayOverflow = overflowForDay(day);
+              const leftoverCount = isTodayGroup ? leftoverOverDueRows.length : 0;
               const showOverdueToggle =
                 activeView === "dayline" &&
                 !calendarOpen &&
-                dayOverflow.count > 0;
+                (dayOverflow.count > 0 || leftoverCount > 0);
               const toggleOutsideRegion = (region: OutsideRegionId) => {
                 setOutsideExpandedByDay((current) => {
                   const prev = current[day.dayKey] ?? {};
@@ -7668,16 +7759,12 @@ function App() {
                   !calendarOpen &&
                   renderTimelineNotices()}
                 {isTodayGroup &&
+                  showOverdueToggle &&
+                  renderOverflowSection(day)}
+                {isTodayGroup &&
                   activeView === "dayline" &&
                   !calendarOpen &&
                   renderCurrentFocus()}
-                {isTodayGroup &&
-                  activeView === "dayline" &&
-                  !calendarOpen &&
-                  renderLeftoverOverflowSections()}
-                {isTodayGroup &&
-                  showOverdueToggle &&
-                  renderOverflowSection(day)}
                 <div
                   className="calendar-timeline-body"
                   style={{ height: Math.max(PX_PER_MINUTE, view.visibleDisplayPx) }}
@@ -7815,6 +7902,15 @@ function App() {
               </button>
             );
           })}
+          <button
+            type="button"
+            className={`app-tray-tab${searchOpen ? " is-active" : ""}`}
+            onClick={openSearch}
+            aria-label="Search"
+            tabIndex={collapsed && !searchOpen ? 0 : -1}
+          >
+            <SearchIcon />
+          </button>
           <div className="app-tray-more">
             <ComposerOverlayMenu
               open={moreMenuOpen && !searchOpen}
@@ -7878,39 +7974,20 @@ function App() {
                 </div>
               </div>
               <div className="app-compose-kind-menu-divider" role="separator" />
-              <div className="app-compose-kind-menu-columns">
-                <div className="app-compose-kind-menu-column">
-                  <button
-                    type="button"
-                    className={`app-attach-menu-item${activeView === "logs" ? " is-selected" : ""}`}
-                    role="menuitem"
-                    onClick={() => selectView("logs")}
-                  >
-                    <LogIcon />
-                    <span>Entries</span>
-                  </button>
-                </div>
-                <div
-                  className="app-compose-kind-menu-divider app-compose-kind-menu-divider-vert"
-                  role="separator"
-                />
-                <div className="app-compose-kind-menu-column">
-                  <button
-                    type="button"
-                    className="app-attach-menu-item app-tray-more-search"
-                    role="menuitem"
-                    onClick={openSearch}
-                  >
-                    <SearchIcon />
-                    <span>Search</span>
-                  </button>
-                </div>
-              </div>
+              <button
+                type="button"
+                className={`app-attach-menu-item app-compose-kind-menu-span${activeView === "logs" ? " is-selected" : ""}`}
+                role="menuitem"
+                onClick={() => selectView("logs")}
+              >
+                <LogIcon />
+                <span>Entries</span>
+              </button>
             </ComposerOverlayMenu>
             <button
               ref={moreButtonRef}
               type="button"
-              className={`app-tray-more-button${moreButtonActive ? " is-active" : ""}`}
+              className={`app-tray-tab${moreButtonActive ? " is-active" : ""}`}
               onClick={() => {
                 setMoreMenuOpen((open) => !open);
               }}
@@ -7919,7 +7996,6 @@ function App() {
               aria-haspopup="menu"
               tabIndex={collapsed && !searchOpen ? 0 : -1}
             >
-              <span className="app-tray-more-divider" aria-hidden="true" />
               <MoreIcon />
             </button>
           </div>
@@ -8016,34 +8092,16 @@ function App() {
             aria-hidden={collapsed}
             {...(collapsed ? { inert: true } : {})}
           >
+            <button
+              type="button"
+              className="app-composer-collapse"
+              onClick={requestCloseComposer}
+              aria-label="Close"
+              tabIndex={collapsed ? -1 : 0}
+            >
+              <CloseIcon />
+            </button>
             <div className="app-composer-focus-controls">
-              {editingTaskId != null ? (
-                <button
-                  type="button"
-                  className="app-composer-delete-btn"
-                  aria-label="Delete"
-                  tabIndex={collapsed ? -1 : 0}
-                  onClick={() => requestDeleteTask(editingTaskId)}
-                >
-                  Delete
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="app-composer-delete-btn"
-                  aria-label="Cancel"
-                  tabIndex={collapsed ? -1 : 0}
-                  onClick={requestCloseComposer}
-                >
-                  Cancel
-                </button>
-              )}
-              {(composeKind === "task" ||
-                composeKind === "item" ||
-                composeKind === "event") &&
-                renderCurrentFocusControls(
-                  editingTaskId != null ? content : null,
-                )}
               {(composeKind === "task" ||
                 composeKind === "item" ||
                 composeKind === "event") && (
@@ -8058,6 +8116,35 @@ function App() {
                   Assist
                 </button>
               )}
+              {(() => {
+                const isFocusKind =
+                  composeKind === "task" ||
+                  composeKind === "item" ||
+                  composeKind === "event";
+                const deleteTool =
+                  editingTaskId != null ? (
+                    <button
+                      type="button"
+                      className="task-current-focus-tool"
+                      aria-label="Delete"
+                      title="Delete"
+                      tabIndex={collapsed ? -1 : 0}
+                      onClick={() => requestDeleteTask(editingTaskId)}
+                    >
+                      <TrashIcon />
+                    </button>
+                  ) : null;
+                if (isFocusKind) {
+                  return renderCurrentFocusControls(
+                    editingTaskId != null ? content : null,
+                    deleteTool,
+                  );
+                }
+                if (deleteTool == null) return null;
+                return (
+                  <div className="task-current-focus-controls">{deleteTool}</div>
+                );
+              })()}
             </div>
             {showComposerTaskRowChrome ? (
               <div className={`task-row is-${composerScheduleKind} app-composer-task-row`}>
@@ -8216,39 +8303,6 @@ function App() {
                   autoComplete="off"
                   tabIndex={collapsed ? -1 : 0}
                 />
-              </div>
-            )}
-            {recurringSchedulePromptOpen && (
-              <div
-                className="twineline-save-prompt"
-                role="dialog"
-                aria-label="Change Schedule For..."
-              >
-                <button
-                  type="button"
-                  className="twineline-save-prompt-dismiss"
-                  onClick={() => setRecurringSchedulePromptOpen(false)}
-                  aria-label="Cancel and keep editing"
-                >
-                  <CloseIcon />
-                </button>
-                <p className="twineline-save-prompt-title">Change Schedule For...</p>
-                <div className="twineline-save-prompt-actions">
-                  <button
-                    type="button"
-                    className="twineline-save-prompt-secondary"
-                    onClick={applyRecurringScheduleJustThisOnce}
-                  >
-                    Just This Once
-                  </button>
-                  <button
-                    type="button"
-                    className="twineline-save-prompt-primary"
-                    onClick={applyRecurringScheduleAllFuture}
-                  >
-                    All Future Tasks
-                  </button>
-                </div>
               </div>
             )}
             <div className="app-composer-tools">
@@ -9633,45 +9687,22 @@ function App() {
                     </div>
                   </div>
                   <div className="app-compose-kind-menu-divider" role="separator" />
-                  <div className="app-compose-kind-menu-columns">
-                    <div className="app-compose-kind-menu-column">
-                      <button
-                        type="button"
-                        className={`app-attach-menu-item${composeKind === "log" ? " is-selected" : ""}`}
-                        role="menuitem"
-                        onClick={() => {
-                          clearComposerMetaAuto("type");
-                          setComposeKind("log");
-                          setComposeKindMenuOpen(false);
-                        }}
-                      >
-                        <span className="app-compose-kind-plus is-check" aria-hidden="true">
-                          <CheckIcon />
-                        </span>
-                        <LOG_COMPOSE_KIND.Icon />
-                        <span>{LOG_COMPOSE_KIND.label}</span>
-                      </button>
-                    </div>
-                    <div
-                      className="app-compose-kind-menu-divider app-compose-kind-menu-divider-vert"
-                      role="separator"
-                    />
-                    <div className="app-compose-kind-menu-column">
-                      <button
-                        type="button"
-                        className={`app-attach-menu-item${composeKind === "assistant" ? " is-selected" : ""}`}
-                        role="menuitem"
-                        onClick={() => {
-                          clearComposerMetaAuto("type");
-                          setComposeKind("assistant");
-                          setComposeKindMenuOpen(false);
-                        }}
-                      >
-                        <ASSISTANT_COMPOSE_KIND.Icon />
-                        <span>{ASSISTANT_COMPOSE_KIND.label}</span>
-                      </button>
-                    </div>
-                  </div>
+                  <button
+                    type="button"
+                    className={`app-attach-menu-item app-compose-kind-menu-span${composeKind === "log" ? " is-selected" : ""}`}
+                    role="menuitem"
+                    onClick={() => {
+                      clearComposerMetaAuto("type");
+                      setComposeKind("log");
+                      setComposeKindMenuOpen(false);
+                    }}
+                  >
+                    <span className="app-compose-kind-plus" aria-hidden="true">
+                      +
+                    </span>
+                    <LOG_COMPOSE_KIND.Icon />
+                    <span>{LOG_COMPOSE_KIND.label}</span>
+                  </button>
                 </ComposerOverlayMenu>
                 <button
                   ref={composeKindButtonRef}
@@ -9681,7 +9712,6 @@ function App() {
                   aria-expanded={composeKindMenuOpen}
                   onClick={() => {
                     setAttachMenuOpen(false);
-                    setAssistProPromptOpen(false);
                     setDurationMenuOpen(false);
                     setImpactMenuOpen(false);
                     closeTaskToolHint();
@@ -9690,93 +9720,41 @@ function App() {
                   }}
                   tabIndex={collapsed ? -1 : 0}
                 >
-                  <span>
-                    {composeKind === "assistant" ? "Assist" : selectedComposeKind.label}
-                  </span>
+                  <span>{selectedComposeKind.label}</span>
                 </button>
-                <ComposerOverlayMenu
-                  open={assistProPromptOpen && !searchOpen}
-                  anchorRef={composeAddButtonRef}
-                  menuRef={assistProPromptMenuRef}
-                  align="end"
-                  role="dialog"
-                  className="app-assist-pro-prompt"
-                  aria-label="AI Assistant Pro"
-                >
-                  <div className="app-assist-pro-prompt-icon" aria-hidden="true">
-                    <PremiumIcon />
-                  </div>
-                  <p className="app-assist-pro-prompt-title">AI Assistant is a Pro feature</p>
-                  <p className="app-assist-pro-prompt-body">
-                    Try Pro features free for 7 days and put an AI assistant in your Dayline.
-                  </p>
-                  <button
-                    type="button"
-                    className="app-attach-trial-button"
-                    onClick={() => {
-                      // Placeholder — Pro trial flow not wired yet.
-                      setAssistProPromptOpen(false);
-                    }}
-                  >
-                    Turn on Pro features
-                  </button>
-                  <p className="app-attach-trial-note">free for 7 days</p>
-                </ComposerOverlayMenu>
                 <button
                   ref={composeAddButtonRef}
                   type="button"
                   className={`app-composer-icon app-composer-add${
-                    composeActionReady
-                      ? " is-ready"
-                      : assistActionReady
-                        ? " is-pro-ready"
-                        : ""
+                    composeActionReady ? " is-ready" : ""
                   }`}
                   aria-label={
-                    assistActionReady
-                      ? "AI Assistant Pro"
-                      : composeActionReady
-                        ? editingTaskId != null
-                          ? "Save"
-                          : "Send"
-                        : "Choose compose type"
+                    composeActionReady
+                      ? editingTaskId != null
+                        ? "Save"
+                        : "Send"
+                      : "Choose compose type"
                   }
-                  aria-expanded={
-                    assistActionReady
-                      ? assistProPromptOpen
-                      : composeActionReady
-                        ? undefined
-                        : composeKindMenuOpen
-                  }
+                  aria-expanded={composeActionReady ? undefined : composeKindMenuOpen}
                   tabIndex={collapsed ? -1 : 0}
                   onClick={
-                    assistActionReady
-                      ? () => {
+                    composeActionReady
+                      ? editingTaskId != null
+                        ? () => {
+                            if (!isEditDirty) return;
+                            saveComposerChanges();
+                          }
+                        : () => {
+                            submitCreate();
+                          }
+                      : () => {
                           setAttachMenuOpen(false);
-                          setComposeKindMenuOpen(false);
                           setDurationMenuOpen(false);
                           setImpactMenuOpen(false);
                           closeTaskToolHint();
-                          setAssistProPromptOpen((open) => !open);
+                          clearComposerMetaAuto("type");
+                          setComposeKindMenuOpen((open) => !open);
                         }
-                      : composeActionReady
-                        ? editingTaskId != null
-                          ? () => {
-                              if (!isEditDirty) return;
-                              saveComposerChanges();
-                            }
-                          : () => {
-                              submitCreate();
-                            }
-                        : () => {
-                            setAttachMenuOpen(false);
-                            setAssistProPromptOpen(false);
-                            setDurationMenuOpen(false);
-                            setImpactMenuOpen(false);
-                            closeTaskToolHint();
-                            clearComposerMetaAuto("type");
-                            setComposeKindMenuOpen((open) => !open);
-                          }
                   }
                 >
                   {composeActionReady ? (
@@ -9788,13 +9766,7 @@ function App() {
                   ) : (
                     <ComposeAddIcon
                       Icon={SelectedComposeIcon}
-                      badge={
-                        editingTaskId != null
-                          ? "edit"
-                          : composeKind !== "assistant"
-                            ? "plus"
-                            : "none"
-                      }
+                      badge={editingTaskId != null ? "edit" : "plus"}
                     />
                   )}
                 </button>

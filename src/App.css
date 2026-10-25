@@ -2179,6 +2179,16 @@
   text-transform: uppercase;
 }
 
+.task-overflow-overdue .task-row-schedule,
+.task-overflow-overdue .task-row-schedule.is-auto,
+.task-list.is-compact .task-overflow-overdue .task-row-schedule,
+.task-list.is-compact .task-overflow-overdue .task-row-schedule.is-auto,
+.task-overdue-tasks .task-overflow-overdue .task-row-schedule,
+.task-overflow-overdue .task-overdue-tasks .task-row-schedule,
+.task-overflow-overdue .task-overdue-tasks .task-row-schedule.is-auto {
+  color: var(--danger);
+}
+
 .task-overdue-divider {
   width: 100%;
   height: 1px;
@@ -3664,7 +3674,7 @@
   gap: 4px;
   flex: 0 1 auto;
   width: 100%;
-  max-width: calc(495px + var(--tray-fab-overlap));
+  max-width: 100%;
   min-width: 0;
   height: auto;
   min-height: var(--tray-pill);
@@ -4581,55 +4591,14 @@
 
 .app-tray-more {
   position: relative;
-  display: inline-flex;
+  display: flex;
   align-self: stretch;
-  flex-shrink: 0;
-  margin: -2px 0 -2px auto;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
-.app-tray-more-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 100%;
-  min-height: 0;
-  padding: 0 12px 0 8px;
-  border: 0;
-  border-radius: 0 999px 999px 0;
-  background: transparent;
-  color: var(--text-h);
-  white-space: nowrap;
-  font-size: 0.85rem;
-  flex-shrink: 0;
-}
-
-.app-tray-more-button svg {
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-}
-
-.app-tray-more-divider {
-  width: 1px;
-  height: 22px;
-  background: var(--border);
-  flex-shrink: 0;
-}
-
-.app-tray-more-button:hover,
-.app-tray-more-button:active,
-.app-tray-more-button.is-active {
-  background: transparent;
-}
-
-.app-tray-more-button.is-active {
-  color: var(--accent);
-}
-
-.app-tray-more-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+.app-tray-more .app-tray-tab {
+  width: 100%;
 }
 
 .app-attach-menu {
@@ -4856,50 +4825,14 @@
   color: var(--text);
 }
 
-.app-composer-focus-controls .app-composer-delete-btn {
-  justify-self: start;
-}
-
 .app-composer-focus-controls .task-current-focus-controls {
   justify-self: center;
   margin-left: 0;
 }
 
 .app-composer-focus-controls .app-composer-pivot-btn {
-  justify-self: end;
+  justify-self: start;
   margin-left: 0;
-}
-
-.app-composer-delete-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 28px;
-  margin: 0;
-  padding: 0 12px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.app-composer-delete-btn:hover,
-.app-composer-delete-btn:focus-visible {
-  color: var(--text-h);
-  background: color-mix(in srgb, var(--text) 8%, transparent);
-}
-
-.app-composer-delete-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.app-composer-delete-btn:active {
-  transform: translateY(0.5px);
 }
 
 .app-composer-pivot-btn {
@@ -4961,6 +4894,47 @@
     --accent: #c084fc;
     --accent-bg: rgba(192, 132, 252, 0.15);
   }
+}
+
+.app-composer-collapse {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 0.2s ease 0.12s;
+}
+
+.app-composer.is-collapsed .app-composer-collapse {
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0s;
+}
+
+.app-composer-collapse svg {
+  width: 14px;
+  height: 14px;
+}
+
+.app-composer-collapse:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.app-composer-field.ui-outer-fade > .app-composer-collapse {
+  position: absolute;
+  z-index: 4;
 }
 
 .app-composer.is-collapsed .app-composer-field {
@@ -5428,67 +5402,6 @@
 .app-compose-action .app-composer-add.is-ready {
   background: var(--accent);
   color: #fff;
-}
-
-.app-compose-action .app-composer-add.is-pro-ready {
-  background: #c9a227;
-  color: #fff;
-}
-
-@media (prefers-color-scheme: dark) {
-  .app-compose-action .app-composer-add.is-pro-ready {
-    background: #e0c35a;
-    color: #1a1608;
-  }
-}
-
-.app-assist-pro-prompt {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  min-width: min(280px, calc(100vw - 24px));
-  max-width: 300px;
-  padding: 16px 14px 12px;
-  text-align: center;
-}
-
-.app-assist-pro-prompt-icon {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: color-mix(in srgb, #c9a227 18%, var(--bg-raised));
-  color: #c9a227;
-}
-
-.app-assist-pro-prompt-icon svg {
-  width: 20px;
-  height: 20px;
-  display: block;
-}
-
-.app-assist-pro-prompt-title {
-  margin: 0;
-  color: var(--text-h);
-  font-size: 0.95rem;
-  font-weight: 700;
-  line-height: 1.25;
-}
-
-.app-assist-pro-prompt-body {
-  margin: 0 0 4px;
-  color: var(--text);
-  font-size: 0.84rem;
-  line-height: 1.35;
-}
-
-@media (prefers-color-scheme: dark) {
-  .app-assist-pro-prompt-icon {
-    background: color-mix(in srgb, #e0c35a 20%, var(--bg-raised));
-    color: #e0c35a;
-  }
 }
 
 .app-compose-add-icon {

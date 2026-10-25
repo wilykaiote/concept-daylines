@@ -5,11 +5,12 @@ import { NamedCollectionView } from "./NamedCollectionView";
 type ListsViewProps = {
   lists: ComposerDraft[];
   tasks: ComposerDraft[];
+  now?: Date;
   onEditList?: (list: ComposerDraft) => void;
   renderChild: (task: ComposerDraft, list: ComposerDraft) => ReactNode;
 };
 
-export function ListsView({ lists, tasks, onEditList, renderChild }: ListsViewProps) {
+export function ListsView({ lists, tasks, now, onEditList, renderChild }: ListsViewProps) {
   return (
     <NamedCollectionView
       title="Lists"
@@ -17,6 +18,8 @@ export function ListsView({ lists, tasks, onEditList, renderChild }: ListsViewPr
       emptyText="No lists yet. Name one in the composer."
       containers={lists}
       tasks={tasks}
+      dedupeSeries
+      now={now}
       childNounSingular="item"
       childNounPlural="items"
       emptyChildrenText="No items linked yet"

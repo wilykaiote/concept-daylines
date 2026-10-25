@@ -500,6 +500,7 @@ function packSoftTasks(
   _frozenPlacements: ReadonlyMap<string, SoftPackPlacement>,
   layoutThrough: Date | null = null,
   parentById: ReadonlyMap<string, ComposerDraft> = new Map(),
+  catchUp: ComposerDraft[] = [],
 ) {
   void _frozenPlacements;
   // Baseline no longer soft-fills today; dated-today softs use Overflow instead.
@@ -511,8 +512,10 @@ function packSoftTasks(
   for (const [key, list] of dateOnlyByDay) {
     dateOnlyQueues.set(key, [...list].sort(compareSoftPriority));
   }
+  const catchUpQueue = sortOverdueTasks(catchUp);
 
   const todayStart = toStartOfDay(now);
+  const todayKey = dayKey(todayStart);
   const throughCap = layoutThrough != null ? toStartOfDay(layoutThrough) : null;
   let day = todayStart;
   let guard = 0;
@@ -520,7 +523,14 @@ function packSoftTasks(
   // deferredByDay kept for API compat; undated no longer spill into Overflow/Deferring.
   void deferredByDay;
 
+  const drainCatchUpToTodayOverflow = () => {
+    while (catchUpQueue.length > 0) {
+      pushDayOverflow(overdueByDay, todayKey, catchUpQueue.shift()!);
+    }
+  };
+
   const hasRemaining = () =>
+    catchUpQueue.length > 0 ||
     undatedQueue.length > 0 ||
     [...dateOnlyQueues.values()].some((list) => list.length > 0);
 
@@ -551,6 +561,7 @@ function packSoftTasks(
     const packStart = softPackStartForDay(day, now, packEnd, windowStart);
     if (packStart >= packEnd) {
       drainDateOnlyToOverdue(key);
+      if (key === todayKey) drainCatchUpToTodayOverflow();
       day = addDays(day, 1);
       continue;
     }
@@ -564,6 +575,7 @@ function packSoftTasks(
     let free = freeIntervals(packStart, packEnd, occupied);
     if (free.length === 0) {
       drainDateOnlyToOverdue(key);
+      if (key === todayKey) drainCatchUpToTodayOverflow();
       day = addDays(day, 1);
       continue;
     }
@@ -587,6 +599,21 @@ function packSoftTasks(
       free = consumeFreeWithGap(free, range, gap);
     }
     dateOnlyQueues.set(key, sameDayQueue);
+
+    // Priority 1b (today only): leftover / past-dated catch-up into remaining holes.
+    if (key === todayKey) {
+      while (catchUpQueue.length > 0) {
+        const task = catchUpQueue[0];
+        const minutes = taskDurationMinutes(task);
+        const range = firstFitRange(free, minutes);
+        if (!range) break;
+        catchUpQueue.shift();
+        // Catch-up sits on today's track; keep stored date/time for the row label.
+        pushBlock(byDay, day, task, range.start, range.end, 0, false);
+        free = consumeFreeWithGap(free, range, gap);
+      }
+      drainCatchUpToTodayOverflow();
+    }
 
     // Priority 2: undated softs — fill today free time, then first-fit tomorrow+.
     while (undatedQueue.length > 0) {
@@ -1080,6 +1107,7 @@ export function layoutCalendarTasks(
   const timed: ComposerDraft[] = [];
   const dateOnlyByDay = new Map<string, ComposerDraft[]>();
   const undated: ComposerDraft[] = [];
+  const catchUp: ComposerDraft[] = [];
   let focusTask: ComposerDraft | null = null;
 
   for (const task of tasks) {
@@ -1093,19 +1121,19 @@ export function layoutCalendarTasks(
       continue;
     }
     const scheduled = parseTaskDate(task.date)!;
+    // Past-dated timed/date-only catch up on today as duration blocks.
+    if (scheduled.getTime() < todayStart.getTime()) {
+      catchUp.push(task);
+      continue;
+    }
     if (kind === "timed") {
       timed.push(task);
       continue;
     }
-    // Past calendar days → today's Rescheduling (catch-up). Today/future softs pack.
-    if (scheduled.getTime() < todayStart.getTime()) {
-      pushDayOverflow(overdueByDay, todayKey, task);
-    } else {
-      const key = dayKey(scheduled);
-      const list = dateOnlyByDay.get(key) ?? [];
-      list.push(task);
-      dateOnlyByDay.set(key, list);
-    }
+    const key = dayKey(scheduled);
+    const list = dateOnlyByDay.get(key) ?? [];
+    list.push(task);
+    dateOnlyByDay.set(key, list);
   }
 
   timed.sort((a, b) => {
@@ -1155,20 +1183,20 @@ export function layoutCalendarTasks(
       const kind = classifyTask(focusTask);
       if (kind === "undated") {
         undated.push(focusTask);
-      } else if (kind === "timed") {
-        placeTimedTask(
-          byDay,
-          focusTask,
-          now,
-          getPackEnd,
-          getWindowStart,
-          overdueByDay,
-          todayKey,
-        );
       } else {
         const scheduled = parseTaskDate(focusTask.date);
         if (scheduled && scheduled.getTime() < todayStart.getTime()) {
-          pushDayOverflow(overdueByDay, todayKey, focusTask);
+          catchUp.push(focusTask);
+        } else if (kind === "timed") {
+          placeTimedTask(
+            byDay,
+            focusTask,
+            now,
+            getPackEnd,
+            getWindowStart,
+            overdueByDay,
+            todayKey,
+          );
         } else if (scheduled) {
           const key = dayKey(scheduled);
           const list = dateOnlyByDay.get(key) ?? [];
@@ -1198,6 +1226,7 @@ export function layoutCalendarTasks(
     frozenById,
     layoutThrough,
     parentById,
+    catchUp,
   );
 
   // Safety: missed/unplaced tasks still belong in the right Overflow bucket.
