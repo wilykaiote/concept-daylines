@@ -1,5 +1,5 @@
 import type { ComposerDraft } from "./composer";
-import { addDays, parseTaskDate } from "./calendarTimeline";
+import { addDays, isAnchoredTaskMissed, parseTaskDate } from "./calendarTimeline";
 import { sameCalendarDay, toStartOfDay } from "./taskStorage";
 
 const TASK_META_MONTHS = [
@@ -51,9 +51,15 @@ function formatTaskClockLabel(hhmm: string): string | null {
 }
 
 export function formatTaskScheduleMetaLabel(
-  task: Pick<ComposerDraft, "date" | "starts_at" | "due_at">,
+  task: Pick<ComposerDraft, "date" | "starts_at" | "due_at"> &
+    Pick<Partial<ComposerDraft>, "est_duration">,
   now: Date,
+  options?: { overflow?: boolean },
 ): string | null {
+  if (options?.overflow && isAnchoredTaskMissed(task as ComposerDraft, now)) {
+    return "OVERDUE";
+  }
+
   const date = parseTaskDate(task.date);
   if (!date) return null;
 

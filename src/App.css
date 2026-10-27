@@ -2024,41 +2024,54 @@
   scroll-margin-top: calc(var(--twineline-chrome-height, 0px) + 8px);
 }
 
-.task-day-notice-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding-top: 4px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
-}
-
 .task-timeline-notice {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   box-sizing: border-box;
   margin: 0;
-  padding: 6px 10px 6px 12px;
-  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  border-radius: 12px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--text) 78%, var(--bg-raised));
+  color: color-mix(in srgb, var(--text) 52%, transparent);
   box-shadow: none;
+}
+
+.task-timeline-notice-list {
+  list-style: none;
+  margin: 2px 0 10px;
+  padding: 2px 4px 4px;
+}
+
+.task-day-tasks > .task-timeline-notice {
+  list-style: none;
+}
+
+.task-timeline-notice-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-timeline-notice-rest {
+  flex-shrink: 0;
 }
 
 .task-timeline-notice-day-link {
   display: inline;
+  flex-shrink: 0;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: inherit;
+  color: var(--accent);
   font: inherit;
-  font-weight: 650;
+  font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
@@ -2075,37 +2088,19 @@
 }
 
 .task-timeline-notice-body {
+  display: flex;
+  align-items: baseline;
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
   color: inherit;
-  font-size: 0.9rem;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  line-height: 1.4;
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
   text-align: left;
   text-transform: none;
-}
-
-.task-timeline-notice-count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 1.4em;
-  margin-right: 0.15em;
-  padding: 0.05em 0.35em;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-  color: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.25;
-  vertical-align: 0.05em;
-}
-
-.task-timeline-notice .task-overflow-notice-overflow {
-  color: inherit;
-  font-weight: 650;
+  white-space: nowrap;
 }
 
 .task-timeline-notice-dismiss {
@@ -2113,20 +2108,20 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  margin: -2px -4px 0 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 1.15rem;
-  font-weight: 500;
+  font-size: 0.95rem;
+  font-weight: 400;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.45;
+  opacity: 0.4;
 }
 
 .task-timeline-notice-dismiss:hover {
@@ -2153,30 +2148,6 @@
   flex-direction: column;
   gap: 6px;
   min-width: 0;
-}
-
-.task-overflow-bucket-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  min-width: 0;
-  width: 100%;
-  padding: 8px 12px 4px;
-}
-
-.task-overflow-bucket-label {
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-  width: 100%;
-  color: var(--text);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  line-height: 1.35;
-  text-align: center;
-  text-transform: uppercase;
 }
 
 .task-overflow-overdue .task-row-schedule,
@@ -3177,6 +3148,13 @@
   white-space: nowrap;
 }
 
+.task-row-schedule.is-overdue-label,
+.task-list.is-compact .task-row-schedule.is-overdue-label,
+.task-overdue-tasks .task-row-schedule.is-overdue-label,
+.task-overdue-tasks .task-row-schedule.is-overdue-label.is-auto {
+  color: var(--danger);
+}
+
 /* Unverified default/auto meta — same orange as composer auto-reschedule.
    Task type labels are excluded — type is never shown as auto/orange. */
 .task-row-schedule.is-auto,
@@ -3701,6 +3679,22 @@
   border-color: transparent;
   transform: translateX(-12px);
   pointer-events: none;
+}
+
+@media (max-width: 560px) {
+  .app-tray {
+    left: 0;
+  }
+
+  .app-tray-tabs {
+    --tray-fab-overlap: calc(var(--space) + var(--fab-size) + 10px);
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+    margin-right: calc(-1 * var(--tray-fab-overlap));
+    padding-left: max(2px, env(safe-area-inset-left, 0px));
+    border-radius: 0;
+  }
 }
 
 .app-tray-search-field {
