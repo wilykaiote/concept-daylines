@@ -1990,6 +1990,11 @@
   box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent);
 }
 
+.task-day-overflow-row.is-overdue-section:not(.task-day-notice-row) {
+  border-left-color: color-mix(in srgb, var(--danger) 70%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-raised));
+}
+
 .task-day-overflow-row:not(.task-day-notice-row):has(.task-overdue-toggle.is-defer-only) {
   border-left-color: color-mix(in srgb, var(--text) 22%, var(--border));
   background: color-mix(in srgb, var(--bg-raised) 92%, var(--text) 3%);
@@ -2191,6 +2196,12 @@
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   background: color-mix(in srgb, var(--accent) 14%, var(--bg-raised));
   color: var(--accent);
+}
+
+.task-day-overflow-row.is-overdue-section .task-overflow-pivot-btn {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  background: color-mix(in srgb, var(--danger) 14%, var(--bg-raised));
+  color: var(--danger);
 }
 
 .task-day-label-row .task-overdue-toggle-action {

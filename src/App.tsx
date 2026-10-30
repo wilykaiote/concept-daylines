@@ -1843,7 +1843,7 @@ function ComposerOverlayMenu({
 }
 
 type TimelineNoticeKind = "overflow" | "recovered" | "at-risk" | "deferred";
-type TimelineNoticeSection = "focus" | "up-next" | "overflow";
+type TimelineNoticeSection = "focus" | "up-next" | "overflow" | "overdue";
 type TimelineNoticeDestKind = "overflow" | "day" | "up-next" | "focus" | "at-risk";
 type TimelineNoticeSlot = {
   section: TimelineNoticeSection;
@@ -2093,8 +2093,10 @@ function App() {
   const editTaskBaselineRef = useRef(editTaskBaseline);
   editTaskBaselineRef.current = editTaskBaseline;
   const [composerSavePromptOpen, setComposerSavePromptOpen] = useState(false);
-  const [overflowReschedulePromptDayKey, setOverflowReschedulePromptDayKey] =
-    useState<string | null>(null);
+  const [overflowReschedulePrompt, setOverflowReschedulePrompt] = useState<{
+    dayKey: string;
+    source: "overflow" | "overdue";
+  } | null>(null);
   const [recurringSchedulePromptOpen, setRecurringSchedulePromptOpen] = useState(false);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [focusedOverflowTaskIds, setFocusedOverflowTaskIds] = useState<string[] | null>(null);
@@ -2122,11 +2124,16 @@ function App() {
   const [homeOverdueSectionOpen] = useState(
     () => INITIAL_UI_SESSION?.homeOverdueSectionOpen ?? false,
   );
+  const [overdueListOpen, setOverdueListOpen] = useState(
+    () => INITIAL_UI_SESSION?.overdueListOpen ?? true,
+  );
   const [planCompletedCounts, setPlanCompletedCounts] = useState(loadPlanCompletedCounts);
   const overdueSectionOpenByDayRef = useRef(overdueSectionOpenByDay);
   overdueSectionOpenByDayRef.current = overdueSectionOpenByDay;
   const homeOverdueSectionOpenRef = useRef(homeOverdueSectionOpen);
   homeOverdueSectionOpenRef.current = homeOverdueSectionOpen;
+  const overdueListOpenRef = useRef(overdueListOpen);
+  overdueListOpenRef.current = overdueListOpen;
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [timePickerDay, setTimePickerDay] = useState(() => toStartOfDay(new Date()));
   const [timePickerBaseline, setTimePickerBaseline] = useState<{
@@ -2166,6 +2173,7 @@ function App() {
   tasksRef.current = tasks;
   const [timelineNotices, setTimelineNotices] = useState<TimelineNotice[]>([]);
   const prevOverflowOrderRef = useRef<string[] | null>(null);
+  const prevOverdueOrderRef = useRef<string[] | null>(null);
   const prevFocusIdRef = useRef<string | null | undefined>(undefined);
   const prevUpNextIdsRef = useRef<string[] | null>(null);
   const prevAtRiskIdRef = useRef<string | null | undefined>(undefined);
@@ -2525,14 +2533,11 @@ function App() {
         ]
       : dayOverdue
     ).filter((task) => task.id == null || !leftoverOverflowIds.has(task.id));
-    const overdueIdSet = new Set(
-      overdue.map((task) => task.id).filter((id): id is string => id != null),
-    );
     const rows = [...overdue]
       .sort(compareOverflowTimelineOrder)
       .map((task) => ({
         task,
-        overdue: task.id != null && overdueIdSet.has(task.id),
+        overdue: false as const,
       }));
     return {
       rows,
@@ -4364,6 +4369,7 @@ function App() {
       activeView: view as UiSessionViewId,
       scrollByView,
       overdueSectionOpen: overdueSectionOpenByDayRef.current[todayOpenKey] ?? true,
+      overdueListOpen: overdueListOpenRef.current,
       homeOverdueSectionOpen: homeOverdueSectionOpenRef.current,
     };
     if (view === "dayline" || timelineDayCountRef.current !== DEFAULT_TIMELINE_DAY_COUNT) {
@@ -4931,16 +4937,15 @@ function App() {
     </div>
   );
 
-  const runAutomaticOverflowReschedule = (sourceDayKey: string = todayKeyStr) => {
+  const runAutomaticOverflowReschedule = (
+    sourceDayKey: string = todayKeyStr,
+    source: "overflow" | "overdue" = "overflow",
+  ) => {
     const sourceLayout = calendarTaskLayout.find((day) => day.dayKey === sourceDayKey);
-    const sourceOverflow = overflowForDay(sourceLayout);
     const overflowToReschedule =
-      sourceDayKey === todayKeyStr
-        ? [
-            ...leftoverOverDueRows.map((row) => row.task),
-            ...sourceOverflow.tasks,
-          ]
-        : sourceOverflow.tasks;
+      source === "overdue"
+        ? leftoverOverDueRows.map((row) => row.task)
+        : overflowForDay(sourceLayout).tasks;
     const overflowIds = new Set(
       overflowToReschedule
         .map((task) => task.id)
@@ -5201,10 +5206,14 @@ function App() {
       .filter((id): id is string => id != null);
 
   const currentOverflowOrder = () =>
-    [
-      ...leftoverOverDueRows.map((row) => row.task.id),
-      ...overflowTasks.map((task) => task.id),
-    ].filter((id): id is string => id != null);
+    overflowTasks
+      .map((task) => task.id)
+      .filter((id): id is string => id != null);
+
+  const currentOverdueOrder = () =>
+    leftoverOverDueRows
+      .map((row) => row.task.id)
+      .filter((id): id is string => id != null);
 
   const slotLeavingSchedule = (taskId: string): TimelineNoticeSlot => {
     const prevFocus = prevFocusIdRef.current;
@@ -5308,6 +5317,7 @@ function App() {
   const renderOverflowTaskRow = (
     task: ComposerDraft,
     overdue: boolean,
+    inOverflow: boolean,
   ) => (
     <CompactTaskRow
       key={task.id ?? task.title}
@@ -5327,34 +5337,42 @@ function App() {
         editTask(task);
       }}
       isCurrentFocus={todayFocusTask?.id === task.id}
-      inOverflow
+      inOverflow={inOverflow}
     />
   );
 
   const renderOverflowBucket = ({
     sectionKey,
     rows,
-    overDueRows = [],
     notices = [],
     label,
     ariaLabel,
     showPivot,
     attachTodayRefs,
     deferOnly,
+    pivotSource,
     pivotDayKey,
+    sectionOpen,
+    onToggleOpen,
+    rowTone,
+    taskInOverflow,
   }: {
     sectionKey: string;
     rows: Array<{ task: ComposerDraft; overdue: boolean }>;
-    overDueRows?: Array<{ task: ComposerDraft; overdue: boolean }>;
     notices?: TimelineNotice[];
     label: ReactNode;
     ariaLabel: string;
     showPivot: boolean;
     attachTodayRefs: boolean;
     deferOnly: boolean;
+    pivotSource: "overflow" | "overdue";
     pivotDayKey?: string;
+    sectionOpen: boolean;
+    onToggleOpen: () => void;
+    rowTone?: "overdue";
+    taskInOverflow: boolean;
   }) => {
-    const totalCount = overDueRows.length + rows.length;
+    const totalCount = rows.length;
     if (totalCount === 0 && notices.length === 0) return null;
     if (totalCount === 0) {
       return (
@@ -5365,11 +5383,12 @@ function App() {
         </ul>
       );
     }
-    const sectionOpen = overdueSectionOpenByDay[sectionKey] ?? false;
-    const listId = `task-overdue-list-${sectionKey}`;
+    const listId = `task-${pivotSource}-list-${sectionKey}`;
     return (
       <div key={sectionKey}>
-        <div className="task-day-label-row task-day-overflow-row">
+        <div
+          className={`task-day-label-row task-day-overflow-row${rowTone === "overdue" ? " is-overdue-section" : ""}`}
+        >
           <button
             ref={attachTodayRefs ? overflowToggleRef : undefined}
             type="button"
@@ -5377,17 +5396,7 @@ function App() {
             aria-expanded={sectionOpen}
             aria-controls={listId}
             aria-label={ariaLabel}
-            onClick={() => {
-              setOverdueSectionOpenByDay((current) => {
-                const next = {
-                  ...current,
-                  [sectionKey]: !(current[sectionKey] ?? false),
-                };
-                overdueSectionOpenByDayRef.current = next;
-                persistUiSession();
-                return next;
-              });
-            }}
+            onClick={onToggleOpen}
           >
             <span className="task-overdue-toggle-action">
               <span className="task-overdue-toggle-reschedule">
@@ -5404,7 +5413,10 @@ function App() {
               type="button"
               className="task-current-focus-reschedule-btn is-automatic task-overflow-pivot-btn"
               onClick={() =>
-                setOverflowReschedulePromptDayKey(pivotDayKey ?? todayKeyStr)
+                setOverflowReschedulePrompt({
+                  dayKey: pivotDayKey ?? todayKeyStr,
+                  source: pivotSource,
+                })
               }
             >
               Pivot The Plan
@@ -5429,42 +5441,28 @@ function App() {
               className={`task-overdue-section${deferOnly ? " is-defer-only" : ""}`}
               aria-label={ariaLabel}
             >
-              {notices.length > 0 ? (
-                <div className="task-overflow-bucket">
-                  <ul className="task-day-tasks task-overdue-tasks">
-                    {interleaveTimelineNotices(
-                      [...overDueRows, ...rows],
-                      notices,
-                      (row) => row.task.id,
-                    ).map((entry) =>
-                      entry.type === "notice"
-                        ? renderTimelineNoticeRow(entry.notice)
-                        : renderOverflowTaskRow(entry.item.task, entry.item.overdue),
-                    )}
-                  </ul>
-                </div>
-              ) : (
-                <>
-              {overDueRows.length > 0 && (
-                <div className="task-overflow-bucket task-overflow-overdue">
-                  <ul className="task-day-tasks task-overdue-tasks">
-                    {overDueRows.map(({ task, overdue }) =>
-                      renderOverflowTaskRow(task, overdue),
-                    )}
-                  </ul>
-                </div>
-              )}
-              {rows.length > 0 && (
-                <div className="task-overflow-bucket">
-                  <ul className="task-day-tasks task-overdue-tasks">
-                    {rows.map(({ task, overdue }) =>
-                      renderOverflowTaskRow(task, overdue),
-                    )}
-                  </ul>
-                </div>
-              )}
-                </>
-              )}
+              <div
+                className={`task-overflow-bucket${rowTone === "overdue" ? " task-overflow-overdue" : ""}`}
+              >
+                <ul className="task-day-tasks task-overdue-tasks">
+                  {(notices.length > 0
+                    ? interleaveTimelineNotices(
+                        rows,
+                        notices,
+                        (row) => row.task.id,
+                      )
+                    : rows.map((item) => ({ type: "item" as const, item }))
+                  ).map((entry) =>
+                    entry.type === "notice"
+                      ? renderTimelineNoticeRow(entry.notice)
+                      : renderOverflowTaskRow(
+                          entry.item.task,
+                          entry.item.overdue,
+                          taskInOverflow,
+                        ),
+                  )}
+                </ul>
+              </div>
             </section>
           </div>
         )}
@@ -5475,6 +5473,9 @@ function App() {
   const overflowSlotNotices = timelineNotices.filter(
     (notice) => notice.slot.section === "overflow",
   );
+  const overdueSlotNotices = timelineNotices.filter(
+    (notice) => notice.slot.section === "overdue",
+  );
   const focusSlotNotices = timelineNotices.filter(
     (notice) => notice.slot.section === "focus",
   );
@@ -5482,22 +5483,59 @@ function App() {
     (notice) => notice.slot.section === "up-next",
   );
 
+  const renderOverdueSection = () =>
+    renderOverflowBucket({
+      sectionKey: `${todayKeyStr}-overdue`,
+      rows: leftoverOverDueRows,
+      notices: tasksCompact ? overdueSlotNotices : [],
+      label: "OVERDUE",
+      ariaLabel: "Overdue tasks",
+      showPivot: leftoverOverDueRows.length > 0,
+      attachTodayRefs: false,
+      deferOnly: false,
+      pivotSource: "overdue",
+      pivotDayKey: todayKeyStr,
+      sectionOpen: overdueListOpen,
+      onToggleOpen: () => {
+        setOverdueListOpen((open) => {
+          const next = !open;
+          overdueListOpenRef.current = next;
+          persistUiSession();
+          return next;
+        });
+      },
+      rowTone: "overdue",
+      taskInOverflow: true,
+    });
+
   const renderOverflowSection = (dayLayout: (typeof calendarTaskLayout)[number]) => {
     const dayOverflow = overflowForDay(dayLayout);
     const isToday = dayLayout.dayKey === todayKeyStr;
+    const sectionOpen = overdueSectionOpenByDay[dayLayout.dayKey] ?? false;
     return renderOverflowBucket({
       sectionKey: dayLayout.dayKey,
       rows: dayOverflow.rows,
-      overDueRows: isToday ? leftoverOverDueRows : [],
       notices: isToday && tasksCompact ? overflowSlotNotices : [],
       label: "OVERFLOW",
-      ariaLabel: isToday && leftoverOverDueRows.length > 0
-        ? "Overflow and overdue tasks"
-        : "Overflow tasks",
+      ariaLabel: "Overflow tasks",
       showPivot: isToday,
       attachTodayRefs: isToday,
       deferOnly: dayOverflow.deferOnly,
+      pivotSource: "overflow",
       pivotDayKey: dayLayout.dayKey,
+      sectionOpen,
+      onToggleOpen: () => {
+        setOverdueSectionOpenByDay((current) => {
+          const next = {
+            ...current,
+            [dayLayout.dayKey]: !(current[dayLayout.dayKey] ?? false),
+          };
+          overdueSectionOpenByDayRef.current = next;
+          persistUiSession();
+          return next;
+        });
+      },
+      taskInOverflow: false,
     });
   };
 
@@ -5870,6 +5908,7 @@ function App() {
   useEffect(() => {
     setForcedOverflowIds((prev) => (prev.size === 0 ? prev : new Set()));
     prevOverflowOrderRef.current = null;
+    prevOverdueOrderRef.current = null;
     prevFocusIdRef.current = undefined;
     prevUpNextIdsRef.current = null;
     prevAtRiskIdRef.current = undefined;
@@ -5961,12 +6000,45 @@ function App() {
     }
     if (nextNotices.length === 0) return;
     setTimelineNotices((current) => [...current, ...nextNotices]);
-  }, [overflowTasks, leftoverOverDueRows, tasks, todayFocusTask?.id, upNextPlanBlocks]);
+  }, [overflowTasks, tasks, todayFocusTask?.id, upNextPlanBlocks]);
+
+  useEffect(() => {
+    const currentOrder = currentOverdueOrder();
+    const currentIds = new Set(currentOrder);
+    const prevOrder = prevOverdueOrderRef.current;
+    if (prevOrder == null) return;
+
+    const livingIds = new Set(
+      tasks.map((task) => task.id).filter((id): id is string => id != null),
+    );
+    const focusId = todayFocusTask?.id ?? null;
+    const nextNotices: TimelineNotice[] = [];
+    const stamp = Date.now();
+    let offset = 0;
+    for (const id of prevOrder) {
+      if (currentIds.has(id) || !livingIds.has(id)) continue;
+      const recoveredToFocus = focusId === id;
+      nextNotices.push({
+        id: `recovered-overdue-${stamp}-${id}`,
+        kind: "recovered",
+        taskId: id,
+        title: timelineTaskTitle(id),
+        destKind: recoveredToFocus ? "focus" : "up-next",
+        destLabel: recoveredToFocus ? "Current focus" : "Up next",
+        at: stamp + offset,
+        slot: timelineNoticeSlot(id, prevOrder, currentIds, "overdue"),
+      });
+      offset += 1;
+    }
+    if (nextNotices.length === 0) return;
+    setTimelineNotices((current) => [...current, ...nextNotices]);
+  }, [leftoverOverDueRows, tasks, todayFocusTask?.id]);
 
   useEffect(() => {
     prevFocusIdRef.current = todayFocusTask?.id ?? null;
     prevUpNextIdsRef.current = currentUpNextIds();
     prevOverflowOrderRef.current = currentOverflowOrder();
+    prevOverdueOrderRef.current = currentOverdueOrder();
   }, [todayFocusTask?.id, upNextPlanBlocks, leftoverOverDueRows, overflowTasks]);
 
   const applyChromeHiddenClass = (hidden: boolean) => {
@@ -7014,37 +7086,43 @@ function App() {
           </div>,
           document.body,
         )}
-      {overflowReschedulePromptDayKey != null &&
+      {overflowReschedulePrompt != null &&
         createPortal(
           <div className="task-delete-prompt" role="presentation">
             <button
               type="button"
               className="task-delete-prompt-scrim"
               aria-label="Cancel reschedule"
-              onClick={() => setOverflowReschedulePromptDayKey(null)}
+              onClick={() => setOverflowReschedulePrompt(null)}
             />
             <div
               className="task-delete-prompt-panel twineline-save-prompt"
               role="dialog"
               aria-modal="true"
-              aria-label="Reschedule all overflow tasks?"
+              aria-label={
+                overflowReschedulePrompt.source === "overdue"
+                  ? "Reschedule all overdue tasks?"
+                  : "Reschedule all overflow tasks?"
+              }
             >
               <button
                 type="button"
                 className="twineline-save-prompt-dismiss"
-                onClick={() => setOverflowReschedulePromptDayKey(null)}
+                onClick={() => setOverflowReschedulePrompt(null)}
                 aria-label="Cancel reschedule"
               >
                 <CloseIcon />
               </button>
               <p className="twineline-save-prompt-title">
-                Automatically reschedule all overflow tasks?
+                {overflowReschedulePrompt.source === "overdue"
+                  ? "Automatically reschedule all overdue tasks?"
+                  : "Automatically reschedule all overflow tasks?"}
               </p>
               <div className="twineline-save-prompt-actions">
                 <button
                   type="button"
                   className="twineline-save-prompt-secondary"
-                  onClick={() => setOverflowReschedulePromptDayKey(null)}
+                  onClick={() => setOverflowReschedulePrompt(null)}
                 >
                   Cancel
                 </button>
@@ -7052,9 +7130,9 @@ function App() {
                   type="button"
                   className="twineline-save-prompt-primary"
                   onClick={() => {
-                    const dayKeyToReschedule = overflowReschedulePromptDayKey;
-                    setOverflowReschedulePromptDayKey(null);
-                    runAutomaticOverflowReschedule(dayKeyToReschedule);
+                    const prompt = overflowReschedulePrompt;
+                    setOverflowReschedulePrompt(null);
+                    runAutomaticOverflowReschedule(prompt.dayKey, prompt.source);
                   }}
                 >
                   Pivot The Plan
@@ -7816,12 +7894,16 @@ function App() {
               });
               const dayOverflow = overflowForDay(day);
               const leftoverCount = isTodayGroup ? leftoverOverDueRows.length : 0;
-              const showOverdueToggle =
+              const showOverflowToggle =
                 activeView === "dayline" &&
                 !calendarOpen &&
                 (dayOverflow.count > 0 ||
-                  leftoverCount > 0 ||
                   (isTodayGroup && overflowSlotNotices.length > 0));
+              const showOverdueSection =
+                isTodayGroup &&
+                activeView === "dayline" &&
+                !calendarOpen &&
+                (leftoverCount > 0 || overdueSlotNotices.length > 0);
               const showUpNext =
                 dayTasks.length > 0 ||
                 (isTodayGroup &&
@@ -7848,9 +7930,7 @@ function App() {
                       </button>
                     </div>
                   )}
-                  {isTodayGroup &&
-                    showOverdueToggle &&
-                    renderOverflowSection(day)}
+                  {showOverdueSection && renderOverdueSection()}
                   {isTodayGroup &&
                     activeView === "dayline" &&
                     !calendarOpen &&
@@ -7939,12 +8019,13 @@ function App() {
                       </ul>
                     </div>
                   )}
+                  {isTodayGroup && showOverflowToggle && renderOverflowSection(day)}
                   {isTodayGroup &&
                     activeView === "dayline" &&
                     !calendarOpen &&
                     renderAtRiskSection()}
                   {!isTodayGroup &&
-                    showOverdueToggle &&
+                    showOverflowToggle &&
                     renderOverflowSection(day)}
                 </section>
               );
@@ -7960,10 +8041,15 @@ function App() {
               const isTodayGroup = day.dayKey === todayKey;
               const dayOverflow = overflowForDay(day);
               const leftoverCount = isTodayGroup ? leftoverOverDueRows.length : 0;
-              const showOverdueToggle =
+              const showOverflowToggle =
                 activeView === "dayline" &&
                 !calendarOpen &&
-                (dayOverflow.count > 0 || leftoverCount > 0);
+                dayOverflow.count > 0;
+              const showOverdueSection =
+                isTodayGroup &&
+                activeView === "dayline" &&
+                !calendarOpen &&
+                leftoverCount > 0;
               const toggleOutsideRegion = (region: OutsideRegionId) => {
                 setOutsideExpandedByDay((current) => {
                   const prev = current[day.dayKey] ?? {};
@@ -7997,9 +8083,7 @@ function App() {
                     </button>
                   </div>
                 )}
-                {isTodayGroup &&
-                  showOverdueToggle &&
-                  renderOverflowSection(day)}
+                {showOverdueSection && renderOverdueSection()}
                 {isTodayGroup &&
                   activeView === "dayline" &&
                   !calendarOpen &&
@@ -8093,9 +8177,7 @@ function App() {
                     })}
           </div>
                 </div>
-                {!isTodayGroup &&
-                  showOverdueToggle &&
-                  renderOverflowSection(day)}
+                {showOverflowToggle && renderOverflowSection(day)}
               </section>
               );
             })}

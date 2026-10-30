@@ -55,6 +55,8 @@ export type UiSession = {
   timelineDayCount?: number;
   /** Timeline overflow section expanded. */
   overdueSectionOpen?: boolean;
+  /** Timeline overdue (leftover) section expanded. */
+  overdueListOpen?: boolean;
   /** Home overflow section expanded. */
   homeOverdueSectionOpen?: boolean;
 };
@@ -631,6 +633,10 @@ export function loadUiSession(): UiSession | null {
         typeof value.overdueSectionOpen === "boolean"
           ? value.overdueSectionOpen
           : undefined,
+      overdueListOpen:
+        typeof value.overdueListOpen === "boolean"
+          ? value.overdueListOpen
+          : undefined,
       homeOverdueSectionOpen:
         typeof value.homeOverdueSectionOpen === "boolean"
           ? value.homeOverdueSectionOpen
@@ -666,6 +672,9 @@ export function saveUiSession(session: UiSession): void {
     }
     if (typeof session.overdueSectionOpen === "boolean") {
       payload.overdueSectionOpen = session.overdueSectionOpen;
+    }
+    if (typeof session.overdueListOpen === "boolean") {
+      payload.overdueListOpen = session.overdueListOpen;
     }
     if (typeof session.homeOverdueSectionOpen === "boolean") {
       payload.homeOverdueSectionOpen = session.homeOverdueSectionOpen;
