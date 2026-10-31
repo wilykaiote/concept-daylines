@@ -367,8 +367,8 @@ function pushDayOverflow(
 function placeTimedTask(
   byDay: Map<string, PackBlock[]>,
   task: ComposerDraft,
-  now: Date,
-  getPackEnd: (day: Date) => number,
+  _now: Date,
+  _getPackEnd: (day: Date) => number,
   getWindowStart: (day: Date) => number,
   _overdueByDay: Map<string, ComposerDraft[]>,
   _todayKey: string,
