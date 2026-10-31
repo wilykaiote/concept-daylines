@@ -2710,25 +2710,17 @@ function App() {
     }
     return true;
   });
-  // Rest is the first mode of every day until today's task window begins.
+  // Rest is the first mode of every day until today's task window begins,
+  // and again when Current focus / Up next are empty (Overflow may still have work).
   const beforeTaskWindow = nowMinutes < todayWindowStartMinutes;
-  // After the window: no Up next → Pivot Overflow if Overflow has work, else Rest.
-  const focusRescheduleOverflowMode =
-    !beforeTaskWindow &&
-    nothingCurrentlyOvertaken &&
-    upNextPlanBlocksAll.length === 0 &&
-    overflowTaskCount > 0;
   const focusRestMode =
     beforeTaskWindow ||
-    (nothingCurrentlyOvertaken &&
-      upNextPlanBlocksAll.length === 0 &&
-      overflowTaskCount === 0);
+    (nothingCurrentlyOvertaken && upNextPlanBlocksAll.length === 0);
   // Break: end slack gone and nothing overtaken (gap before next / idle flush day).
   const focusBreakMode =
     !beforeTaskWindow &&
     nothingCurrentlyOvertaken &&
     todayEndSlackMin === 0 &&
-    !focusRescheduleOverflowMode &&
     !focusRestMode;
   const tomorrowStart = addDays(todayStart, 1);
   const nextDayWindowStartMin = packWindowStartMinutes(
@@ -5087,15 +5079,6 @@ function App() {
   };
 
   const renderCurrentFocus = () => {
-    if (focusRescheduleOverflowMode) {
-      return (
-        <div className="task-current-focus">
-          <div className="task-current-focus-label-row">
-            <p className="task-current-focus-label">Current focus</p>
-          </div>
-        </div>
-      );
-    }
     if (focusRestMode) {
       return (
         <div className="task-current-focus">
