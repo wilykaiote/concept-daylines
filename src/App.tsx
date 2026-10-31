@@ -1470,6 +1470,7 @@ function CompactTaskRow({
     impactValue != null ? Math.min(100, Math.max(0, (impactValue / IMPACT_MAX) * 100)) : null;
   const durationLabel = formatTaskDurationLabel(task.est_duration);
   const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
+  const scheduleOverdue = isAnchoredTaskMissed(task, now);
   const resolvedParentTitle = normalizeOptionalField(parentTitle);
   const hasImpact = impactValue != null && impactPercent != null;
   const hasParent = resolvedParentTitle != null;
@@ -1537,7 +1538,7 @@ function CompactTaskRow({
               <span className="task-row-top-meta">
                 {scheduleLabel != null ? (
                   <span
-                    className={`task-row-schedule${scheduleAuto ? " is-auto" : ""}`}
+                    className={`task-row-schedule${scheduleOverdue ? " is-overdue-label" : ""}${scheduleAuto ? " is-auto" : ""}`}
                   >
                     {scheduleLabel}
                   </span>
@@ -4967,6 +4968,88 @@ function App() {
     </div>
   );
 
+  const renderComposerAttach = () => (
+    <div className="app-composer-attach">
+      <ComposerOverlayMenu
+        open={attachMenuOpen}
+        anchorRef={attachButtonRef}
+        menuRef={attachMenuRef}
+        align="end"
+        aria-label="Add options"
+      >
+        <button
+          type="button"
+          className={`app-attach-menu-item${aiEnabled ? "" : " is-disabled"}`}
+          role="menuitem"
+          aria-disabled={!aiEnabled}
+          disabled={!aiEnabled}
+        >
+          <CameraIcon />
+          <span className="app-attach-menu-label">Take a picture</span>
+          {!aiEnabled && (
+            <span className="app-attach-premium" aria-label="Premium feature">
+              <PremiumIcon />
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          className={`app-attach-menu-item${aiEnabled ? "" : " is-disabled"}`}
+          role="menuitem"
+          aria-disabled={!aiEnabled}
+          disabled={!aiEnabled}
+        >
+          <PhotoIcon />
+          <span className="app-attach-menu-label">Add a photo</span>
+          {!aiEnabled && (
+            <span className="app-attach-premium" aria-label="Premium feature">
+              <PremiumIcon />
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          className={`app-attach-menu-item app-attach-menu-ai${aiEnabled ? " is-on" : " is-disabled"}`}
+          role="menuitem"
+          aria-disabled={!aiEnabled}
+          disabled={!aiEnabled}
+          aria-label={aiEnabled ? "AI Assistant - on" : "AI Assistant - off"}
+        >
+          <span className={`app-attach-ai-dot${aiEnabled ? " is-on" : ""}`} aria-hidden="true" />
+          <span className="app-attach-menu-label">
+            {aiEnabled ? "AI Assistant - on" : "AI Assistant - off"}
+          </span>
+          <span className="app-attach-premium" aria-label="Premium feature">
+            <PremiumIcon />
+          </span>
+        </button>
+        <div className="app-attach-menu-footer">
+          <button type="button" className="app-attach-trial-button">
+            Try These Features!
+          </button>
+          <p className="app-attach-trial-note">free for 7 days</p>
+        </div>
+      </ComposerOverlayMenu>
+      <button
+        ref={attachButtonRef}
+        type="button"
+        className="app-composer-icon"
+        onClick={() => {
+          setComposeKindMenuOpen(false);
+          setDurationMenuOpen(false);
+          setImpactMenuOpen(false);
+          closeTaskToolHint();
+          setAttachMenuOpen((open) => !open);
+        }}
+        aria-label={attachMenuOpen ? "Close add menu" : "Open add menu"}
+        aria-expanded={attachMenuOpen}
+        tabIndex={collapsed ? -1 : 0}
+      >
+        <PlusIcon />
+      </button>
+    </div>
+  );
+
   const deferredNoticeDayLabel = (key: string) => {
     const date = parseTaskDate(key);
     if (!date) return key;
@@ -8247,6 +8330,7 @@ function App() {
                 </button>
               )}
               {(() => {
+                const attach = renderComposerAttach();
                 const isFocusKind =
                   composeKind === "task" ||
                   composeKind === "item" ||
@@ -8267,12 +8351,17 @@ function App() {
                 if (isFocusKind) {
                   return renderCurrentFocusControls(
                     editingTaskId != null ? content : null,
-                    deleteTool,
+                    <>
+                      {attach}
+                      {deleteTool}
+                    </>,
                   );
                 }
-                if (deleteTool == null) return null;
                 return (
-                  <div className="task-current-focus-controls">{deleteTool}</div>
+                  <div className="task-current-focus-controls">
+                    {attach}
+                    {deleteTool}
+                  </div>
                 );
               })()}
             </div>
@@ -8436,86 +8525,6 @@ function App() {
               </div>
             )}
             <div className="app-composer-tools">
-              <div className="app-composer-tools-left">
-                <div className="app-composer-attach">
-                  <ComposerOverlayMenu
-                    open={attachMenuOpen}
-                    anchorRef={attachButtonRef}
-                    menuRef={attachMenuRef}
-                    aria-label="Add options"
-                  >
-                    <button
-                      type="button"
-                      className={`app-attach-menu-item${aiEnabled ? "" : " is-disabled"}`}
-                      role="menuitem"
-                      aria-disabled={!aiEnabled}
-                      disabled={!aiEnabled}
-                    >
-                      <CameraIcon />
-                      <span className="app-attach-menu-label">Take a picture</span>
-                      {!aiEnabled && (
-                        <span className="app-attach-premium" aria-label="Premium feature">
-                          <PremiumIcon />
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      className={`app-attach-menu-item${aiEnabled ? "" : " is-disabled"}`}
-                      role="menuitem"
-                      aria-disabled={!aiEnabled}
-                      disabled={!aiEnabled}
-                    >
-                      <PhotoIcon />
-                      <span className="app-attach-menu-label">Add a photo</span>
-                      {!aiEnabled && (
-                        <span className="app-attach-premium" aria-label="Premium feature">
-                          <PremiumIcon />
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      className={`app-attach-menu-item app-attach-menu-ai${aiEnabled ? " is-on" : " is-disabled"}`}
-                      role="menuitem"
-                      aria-disabled={!aiEnabled}
-                      disabled={!aiEnabled}
-                      aria-label={aiEnabled ? "AI Assistant - on" : "AI Assistant - off"}
-                    >
-                      <span className={`app-attach-ai-dot${aiEnabled ? " is-on" : ""}`} aria-hidden="true" />
-                      <span className="app-attach-menu-label">
-                        {aiEnabled ? "AI Assistant - on" : "AI Assistant - off"}
-                      </span>
-                      <span className="app-attach-premium" aria-label="Premium feature">
-                        <PremiumIcon />
-                      </span>
-                    </button>
-                    <div className="app-attach-menu-footer">
-                      <button type="button" className="app-attach-trial-button">
-                        Try These Features!
-                      </button>
-                      <p className="app-attach-trial-note">free for 7 days</p>
-                    </div>
-                  </ComposerOverlayMenu>
-                  <button
-                    ref={attachButtonRef}
-                    type="button"
-                    className="app-composer-icon"
-                    onClick={() => {
-                      setComposeKindMenuOpen(false);
-                      setDurationMenuOpen(false);
-                                            setImpactMenuOpen(false);
-                      closeTaskToolHint();
-                      setAttachMenuOpen((open) => !open);
-                    }}
-                    aria-label={attachMenuOpen ? "Close add menu" : "Open add menu"}
-                    aria-expanded={attachMenuOpen}
-                    tabIndex={collapsed ? -1 : 0}
-                  >
-                    <PlusIcon />
-                  </button>
-                </div>
-              </div>
               <div className="app-composer-tools-center" ref={toolsCenterRef}>
                 <div className="app-composer-tools-center-inner">
                 <ComposerOverlayMenu

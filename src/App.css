@@ -2157,13 +2157,16 @@
   min-width: 0;
 }
 
-.task-overflow-overdue .task-row-schedule,
-.task-overflow-overdue .task-row-schedule.is-auto,
-.task-list.is-compact .task-overflow-overdue .task-row-schedule,
-.task-list.is-compact .task-overflow-overdue .task-row-schedule.is-auto,
-.task-overdue-tasks .task-overflow-overdue .task-row-schedule,
-.task-overflow-overdue .task-overdue-tasks .task-row-schedule,
-.task-overflow-overdue .task-overdue-tasks .task-row-schedule.is-auto {
+.task-row-schedule.is-overdue-label,
+.task-row-schedule.is-overdue-label.is-auto,
+.task-list.is-compact .task-row-schedule.is-overdue-label,
+.task-list.is-compact .task-row-schedule.is-overdue-label.is-auto,
+.task-overdue-tasks .task-row-schedule.is-overdue-label,
+.task-overdue-tasks .task-row-schedule.is-overdue-label.is-auto,
+.home-focus-task .task-row-schedule.is-overdue-label,
+.home-focus-task .task-row-schedule.is-overdue-label.is-auto,
+.task-current-focus .task-row-schedule.is-overdue-label,
+.task-current-focus .task-row-schedule.is-overdue-label.is-auto {
   color: var(--danger);
 }
 
@@ -3517,6 +3520,7 @@
   margin: 0;
   color: var(--text-h);
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .task-row-type-label {
@@ -3707,7 +3711,7 @@
   }
 
   .app-tray.is-search-open {
-    right: 8px;
+    right: calc(var(--space) + var(--fab-size) + 10px);
   }
 
   .app-tray-tabs {
@@ -4843,6 +4847,11 @@
   color: var(--text);
 }
 
+.app-composer-focus-controls .app-composer-icon {
+  width: 28px;
+  height: 28px;
+}
+
 .app-composer-focus-controls .task-current-focus-controls {
   margin-left: auto;
 }
@@ -4896,7 +4905,8 @@
 /* Beat .app-composer svg { 24px } so these match Current focus (16px). */
 .app-composer .app-composer-focus-controls .task-current-focus-tool svg,
 .app-composer .app-composer-focus-controls .task-row-focus-lock svg,
-.app-composer .app-composer-focus-controls .app-composer-pivot-btn svg {
+.app-composer .app-composer-focus-controls .app-composer-pivot-btn svg,
+.app-composer .app-composer-focus-controls .app-composer-icon svg {
   width: 16px;
   height: 16px;
   display: block;
