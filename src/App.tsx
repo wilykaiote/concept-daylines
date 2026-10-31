@@ -2172,18 +2172,8 @@ function App() {
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
   const [timelineNotices, setTimelineNotices] = useState<TimelineNotice[]>([]);
-  const prevOverflowOrderRef = useRef<string[] | null>(null);
-  const prevOverdueOrderRef = useRef<string[] | null>(null);
-  const prevFocusIdRef = useRef<string | null | undefined>(undefined);
-  const prevUpNextIdsRef = useRef<string[] | null>(null);
-  const prevAtRiskIdRef = useRef<string | null | undefined>(undefined);
   /** Undated ids released by Automatic this calendar day — baseline merge must not re-add. */
   const autoReleasedBaselineIdsRef = useRef<{ dayKey: string; ids: Set<string> }>({
-    dayKey: "",
-    ids: new Set(),
-  });
-  /** Undated softs already notified as deferred for this calendar day (no date write). */
-  const deferredNoticeIdsRef = useRef<{ dayKey: string; ids: Set<string> }>({
     dayKey: "",
     ids: new Set(),
   });
@@ -4937,9 +4927,19 @@ function App() {
     </div>
   );
 
+  const deferredNoticeDayLabel = (key: string) => {
+    const date = parseTaskDate(key);
+    if (!date) return key;
+    const today = toStartOfDay(new Date(countdownNow));
+    if (sameCalendarDay(date, today)) return "Today";
+    if (sameCalendarDay(date, addDays(today, 1))) return "Tomorrow";
+    return formatTwinelineDateLabel(date, new Date(countdownNow));
+  };
+
   const runAutomaticOverflowReschedule = (
     sourceDayKey: string = todayKeyStr,
     source: "overflow" | "overdue" = "overflow",
+    emitNotices = false,
   ) => {
     const sourceLayout = calendarTaskLayout.find((day) => day.dayKey === sourceDayKey);
     const overflowToReschedule =
@@ -5012,6 +5012,44 @@ function App() {
           }
           return changed ? nextSet : prev;
         });
+      }
+      if (emitNotices && movedIds.size > 0) {
+        const prevOrder = overflowToReschedule
+          .map((task) => task.id)
+          .filter((id): id is string => id != null);
+        const remainingIds = new Set(
+          prevOrder.filter((id) => !movedIds.has(id)),
+        );
+        const section = source === "overdue" ? "overdue" : "overflow";
+        const stamp = Date.now();
+        const notices: TimelineNotice[] = [];
+        let offset = 0;
+        for (const id of prevOrder) {
+          if (!movedIds.has(id)) continue;
+          const after = next.find((task) => task.id === id);
+          const toDayKey = after?.date ?? null;
+          notices.push({
+            id: `pivot-${section}-${stamp}-${id}`,
+            kind: "deferred",
+            taskId: id,
+            title:
+              normalizeOptionalField(after?.title) ??
+              normalizeOptionalField(
+                overflowToReschedule.find((task) => task.id === id)?.title,
+              ) ??
+              "Untitled",
+            destKind: "day",
+            destLabel:
+              toDayKey != null ? deferredNoticeDayLabel(toDayKey) : "Tomorrow",
+            at: stamp + offset,
+            dayKey: toDayKey ?? undefined,
+            slot: timelineNoticeSlot(id, prevOrder, remainingIds, section),
+          });
+          offset += 1;
+        }
+        if (notices.length > 0) {
+          setTimelineNotices((current) => [...current, ...notices]);
+        }
       }
       return next;
     });
@@ -5194,48 +5232,6 @@ function App() {
 
   const dismissTimelineNotice = (noticeId: string) => {
     setTimelineNotices((current) => current.filter((notice) => notice.id !== noticeId));
-  };
-
-  const timelineTaskTitle = (taskId: string) =>
-    normalizeOptionalField(tasks.find((task) => task.id === taskId)?.title) ??
-    "Untitled";
-
-  const currentUpNextIds = () =>
-    upNextPlanBlocks
-      .map((block) => block.task.id)
-      .filter((id): id is string => id != null);
-
-  const currentOverflowOrder = () =>
-    overflowTasks
-      .map((task) => task.id)
-      .filter((id): id is string => id != null);
-
-  const currentOverdueOrder = () =>
-    leftoverOverDueRows
-      .map((row) => row.task.id)
-      .filter((id): id is string => id != null);
-
-  const slotLeavingSchedule = (taskId: string): TimelineNoticeSlot => {
-    const prevFocus = prevFocusIdRef.current;
-    const prevUpNext = prevUpNextIdsRef.current ?? [];
-    if (prevFocus === taskId) {
-      return { section: "focus", afterTaskId: null, order: 0 };
-    }
-    return timelineNoticeSlot(
-      taskId,
-      prevUpNext,
-      new Set(currentUpNextIds()),
-      "up-next",
-    );
-  };
-
-  const deferredNoticeDayLabel = (key: string) => {
-    const date = parseTaskDate(key);
-    if (!date) return key;
-    const today = toStartOfDay(new Date(countdownNow));
-    if (sameCalendarDay(date, today)) return "Today";
-    if (sameCalendarDay(date, addDays(today, 1))) return "Tomorrow";
-    return formatTwinelineDateLabel(date, new Date(countdownNow));
   };
 
   const openNoticeDestination = (notice: TimelineNotice) => {
@@ -5476,12 +5472,6 @@ function App() {
   const overdueSlotNotices = timelineNotices.filter(
     (notice) => notice.slot.section === "overdue",
   );
-  const focusSlotNotices = timelineNotices.filter(
-    (notice) => notice.slot.section === "focus",
-  );
-  const upNextSlotNotices = timelineNotices.filter(
-    (notice) => notice.slot.section === "up-next",
-  );
 
   const renderOverdueSection = () =>
     renderOverflowBucket({
@@ -5696,78 +5686,6 @@ function App() {
     todayWindowBaseline,
   ]);
 
-  // After day started: undated softs that left today's window → notice only (stay undated).
-  useEffect(() => {
-    if (nowMinutes < todayWindowStartMinutes) return;
-    if (todayWindowBaseline == null || todayWindowBaseline.dayKey !== todayKeyStr) return;
-    if (deferredNoticeIdsRef.current.dayKey !== todayKeyStr) {
-      deferredNoticeIdsRef.current = { dayKey: todayKeyStr, ids: new Set() };
-      return;
-    }
-    if (prevFocusIdRef.current === undefined) return;
-    const notified = deferredNoticeIdsRef.current.ids;
-    const baselineIds = new Set(todayWindowBaseline.taskIds);
-    if (baselineIds.size === 0) return;
-
-    const packDayByTaskId = new Map<string, string>();
-    for (const day of calendarTaskLayout) {
-      for (const block of day.blocks) {
-        const id = block.taskId ?? block.task.id;
-        if (id == null || packDayByTaskId.has(id)) continue;
-        packDayByTaskId.set(id, day.dayKey);
-      }
-    }
-
-    const byDay = new Map<string, string[]>();
-    for (const task of tasks) {
-      const id = task.id;
-      if (id == null || !baselineIds.has(id) || notified.has(id)) continue;
-      if (todaySoftResidentIds.has(id)) continue;
-      if (parseTaskDate(task.date) != null) continue;
-      if (
-        parseTimeOfDay(task.starts_at) != null ||
-        parseTimeOfDay(task.due_at) != null
-      ) {
-        continue;
-      }
-      const packDay = packDayByTaskId.get(id);
-      if (packDay == null || packDay === todayKeyStr) continue;
-      const list = byDay.get(packDay) ?? [];
-      list.push(id);
-      byDay.set(packDay, list);
-    }
-    if (byDay.size === 0) return;
-
-    for (const ids of byDay.values()) {
-      for (const id of ids) notified.add(id);
-    }
-    const at = Date.now();
-    setTimelineNotices((current) => [
-      ...current,
-      ...[...byDay.entries()].flatMap(([toDayKey, taskIds]) =>
-        taskIds.map((taskId, index) => ({
-          id: `deferred-${toDayKey}-${at}-${taskId}`,
-          kind: "deferred" as const,
-          taskId,
-          title: timelineTaskTitle(taskId),
-          destKind: "day" as const,
-          destLabel: deferredNoticeDayLabel(toDayKey),
-          at: at + index,
-          dayKey: toDayKey,
-          slot: slotLeavingSchedule(taskId),
-        })),
-      ),
-    ]);
-  }, [
-    nowMinutes,
-    todayWindowStartMinutes,
-    todayWindowBaseline,
-    todayKeyStr,
-    todaySoftResidentIds,
-    tasks,
-    calendarTaskLayout,
-  ]);
-
   // Persist frozen soft-pack geometry for today (invalidates with day / window).
   useEffect(() => {
     const nextPlacements = calendarTasksLayout.todaySoftPlacements;
@@ -5892,7 +5810,14 @@ function App() {
 
     tick();
     const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
+    const onWake = () => tick();
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("focus", onWake);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("focus", onWake);
+    };
   }, [activeView]);
 
   useEffect(() => {
@@ -5905,14 +5830,17 @@ function App() {
   }, [leftoverOverflow, tasks, todayKeyStr, packedTodayKey]);
 
   // Clear forced At Risk → Overflow ids on calendar day change.
+  const prevTodayKeyRef = useRef(todayKeyStr);
   useEffect(() => {
     setForcedOverflowIds((prev) => (prev.size === 0 ? prev : new Set()));
-    prevOverflowOrderRef.current = null;
-    prevOverdueOrderRef.current = null;
-    prevFocusIdRef.current = undefined;
-    prevUpNextIdsRef.current = null;
-    prevAtRiskIdRef.current = undefined;
     setTimelineNotices([]);
+    const prevToday = prevTodayKeyRef.current;
+    prevTodayKeyRef.current = todayKeyStr;
+    if (prevToday === todayKeyStr) return;
+    // Twineline follows midnight when it was showing the previous today.
+    setSelectedDay((prev) =>
+      dayKey(prev) === prevToday ? toStartOfDay(new Date()) : prev,
+    );
   }, [todayKeyStr]);
 
   // Spill softs that entirely passed the pack window → Overflow.
@@ -5930,116 +5858,6 @@ function App() {
       return changed ? next : prev;
     });
   }, [spillReadyForOverflowIds.join("|")]);
-
-  // Notify when a soft becomes OVERFLOWING (past window, still has remaining).
-  useEffect(() => {
-    const currentId = atRiskTask?.id ?? null;
-    const prev = prevAtRiskIdRef.current;
-    prevAtRiskIdRef.current = currentId;
-    if (prev === undefined) return;
-    if (currentId == null || currentId === prev) return;
-    const at = Date.now();
-    setTimelineNotices((current) => [
-      ...current,
-      {
-        id: `at-risk-${at}-${currentId}`,
-        kind: "at-risk",
-        taskId: currentId,
-        title: timelineTaskTitle(currentId),
-        destKind: "at-risk",
-        destLabel: "OVERFLOWING",
-        at,
-        slot: slotLeavingSchedule(currentId),
-      },
-    ]);
-  }, [atRiskTask?.id]);
-
-  // Emit dismissible notices when tasks enter or leave Overflow (still living = recovered).
-  useEffect(() => {
-    const currentOrder = currentOverflowOrder();
-    const currentIds = new Set(currentOrder);
-    const prevOrder = prevOverflowOrderRef.current;
-    if (prevOrder == null) return;
-
-    const prevIds = new Set(prevOrder);
-    const livingIds = new Set(
-      tasks.map((task) => task.id).filter((id): id is string => id != null),
-    );
-    const focusId = todayFocusTask?.id ?? null;
-    const nextNotices: TimelineNotice[] = [];
-    const stamp = Date.now();
-    let offset = 0;
-    for (const id of currentOrder) {
-      if (prevIds.has(id)) continue;
-      nextNotices.push({
-        id: `overflow-${stamp}-${id}`,
-        kind: "overflow",
-        taskId: id,
-        title: timelineTaskTitle(id),
-        destKind: "overflow",
-        destLabel: "Overflow",
-        at: stamp + offset,
-        slot: slotLeavingSchedule(id),
-      });
-      offset += 1;
-    }
-    for (const id of prevOrder) {
-      if (currentIds.has(id) || !livingIds.has(id)) continue;
-      const recoveredToFocus = focusId === id;
-      nextNotices.push({
-        id: `recovered-${stamp}-${id}`,
-        kind: "recovered",
-        taskId: id,
-        title: timelineTaskTitle(id),
-        destKind: recoveredToFocus ? "focus" : "up-next",
-        destLabel: recoveredToFocus ? "Current focus" : "Up next",
-        at: stamp + offset,
-        slot: timelineNoticeSlot(id, prevOrder, currentIds, "overflow"),
-      });
-      offset += 1;
-    }
-    if (nextNotices.length === 0) return;
-    setTimelineNotices((current) => [...current, ...nextNotices]);
-  }, [overflowTasks, tasks, todayFocusTask?.id, upNextPlanBlocks]);
-
-  useEffect(() => {
-    const currentOrder = currentOverdueOrder();
-    const currentIds = new Set(currentOrder);
-    const prevOrder = prevOverdueOrderRef.current;
-    if (prevOrder == null) return;
-
-    const livingIds = new Set(
-      tasks.map((task) => task.id).filter((id): id is string => id != null),
-    );
-    const focusId = todayFocusTask?.id ?? null;
-    const nextNotices: TimelineNotice[] = [];
-    const stamp = Date.now();
-    let offset = 0;
-    for (const id of prevOrder) {
-      if (currentIds.has(id) || !livingIds.has(id)) continue;
-      const recoveredToFocus = focusId === id;
-      nextNotices.push({
-        id: `recovered-overdue-${stamp}-${id}`,
-        kind: "recovered",
-        taskId: id,
-        title: timelineTaskTitle(id),
-        destKind: recoveredToFocus ? "focus" : "up-next",
-        destLabel: recoveredToFocus ? "Current focus" : "Up next",
-        at: stamp + offset,
-        slot: timelineNoticeSlot(id, prevOrder, currentIds, "overdue"),
-      });
-      offset += 1;
-    }
-    if (nextNotices.length === 0) return;
-    setTimelineNotices((current) => [...current, ...nextNotices]);
-  }, [leftoverOverDueRows, tasks, todayFocusTask?.id]);
-
-  useEffect(() => {
-    prevFocusIdRef.current = todayFocusTask?.id ?? null;
-    prevUpNextIdsRef.current = currentUpNextIds();
-    prevOverflowOrderRef.current = currentOverflowOrder();
-    prevOverdueOrderRef.current = currentOverdueOrder();
-  }, [todayFocusTask?.id, upNextPlanBlocks, leftoverOverDueRows, overflowTasks]);
 
   const applyChromeHiddenClass = (hidden: boolean) => {
     const hideChrome = hidden && collapsedRef.current && !searchOpenRef.current;
@@ -7132,7 +6950,11 @@ function App() {
                   onClick={() => {
                     const prompt = overflowReschedulePrompt;
                     setOverflowReschedulePrompt(null);
-                    runAutomaticOverflowReschedule(prompt.dayKey, prompt.source);
+                    runAutomaticOverflowReschedule(
+                      prompt.dayKey,
+                      prompt.source,
+                      true,
+                    );
                   }}
                 >
                   Pivot The Plan
@@ -7904,12 +7726,7 @@ function App() {
                 activeView === "dayline" &&
                 !calendarOpen &&
                 (leftoverCount > 0 || overdueSlotNotices.length > 0);
-              const showUpNext =
-                dayTasks.length > 0 ||
-                (isTodayGroup &&
-                  activeView === "dayline" &&
-                  !calendarOpen &&
-                  upNextSlotNotices.length > 0);
+              const showUpNext = dayTasks.length > 0;
               return (
                 <section
                   key={day.dayKey}
@@ -7935,16 +7752,6 @@ function App() {
                     activeView === "dayline" &&
                     !calendarOpen &&
                     renderCurrentFocus()}
-                  {isTodayGroup &&
-                    activeView === "dayline" &&
-                    !calendarOpen &&
-                    focusSlotNotices.length > 0 && (
-                      <ul className="task-day-tasks task-timeline-notice-list">
-                        {[...focusSlotNotices]
-                          .sort((a, b) => a.slot.order - b.slot.order || a.at - b.at)
-                          .map((notice) => renderTimelineNoticeRow(notice))}
-                      </ul>
-                    )}
                   {showUpNext && (
                     <div className="task-day-next">
                       {isTodayGroup && activeView === "dayline" && !calendarOpen && (
@@ -7961,61 +7768,45 @@ function App() {
                         </p>
                       )}
                       <ul className="task-day-tasks">
-                        {(isTodayGroup &&
-                        activeView === "dayline" &&
-                        !calendarOpen
-                          ? interleaveTimelineNotices(
-                              dayTasks,
-                              upNextSlotNotices,
-                              (block) => block.taskId ?? block.task.id,
-                            )
-                          : dayTasks.map(
-                              (item) =>
-                                ({ type: "item", item }) as const,
-                            )
-                        ).map((entry) =>
-                          entry.type === "notice" ? (
-                            renderTimelineNoticeRow(entry.notice)
-                          ) : (
+                        {dayTasks.map((item) => (
                           <CompactTaskRow
-                            key={entry.item.key}
-                            task={entry.item.task}
-                            overdue={entry.item.overdue}
-                            editing={editingTaskId === entry.item.taskId}
-                            highlighted={isTaskHighlighted(entry.item.taskId)}
-                            popping={isTaskPopping(entry.item.taskId)}
+                            key={item.key}
+                            task={item.task}
+                            overdue={item.overdue}
+                            editing={editingTaskId === item.taskId}
+                            highlighted={isTaskHighlighted(item.taskId)}
+                            popping={isTaskPopping(item.taskId)}
                             now={new Date(countdownNow)}
-                            parentTitle={parentTitleFor(entry.item.task.parent_id)}
-                            onComplete={() => requestCompleteTask(entry.item.taskId)}
+                            parentTitle={parentTitleFor(item.task.parent_id)}
+                            onComplete={() => requestCompleteTask(item.taskId)}
                             onEdit={() => {
-                              if (entry.item.taskId) {
+                              if (item.taskId) {
                                 setFocusedOverflowTaskIds(null);
-                                setFocusedTaskId(entry.item.taskId);
+                                setFocusedTaskId(item.taskId);
                               }
-                              editTask(entry.item.task);
+                              editTask(item.task);
                             }}
-                            isCurrentFocus={todayFocusTask?.id === entry.item.taskId}
+                            isCurrentFocus={todayFocusTask?.id === item.taskId}
                             countdownProgress={
-                              entry.item.taskId != null &&
-                              overtakenCountdownByTaskId.has(entry.item.taskId)
-                                ? (overtakenCountdownByTaskId.get(entry.item.taskId) ??
+                              item.taskId != null &&
+                              overtakenCountdownByTaskId.has(item.taskId)
+                                ? (overtakenCountdownByTaskId.get(item.taskId) ??
                                   null)
-                                : entry.item.taskId != null &&
-                                    entry.item.taskId === upNextCountdownTaskId
+                                : item.taskId != null &&
+                                    item.taskId === upNextCountdownTaskId
                                   ? upNextCountdownProgress
                                   : null
                             }
                             countdownBarColor={
-                              entry.item.taskId != null &&
-                              (overtakenCountdownByTaskId.has(entry.item.taskId) ||
-                                (entry.item.taskId === upNextCountdownTaskId &&
+                              item.taskId != null &&
+                              (overtakenCountdownByTaskId.has(item.taskId) ||
+                                (item.taskId === upNextCountdownTaskId &&
                                   upNextCountdownProgress != null))
                                 ? nowSkyColor
                                 : null
                             }
                           />
-                          ),
-                        )}
+                        ))}
                       </ul>
                     </div>
                   )}
