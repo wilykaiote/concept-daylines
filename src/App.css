@@ -1982,17 +1982,19 @@
   align-items: center;
   gap: 8px;
   margin: 4px 0 0;
-  padding: 10px 12px 10px 14px;
+  padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--accent, #6f4bb8) 55%, var(--border));
   border-radius: 12px;
-  background: color-mix(in srgb, var(--accent, #6f4bb8) 8%, var(--bg-raised));
-  box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent);
+  background: var(--bg-raised);
+  box-shadow: none;
+}
+
+.task-day-overflow-row:not(.task-day-notice-row):not(.is-overdue-section) {
+  border-left: 3px solid color-mix(in srgb, var(--accent, #6f4bb8) 70%, var(--border));
 }
 
 .task-day-overflow-row.is-overdue-section:not(.task-day-notice-row) {
-  border-left-color: color-mix(in srgb, var(--danger) 70%, var(--border));
-  background: color-mix(in srgb, var(--danger) 8%, var(--bg-raised));
+  border-left: 3px solid color-mix(in srgb, var(--danger) 70%, var(--border));
 }
 
 .task-day-overflow-row:not(.task-day-notice-row):has(.task-overdue-toggle.is-defer-only) {
@@ -2198,7 +2200,19 @@
   color: var(--accent);
 }
 
+.task-day-overflow-row:not(.is-overdue-section) .task-overdue-toggle-count {
+  border-color: color-mix(in srgb, var(--accent, #6f4bb8) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent, #6f4bb8) 14%, var(--bg-raised));
+  color: var(--accent, #6f4bb8);
+}
+
 .task-day-overflow-row.is-overdue-section .task-overflow-pivot-btn {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  background: color-mix(in srgb, var(--danger) 14%, var(--bg-raised));
+  color: var(--danger);
+}
+
+.task-day-overflow-row.is-overdue-section .task-overdue-toggle-count {
   border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
   background: color-mix(in srgb, var(--danger) 14%, var(--bg-raised));
   color: var(--danger);
@@ -2797,8 +2811,7 @@
 }
 
 .task-row.has-countdown {
-  /* Keep visible so the corner delete control isn't clipped. */
-  overflow: visible;
+  overflow: hidden;
 }
 
 .task-row-countdown {
@@ -3157,13 +3170,6 @@
   letter-spacing: 0.01em;
   color: var(--text);
   white-space: nowrap;
-}
-
-.task-row-schedule.is-overdue-label,
-.task-list.is-compact .task-row-schedule.is-overdue-label,
-.task-overdue-tasks .task-row-schedule.is-overdue-label,
-.task-overdue-tasks .task-row-schedule.is-overdue-label.is-auto {
-  color: var(--danger);
 }
 
 /* Unverified default/auto meta — same orange as composer auto-reschedule.
@@ -6064,10 +6070,15 @@
   line-height: 1;
 }
 
-.app-duration-step:hover,
-.app-duration-step:focus-visible {
+.app-duration-step:hover:not(:disabled),
+.app-duration-step:focus-visible:not(:disabled) {
   border-color: var(--accent-border);
   color: var(--accent);
+}
+
+.app-duration-step:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .app-duration-step:focus-visible {

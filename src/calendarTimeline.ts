@@ -360,8 +360,8 @@ function pushDayOverflow(
 }
 
 /**
- * Place a timed task on its scheduled day. Missed timed tasks still keep their
- * absolute slot on the track and are also collected for Overflow.
+ * Place a timed task on its scheduled day. Missed timed tasks keep their
+ * absolute slot on the track; they go to Overdue in the list, not Overflow.
  * Never rolls missed timed tasks onto later days.
  */
 function placeTimedTask(
@@ -370,21 +370,15 @@ function placeTimedTask(
   now: Date,
   getPackEnd: (day: Date) => number,
   getWindowStart: (day: Date) => number,
-  overdueByDay: Map<string, ComposerDraft[]>,
-  todayKey: string,
+  _overdueByDay: Map<string, ComposerDraft[]>,
+  _todayKey: string,
 ) {
   const scheduled = parseTaskDate(task.date);
   if (!scheduled) return;
 
   const windowStart = getWindowStart(scheduled);
-  const packEnd = getPackEnd(scheduled);
   const startMin = resolveTimedStartMin(task, windowStart);
   const endMin = startMin + taskDurationMinutes(task);
-  if (isAnchoredTaskMissed(task, now, packEnd, windowStart)) {
-    const key = dayKey(scheduled);
-    // Past days aren't on the timeline — catch-up under today.
-    pushDayOverflow(overdueByDay, key < todayKey ? todayKey : key, task);
-  }
   pushBlock(byDay, scheduled, task, startMin, endMin, 0, false);
 }
 
@@ -1253,13 +1247,15 @@ export function layoutCalendarTasks(
     if (overdueIds.has(task.id) || deferredIds.has(task.id)) continue;
     const scheduled = parseTaskDate(task.date);
     const missDay = scheduled ?? todayStart;
+    const kind = classifyTask(task);
     if (isAnchoredTaskMissed(task, now, getPackEnd(missDay), getWindowStart(missDay))) {
+      // Dated+timed misses belong in Overdue, not Overflow.
+      if (kind === "timed") continue;
       const key = dayKey(missDay);
       pushDayOverflow(overdueByDay, key < todayKey ? todayKey : key, task);
       overdueIds.add(task.id);
       continue;
     }
-    const kind = classifyTask(task);
     // Date-only: past → today Overflow (catch-up); today/future → that day's Overflow.
     if (kind === "dateOnly") {
       if (scheduled && scheduled.getTime() < todayStart.getTime()) {

@@ -1433,7 +1433,6 @@ function CompactTaskRow({
   now,
   parentTitle,
   isCurrentFocus = false,
-  inOverflow = false,
   countdownProgress = null,
   countdownBarColor = null,
   countdownElapsedFill = false,
@@ -1449,7 +1448,6 @@ function CompactTaskRow({
   now: Date;
   parentTitle?: string | null;
   isCurrentFocus?: boolean;
-  inOverflow?: boolean;
   countdownProgress?: number | null;
   countdownBarColor?: string | null;
   /** When true, progress is elapsed (fill grows from left) — At Risk bars. */
@@ -1471,10 +1469,7 @@ function CompactTaskRow({
   const impactPercent =
     impactValue != null ? Math.min(100, Math.max(0, (impactValue / IMPACT_MAX) * 100)) : null;
   const durationLabel = formatTaskDurationLabel(task.est_duration);
-  const scheduleLabel = formatTaskScheduleMetaLabel(task, now, {
-    overflow: inOverflow,
-  });
-  const scheduleOverdue = inOverflow && scheduleLabel === "OVERDUE";
+  const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
   const resolvedParentTitle = normalizeOptionalField(parentTitle);
   const hasImpact = impactValue != null && impactPercent != null;
   const hasParent = resolvedParentTitle != null;
@@ -1542,9 +1537,7 @@ function CompactTaskRow({
               <span className="task-row-top-meta">
                 {scheduleLabel != null ? (
                   <span
-                    className={`task-row-schedule${
-                      scheduleOverdue ? " is-overdue-label" : scheduleAuto ? " is-auto" : ""
-                    }`}
+                    className={`task-row-schedule${scheduleAuto ? " is-auto" : ""}`}
                   >
                     {scheduleLabel}
                   </span>
@@ -2507,9 +2500,26 @@ function App() {
     if (timeA !== timeB) return timeA - timeB;
     return (a.title ?? "").localeCompare(b.title ?? "");
   };
+  const isDatedTimedMiss = (task: ComposerDraft) => {
+    if (task.id == null) return false;
+    if (task.type === "item" && task.completed_at != null) return false;
+    if (parseTaskDate(task.date) == null) return false;
+    if (
+      parseTimeOfDay(task.starts_at) == null &&
+      parseTimeOfDay(task.due_at) == null
+    ) {
+      return false;
+    }
+    return isAnchoredTaskMissed(
+      task,
+      new Date(countdownNow),
+      todayPackEnd,
+      todayWindowStartMinutes,
+    );
+  };
   const overflowForDay = (dayLayout: (typeof calendarTaskLayout)[number] | undefined) => {
     const dayOverdue = dayLayout?.overdueTasks ?? [];
-    // Overflow is dated/timed misses only — undated softs defer to future days.
+    // Overflow is date-only misses (and forced at-risk) — dated+timed misses go to Overdue.
     const layoutOverdueIds = new Set(
       dayOverdue.map((task) => task.id).filter((id): id is string => id != null),
     );
@@ -2522,7 +2532,11 @@ function App() {
           ),
         ]
       : dayOverdue
-    ).filter((task) => task.id == null || !leftoverOverflowIds.has(task.id));
+    ).filter(
+      (task) =>
+        task.id == null ||
+        (!leftoverOverflowIds.has(task.id) && !isDatedTimedMiss(task)),
+    );
     const rows = [...overdue]
       .sort(compareOverflowTimelineOrder)
       .map((task) => ({
@@ -2556,14 +2570,42 @@ function App() {
     const seen = new Set<string>();
     for (const bucket of leftoverOverflow) {
       for (const id of bucket.taskIds) {
-        if (seen.has(id) || packedTodayIds.has(id)) continue;
+        if (seen.has(id)) continue;
         const task = byId.get(id);
         if (!task) continue;
+        if (packedTodayIds.has(id) && !isDatedTimedMiss(task)) continue;
         seen.add(id);
         list.push(task);
       }
     }
-    return list.sort(compareOverflowTimelineOrder).map((task) => ({
+    for (const task of tasks) {
+      const id = task.id;
+      if (id == null || seen.has(id) || !isDatedTimedMiss(task)) continue;
+      seen.add(id);
+      list.push(task);
+    }
+    const overdueBecameAtMs = (task: ComposerDraft): number => {
+      const scheduled = parseTaskDate(task.date);
+      if (!scheduled) return 0;
+      const starts = parseTimeOfDay(task.starts_at);
+      const due = parseTimeOfDay(task.due_at);
+      let endMin: number;
+      if (starts == null && due == null) {
+        endMin = MINUTES_PER_DAY;
+      } else {
+        const duration = taskDurationMinutes(task);
+        const startMin = starts != null ? starts : Math.max(0, (due as number) - duration);
+        endMin = starts != null ? startMin + duration : (due as number);
+      }
+      return scheduled.getTime() + endMin * 60_000;
+    };
+    const compareOverdueRecency = (a: ComposerDraft, b: ComposerDraft) => {
+      const missedA = overdueBecameAtMs(a);
+      const missedB = overdueBecameAtMs(b);
+      if (missedA !== missedB) return missedB - missedA;
+      return (a.title ?? "").localeCompare(b.title ?? "");
+    };
+    return list.sort(compareOverdueRecency).map((task) => ({
       task,
       overdue: true as const,
     }));
@@ -4068,7 +4110,7 @@ function App() {
 
   const editTask = (task: ComposerDraft) => {
     if (!task.id) return;
-    const minutes = task.est_duration ?? 15;
+    const minutes = Math.max(1, task.est_duration ?? 15);
     const nextUrgency = isUrgencyOption(task.urgency) ? task.urgency : DEFAULT_URGENCY;
     const nextImpact =
       typeof task.impact === "number" && Number.isFinite(task.impact)
@@ -4706,31 +4748,37 @@ function App() {
     finishComposerSaveSession();
   };
 
+  const clampEstDurationMinutes = (minutes: number) =>
+    Math.max(1, Math.round(minutes));
+
   const syncDurationInput = (minutes: number | null, unit: "minutes" | "hours" = durationUnit) => {
-    const value = minutes ?? 0;
+    const value = clampEstDurationMinutes(minutes ?? 1);
     if (unit === "hours") {
       const hours = value / 60;
       setDurationInput(Number.isInteger(hours) ? String(hours) : hours.toFixed(1));
       return;
     }
-    setDurationInput(String(Math.round(value)));
+    setDurationInput(String(value));
   };
 
   const commitDurationInput = (raw: string, unit: "minutes" | "hours" = durationUnit) => {
     const parsed = Number.parseFloat(raw);
     if (!Number.isFinite(parsed) || parsed < 0) {
-      syncDurationInput(estDurationMinutes, unit);
+      const fallback = clampEstDurationMinutes(estDurationMinutes ?? 1);
+      setEstDurationMinutes(fallback);
+      syncDurationInput(fallback, unit);
       return;
     }
-    const minutes =
-      unit === "hours" ? Math.round(parsed * 60) : Math.max(0, Math.round(parsed));
+    const minutes = clampEstDurationMinutes(
+      unit === "hours" ? parsed * 60 : parsed,
+    );
     setEstDurationMinutes(minutes);
     syncDurationInput(minutes, unit);
   };
 
   const stepDuration = (direction: 1 | -1) => {
     const step = durationUnit === "hours" ? 6 : 5;
-    const next = Math.max(0, (estDurationMinutes ?? 0) + direction * step);
+    const next = clampEstDurationMinutes((estDurationMinutes ?? 1) + direction * step);
     setEstDurationMinutes(next);
     syncDurationInput(next);
   };
@@ -5293,11 +5341,7 @@ function App() {
     );
   };
 
-  const renderOverflowTaskRow = (
-    task: ComposerDraft,
-    overdue: boolean,
-    inOverflow: boolean,
-  ) => (
+  const renderOverflowTaskRow = (task: ComposerDraft, overdue: boolean) => (
     <CompactTaskRow
       key={task.id ?? task.title}
       task={task}
@@ -5316,7 +5360,6 @@ function App() {
         editTask(task);
       }}
       isCurrentFocus={todayFocusTask?.id === task.id}
-      inOverflow={inOverflow}
     />
   );
 
@@ -5334,7 +5377,6 @@ function App() {
     sectionOpen,
     onToggleOpen,
     rowTone,
-    taskInOverflow,
   }: {
     sectionKey: string;
     rows: Array<{ task: ComposerDraft; overdue: boolean }>;
@@ -5349,7 +5391,6 @@ function App() {
     sectionOpen: boolean;
     onToggleOpen: () => void;
     rowTone?: "overdue";
-    taskInOverflow: boolean;
   }) => {
     const totalCount = rows.length;
     if (totalCount === 0 && notices.length === 0) return null;
@@ -5379,8 +5420,8 @@ function App() {
           >
             <span className="task-overdue-toggle-action">
               <span className="task-overdue-toggle-reschedule">
-                <span className="task-overdue-toggle-count">{totalCount}</span>
                 {label}
+                <span className="task-overdue-toggle-count">{totalCount}</span>
               </span>
               <span className="task-overdue-toggle-chevron" aria-hidden="true">
                 {sectionOpen ? "∨" : ">"}
@@ -5434,11 +5475,7 @@ function App() {
                   ).map((entry) =>
                     entry.type === "notice"
                       ? renderTimelineNoticeRow(entry.notice)
-                      : renderOverflowTaskRow(
-                          entry.item.task,
-                          entry.item.overdue,
-                          taskInOverflow,
-                        ),
+                      : renderOverflowTaskRow(entry.item.task, entry.item.overdue),
                   )}
                 </ul>
               </div>
@@ -5478,7 +5515,6 @@ function App() {
         });
       },
       rowTone: "overdue",
-      taskInOverflow: true,
     });
 
   const renderOverflowSection = (dayLayout: (typeof calendarTaskLayout)[number]) => {
@@ -5508,7 +5544,6 @@ function App() {
           return next;
         });
       },
-      taskInOverflow: false,
     });
   };
 
@@ -7730,11 +7765,11 @@ function App() {
                       </button>
                     </div>
                   )}
-                  {showOverdueSection && renderOverdueSection()}
                   {isTodayGroup &&
                     activeView === "dayline" &&
                     !calendarOpen &&
                     renderCurrentFocus()}
+                  {showOverdueSection && renderOverdueSection()}
                   {showUpNext && (
                     <div className="task-day-next">
                       {isTodayGroup && activeView === "dayline" && !calendarOpen && (
@@ -7857,11 +7892,11 @@ function App() {
                     </button>
                   </div>
                 )}
-                {showOverdueSection && renderOverdueSection()}
                 {isTodayGroup &&
                   activeView === "dayline" &&
                   !calendarOpen &&
                   renderCurrentFocus()}
+                {showOverdueSection && renderOverdueSection()}
                 <div
                   className="calendar-timeline-body"
                   style={{ height: Math.max(PX_PER_MINUTE, view.visibleDisplayPx) }}
@@ -9702,6 +9737,7 @@ function App() {
                           type="button"
                           className="app-duration-step"
                           aria-label={durationUnit === "hours" ? "Decrease by 0.1 hours" : "Decrease by 5 minutes"}
+                          disabled={(estDurationMinutes ?? 1) <= 1}
                           onClick={() => stepDuration(-1)}
                         >
                           −
@@ -9719,7 +9755,14 @@ function App() {
                               if (next === "" || /^\d*\.?\d*$/.test(next)) setDurationInput(next);
                               return;
                             }
-                            if (next === "" || /^\d*$/.test(next)) setDurationInput(next);
+                            if (next === "" || /^\d*$/.test(next)) {
+                              if (next !== "" && Number.parseInt(next, 10) === 0) {
+                                setDurationInput("1");
+                                setEstDurationMinutes(1);
+                                return;
+                              }
+                              setDurationInput(next);
+                            }
                           }}
                           onBlur={() => commitDurationInput(durationInput)}
                           onKeyDown={(e) => {
