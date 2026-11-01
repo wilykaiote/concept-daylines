@@ -6392,7 +6392,8 @@
 
 .app-composer-link-qa-schedule,
 .app-composer-link-qa-impact,
-.app-composer-link-qa-urgency {
+.app-composer-link-qa-duration,
+.app-composer-link-qa-recurring {
   position: relative;
   display: flex;
   align-items: center;

@@ -832,21 +832,6 @@ function LinkIcon() {
   );
 }
 
-function UrgencyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M12 4.5v11"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-      <circle cx="12" cy="19" r="1.35" fill="currentColor" />
-    </svg>
-  );
-}
-
 function ImpactIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1195,17 +1180,6 @@ const COMPOSE_KINDS = [
   { id: "log", label: "Entry", placeholder: "What happened?", Icon: LogIcon },
 ] as const;
 
-/** Kept for view-specific compose; hidden from the compose-type menu. */
-const CONTAINER_QUICK_ADD_KIND_IDS = [
-  "plan",
-  "collection",
-  "list",
-  "notebook",
-  "calendar",
-] as const;
-type ContainerQuickAddKind = (typeof CONTAINER_QUICK_ADD_KIND_IDS)[number];
-type LinkQuickAddKind = ContainerQuickAddKind | "task";
-
 /** Named containers — not scheduled like tasks. */
 const CONTAINER_COMPOSE_KIND_IDS = [
   "collection",
@@ -1257,14 +1231,6 @@ const LINK_CONTAINER_TYPE_ITEMS = [
   { id: "plan", label: "Plans", Icon: PlansIcon },
 ] as const;
 
-const COMPOSE_CONTAINER_TYPE_ITEMS = [
-  { id: "collection", label: "Collection", Icon: CollectionOrbitIcon },
-  { id: "calendar", label: "Calendar", Icon: CalendarIcon },
-  { id: "notebook", label: "Notebook", Icon: NotebookIcon },
-  { id: "plan", label: "Plan", Icon: PlansIcon },
-  { id: "list", label: "List", Icon: MenuBarsIcon },
-] as const;
-
 const LINK_TYPE_PICKER_ITEMS = [
   ...LINK_ITEM_TYPE_ITEMS,
   ...LINK_CONTAINER_TYPE_ITEMS,
@@ -1295,6 +1261,7 @@ const COMPOSE_KIND_MENU_RIGHT = COMPOSE_KIND_MENU_RIGHT_IDS.map(
 const LOG_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "log")!;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
+type LinkQuickAddKind = ComposeKind;
 type LinkRelation = "parent" | "child";
 type LinkPrecedence = "before" | "after";
 const LINK_RELATIONS: LinkRelation[] = ["parent", "child"];
@@ -1334,6 +1301,18 @@ const CYCLE_LINK_QUICK_ADD_ITEMS = [
 
 function isLinkingOverlayHint(hint: string | null): boolean {
   return hint === LINKING_TOOL_HINT || hint === CYCLE_LINK_TOOL_HINT;
+}
+
+function composeKindHasScheduleImpactTools(kind: ComposeKind): boolean {
+  return kind === "task" || kind === "plan" || kind === "list" || kind === "item";
+}
+
+function composeKindHasRecurringTool(kind: ComposeKind): boolean {
+  return composeKindHasScheduleImpactTools(kind);
+}
+
+function composeKindHasDurationTool(kind: ComposeKind): boolean {
+  return kind === "task" || kind === "item";
 }
 
 function stampCycleLinkOnTask(
@@ -2107,7 +2086,6 @@ function App() {
   const [linkQuickAddTitle, setLinkQuickAddTitle] = useState("");
   const [linkQuickAddKind, setLinkQuickAddKind] = useState<LinkQuickAddKind>("collection");
   const [linkQuickAddKindMenuOpen, setLinkQuickAddKindMenuOpen] = useState(false);
-  const [linkQaUrgencyMenuOpen, setLinkQaUrgencyMenuOpen] = useState(false);
   const [linkQaUrgencyActivated, setLinkQaUrgencyActivated] = useState(false);
   const [linkQaUrgency, setLinkQaUrgency] = useState<UrgencyOption>(DEFAULT_URGENCY);
   const [linkQaImpactMenuOpen, setLinkQaImpactMenuOpen] = useState(false);
@@ -2118,6 +2096,18 @@ function App() {
   const [linkQaStartsAt, setLinkQaStartsAt] = useState("");
   const [linkQaDueAt, setLinkQaDueAt] = useState("");
   const [linkQaTimeMode, setLinkQaTimeMode] = useState<"starts_at" | "due_at">("starts_at");
+  const [linkQaDurationMenuOpen, setLinkQaDurationMenuOpen] = useState(false);
+  const [linkQaDurationActivated, setLinkQaDurationActivated] = useState(false);
+  const [linkQaDurationUnit, setLinkQaDurationUnit] = useState<"minutes" | "hours">("minutes");
+  const [linkQaEstDurationMinutes, setLinkQaEstDurationMinutes] = useState<number | null>(15);
+  const [linkQaDurationInput, setLinkQaDurationInput] = useState("15");
+  const [linkQaRecurringMenuOpen, setLinkQaRecurringMenuOpen] = useState(false);
+  const [linkQaRecurringActivated, setLinkQaRecurringActivated] = useState(false);
+  const [linkQaRecurringUnit, setLinkQaRecurringUnit] = useState<RecurringUnit>(DEFAULT_RECURRING_UNIT);
+  const [linkQaRecurringCount, setLinkQaRecurringCount] = useState(DEFAULT_RECURRING_COUNT);
+  const [linkQaRecurringInput, setLinkQaRecurringInput] = useState(String(DEFAULT_RECURRING_COUNT));
+  const [linkQaRecurringWeekdays, setLinkQaRecurringWeekdays] = useState<number[]>([]);
+  const [linkQaRecurringMonthDay, setLinkQaRecurringMonthDay] = useState(MIN_MONTH_DAY);
   const [linkPrecedence, setLinkPrecedence] = useState<LinkPrecedence | null>(null);
   const [pendingParentId, setPendingParentId] = useState<string | null>(null);
   const [pendingChildId, setPendingChildId] = useState<string | null>(null);
@@ -2454,12 +2444,20 @@ function App() {
   const linkContainerTypeMenuRef = useRef<HTMLDivElement>(null);
   const linkQuickAddKindButtonRef = useRef<HTMLButtonElement>(null);
   const linkQuickAddKindMenuRef = useRef<HTMLDivElement>(null);
-  const linkQaUrgencyButtonRef = useRef<HTMLButtonElement>(null);
-  const linkQaUrgencyMenuRef = useRef<HTMLDivElement>(null);
   const linkQaImpactButtonRef = useRef<HTMLButtonElement>(null);
   const linkQaImpactMenuRef = useRef<HTMLDivElement>(null);
   const linkQaScheduleButtonRef = useRef<HTMLButtonElement>(null);
   const linkQaScheduleMenuRef = useRef<HTMLDivElement>(null);
+  const linkQaDateInputRef = useRef<HTMLInputElement>(null);
+  const linkQaTimeInputRef = useRef<HTMLInputElement>(null);
+  const linkQaDatePickerOpenRef = useRef(false);
+  const linkQaTimePickerOpenRef = useRef(false);
+  const linkQaDatePickerClosingRef = useRef(false);
+  const linkQaTimePickerClosingRef = useRef(false);
+  const linkQaDurationButtonRef = useRef<HTMLButtonElement>(null);
+  const linkQaDurationMenuRef = useRef<HTMLDivElement>(null);
+  const linkQaRecurringButtonRef = useRef<HTMLButtonElement>(null);
+  const linkQaRecurringMenuRef = useRef<HTMLDivElement>(null);
   const linkQuickAddInputRef = useRef<HTMLInputElement>(null);
   const impactButtonRef = useRef<HTMLButtonElement>(null);
   const cycleButtonRef = useRef<HTMLButtonElement>(null);
@@ -2480,13 +2478,16 @@ function App() {
     LINK_TYPE_PICKER_ITEMS[0];
   const SelectedLinkContainerIcon = selectedLinkContainerType.Icon;
   const isCycleLinkHint = taskToolHint === CYCLE_LINK_TOOL_HINT;
-  const linkQuickAddTypeItems = isCycleLinkHint
-    ? CYCLE_LINK_QUICK_ADD_ITEMS
-    : COMPOSE_CONTAINER_TYPE_ITEMS;
   const selectedLinkQuickAddType =
-    linkQuickAddTypeItems.find((item) => item.id === linkQuickAddKind) ??
-    linkQuickAddTypeItems[0];
+    COMPOSE_KINDS.find((kind) => kind.id === linkQuickAddKind) ?? COMPOSE_KINDS[0];
   const SelectedLinkQuickAddIcon = selectedLinkQuickAddType.Icon;
+  const linkQaHasScheduleImpactTools = composeKindHasScheduleImpactTools(linkQuickAddKind);
+  const linkQaHasRecurringTool = composeKindHasRecurringTool(linkQuickAddKind);
+  const linkQaHasDurationTool = composeKindHasDurationTool(linkQuickAddKind);
+  const linkQaTimeValue = linkQaTimeMode === "starts_at" ? linkQaStartsAt : linkQaDueAt;
+  const linkQaHasScheduleValue =
+    Boolean(linkQaDate.trim()) || Boolean(linkQaTimeValue.trim());
+  const linkQaScheduleActive = linkQaHasScheduleValue || linkQaUrgencyActivated;
   const DaylineIcon = DAYLINE_TAB.Icon;
   const moreMenuViewIds = new Set<ActiveView>([
     ...TEND_MENU_ITEMS.map((item) => item.id),
@@ -4092,7 +4093,6 @@ function App() {
     setLinkQuickAddTitle("");
     setLinkQuickAddKind("collection");
     setLinkQuickAddKindMenuOpen(false);
-    setLinkQaUrgencyMenuOpen(false);
     setLinkQaUrgencyActivated(false);
     setLinkQaUrgency(DEFAULT_URGENCY);
     setLinkQaImpactMenuOpen(false);
@@ -4103,24 +4103,210 @@ function App() {
     setLinkQaStartsAt("");
     setLinkQaDueAt("");
     setLinkQaTimeMode("starts_at");
+    setLinkQaDurationMenuOpen(false);
+    setLinkQaDurationActivated(false);
+    setLinkQaDurationUnit("minutes");
+    setLinkQaEstDurationMinutes(15);
+    setLinkQaDurationInput("15");
+    setLinkQaRecurringMenuOpen(false);
+    setLinkQaRecurringActivated(false);
+    setLinkQaRecurringUnit(DEFAULT_RECURRING_UNIT);
+    setLinkQaRecurringCount(DEFAULT_RECURRING_COUNT);
+    setLinkQaRecurringInput(String(DEFAULT_RECURRING_COUNT));
+    setLinkQaRecurringWeekdays([]);
+    setLinkQaRecurringMonthDay(MIN_MONTH_DAY);
+  };
+
+  const setLinkQaTimeValue = (value: string) => {
+    if (linkQaTimeMode === "starts_at") {
+      setLinkQaStartsAt(value);
+      setLinkQaDueAt("");
+    } else {
+      setLinkQaDueAt(value);
+      setLinkQaStartsAt("");
+    }
+  };
+
+  const setLinkQaTimeModeValue = (mode: "starts_at" | "due_at") => {
+    if (mode === linkQaTimeMode) return;
+    const currentTime = linkQaTimeMode === "starts_at" ? linkQaStartsAt : linkQaDueAt;
+    setLinkQaTimeMode(mode);
+    if (mode === "starts_at") {
+      setLinkQaStartsAt(currentTime);
+      setLinkQaDueAt("");
+    } else {
+      setLinkQaDueAt(currentTime);
+      setLinkQaStartsAt("");
+    }
+  };
+
+  const clampLinkQaDurationMinutes = (minutes: number) => Math.max(1, Math.round(minutes));
+
+  const syncLinkQaDurationInput = (
+    minutes: number | null,
+    unit: "minutes" | "hours" = linkQaDurationUnit,
+  ) => {
+    const value = clampLinkQaDurationMinutes(minutes ?? 1);
+    if (unit === "hours") {
+      const hours = value / 60;
+      setLinkQaDurationInput(Number.isInteger(hours) ? String(hours) : hours.toFixed(1));
+      return;
+    }
+    setLinkQaDurationInput(String(value));
+  };
+
+  const commitLinkQaDurationInput = (
+    raw: string,
+    unit: "minutes" | "hours" = linkQaDurationUnit,
+  ) => {
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      const fallback = clampLinkQaDurationMinutes(linkQaEstDurationMinutes ?? 1);
+      setLinkQaEstDurationMinutes(fallback);
+      syncLinkQaDurationInput(fallback, unit);
+      return;
+    }
+    const minutes = clampLinkQaDurationMinutes(unit === "hours" ? parsed * 60 : parsed);
+    setLinkQaEstDurationMinutes(minutes);
+    syncLinkQaDurationInput(minutes, unit);
+  };
+
+  const stepLinkQaDuration = (direction: 1 | -1) => {
+    const step = linkQaDurationUnit === "hours" ? 6 : 5;
+    const next = clampLinkQaDurationMinutes((linkQaEstDurationMinutes ?? 1) + direction * step);
+    setLinkQaEstDurationMinutes(next);
+    syncLinkQaDurationInput(next);
+  };
+
+  const switchLinkQaDurationUnit = (unit: "minutes" | "hours") => {
+    if (unit === linkQaDurationUnit) return;
+    setLinkQaDurationUnit(unit);
+    syncLinkQaDurationInput(linkQaEstDurationMinutes, unit);
+  };
+
+  const syncLinkQaRecurringInput = (count: number) => {
+    setLinkQaRecurringInput(String(clampRecurringCount(count)));
+  };
+
+  const linkQaRecurringAnchorDate = () => {
+    const fromDate = parseTaskDate(linkQaDate);
+    if (fromDate) return fromDate;
+    return toStartOfDay(new Date(countdownNow));
+  };
+
+  const formatLinkQaRecurring = (
+    count = linkQaRecurringCount,
+    unit = linkQaRecurringUnit,
+    weekdays = linkQaRecurringWeekdays,
+    monthDay = linkQaRecurringMonthDay,
+  ) =>
+    formatRecurring(count, unit, {
+      weekdays: unit === "week" ? weekdays : undefined,
+      monthDay: unit === "month" ? monthDay : undefined,
+    });
+
+  const commitLinkQaRecurringInput = (raw: string) => {
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) {
+      syncLinkQaRecurringInput(linkQaRecurringCount);
+      return;
+    }
+    const next = clampRecurringCount(parsed);
+    setLinkQaRecurringCount(next);
+    syncLinkQaRecurringInput(next);
+  };
+
+  const stepLinkQaRecurring = (direction: 1 | -1) => {
+    const next = clampRecurringCount(linkQaRecurringCount + direction);
+    setLinkQaRecurringCount(next);
+    syncLinkQaRecurringInput(next);
+  };
+
+  const setLinkQaRecurringUnitValue = (unit: RecurringUnit) => {
+    setLinkQaRecurringUnit(unit);
+    const anchor = linkQaRecurringAnchorDate();
+    if (unit === "week") {
+      setLinkQaRecurringWeekdays(
+        linkQaRecurringWeekdays.length > 0 ? linkQaRecurringWeekdays : [anchor.getDay()],
+      );
+    } else if (unit === "month") {
+      setLinkQaRecurringMonthDay(clampMonthDay(anchor.getDate()));
+    }
+  };
+
+  const toggleLinkQaRecurringWeekday = (weekday: number) => {
+    setLinkQaRecurringWeekdays((current) => {
+      const set = new Set(current);
+      if (set.has(weekday)) {
+        if (set.size <= 1) return normalizeWeekdays(current);
+        set.delete(weekday);
+      } else {
+        set.add(weekday);
+      }
+      return normalizeWeekdays(set);
+    });
+  };
+
+  const setLinkQaRecurringEnabled = (enabled: boolean) => {
+    setLinkQaRecurringActivated(enabled);
+    if (!enabled) return;
+    const next = clampRecurringCount(linkQaRecurringCount);
+    setLinkQaRecurringCount(next);
+    syncLinkQaRecurringInput(next);
+    const anchor = linkQaRecurringAnchorDate();
+    if (linkQaRecurringUnit === "week" && linkQaRecurringWeekdays.length === 0) {
+      setLinkQaRecurringWeekdays([anchor.getDay()]);
+    } else if (linkQaRecurringUnit === "month") {
+      setLinkQaRecurringMonthDay(clampMonthDay(anchor.getDate()));
+    }
+  };
+
+  const closeLinkQaToolMenus = (
+    keep?: "schedule" | "impact" | "duration" | "recurring" | "kind",
+  ) => {
+    if (keep !== "schedule") setLinkQaScheduleMenuOpen(false);
+    if (keep !== "impact") setLinkQaImpactMenuOpen(false);
+    if (keep !== "duration") setLinkQaDurationMenuOpen(false);
+    if (keep !== "recurring") setLinkQaRecurringMenuOpen(false);
+    if (keep !== "kind") setLinkQuickAddKindMenuOpen(false);
+  };
+
+  const selectLinkQuickAddKind = (id: LinkQuickAddKind) => {
+    setLinkQuickAddKind(id);
+    closeLinkQaToolMenus();
+    if (!composeKindHasScheduleImpactTools(id)) {
+      setLinkQaScheduleMenuOpen(false);
+      setLinkQaImpactMenuOpen(false);
+    }
+    if (!composeKindHasRecurringTool(id)) setLinkQaRecurringMenuOpen(false);
+    if (!composeKindHasDurationTool(id)) setLinkQaDurationMenuOpen(false);
   };
 
   const submitLinkQuickAdd = () => {
-    const isContainerQuickAdd = isContainerComposeKind(linkQuickAddKind);
-    const date = isContainerQuickAdd ? null : normalizeOptionalField(linkQaDate);
-    const time = isContainerQuickAdd
-      ? null
-      : linkQaTimeMode === "starts_at"
+    const hasScheduleImpact = composeKindHasScheduleImpactTools(linkQuickAddKind);
+    const hasDuration = composeKindHasDurationTool(linkQuickAddKind);
+    const hasRecurring = composeKindHasRecurringTool(linkQuickAddKind);
+    const date = hasScheduleImpact ? normalizeOptionalField(linkQaDate) : null;
+    const time = hasScheduleImpact
+      ? linkQaTimeMode === "starts_at"
         ? normalizeOptionalField(linkQaStartsAt)
-        : normalizeOptionalField(linkQaDueAt);
+        : normalizeOptionalField(linkQaDueAt)
+      : null;
+    const hasSchedule = date != null || time != null;
     const draft = buildComposerDraft({
       title: linkQuickAddTitle,
       type: linkQuickAddKind,
-      urgency: isContainerQuickAdd || !linkQaUrgencyActivated ? null : linkQaUrgency,
-      impact: isContainerQuickAdd || !linkQaImpactActivated ? null : linkQaImpact,
+      urgency:
+        hasScheduleImpact && linkQaUrgencyActivated && !hasSchedule ? linkQaUrgency : null,
+      impact: hasScheduleImpact ? linkQaImpact : null,
       date,
-      starts_at: !isContainerQuickAdd && linkQaTimeMode === "starts_at" ? time : null,
-      due_at: !isContainerQuickAdd && linkQaTimeMode === "due_at" ? time : null,
+      starts_at: hasScheduleImpact && linkQaTimeMode === "starts_at" ? time : null,
+      due_at: hasScheduleImpact && linkQaTimeMode === "due_at" ? time : null,
+      est_duration: hasDuration ? linkQaEstDurationMinutes : null,
+      recurring:
+        hasRecurring && linkQaRecurringActivated
+          ? formatLinkQaRecurring()
+          : null,
     });
     if (!draft || !draft.id) return;
     if (linkQuickAddKind === "collection") {
@@ -4355,18 +4541,9 @@ function App() {
     composeKind === "plan" || composeKind === "list";
   const showComposerTaskRowChrome =
     !isContainerComposeKind(composeKind) || isRichContainerCompose;
-  const composerHasScheduleImpactTools =
-    composeKind === "task" ||
-    composeKind === "plan" ||
-    composeKind === "list" ||
-    composeKind === "item";
-  const composerHasRecurringTool =
-    composeKind === "task" ||
-    composeKind === "plan" ||
-    composeKind === "list" ||
-    composeKind === "item";
-  const composerHasDurationTool =
-    composeKind === "task" || composeKind === "item";
+  const composerHasScheduleImpactTools = composeKindHasScheduleImpactTools(composeKind);
+  const composerHasRecurringTool = composeKindHasRecurringTool(composeKind);
+  const composerHasDurationTool = composeKindHasDurationTool(composeKind);
   const composerSupportsRecurringSeries =
     !isContainerComposeKind(composeKind) || isRichContainerCompose;
   const composerPreviewNow = new Date(countdownNow);
@@ -7125,19 +7302,24 @@ function App() {
       if (linkQuickAddKindMenuRef.current?.contains(target)) return;
       if (linkQaScheduleMenuRef.current?.contains(target)) return;
       if (linkQaImpactMenuRef.current?.contains(target)) return;
-      if (linkQaUrgencyMenuRef.current?.contains(target)) return;
+      if (linkQaDurationMenuRef.current?.contains(target)) return;
+      if (linkQaRecurringMenuRef.current?.contains(target)) return;
       // Portaled confirm dialogs live on document.body — don't treat as outside.
       if (target instanceof Element && target.closest(".task-delete-prompt")) return;
 
       // Native date/time pickers render outside the popover; keep Date & Time open
       // while those inputs are focused so the selection can commit.
-      if (taskToolHint === "Date & Time") {
+      if (taskToolHint === "Date & Time" || linkQaScheduleMenuOpen) {
         const active = document.activeElement;
         if (
           active === taskDateInputRef.current ||
           active === taskTimeInputRef.current ||
           target === taskDateInputRef.current ||
-          target === taskTimeInputRef.current
+          target === taskTimeInputRef.current ||
+          active === linkQaDateInputRef.current ||
+          active === linkQaTimeInputRef.current ||
+          target === linkQaDateInputRef.current ||
+          target === linkQaTimeInputRef.current
         ) {
           return;
         }
@@ -7189,6 +7371,7 @@ function App() {
     recurringMenuOpen,
     impactMenuOpen,
     taskToolHint,
+    linkQaScheduleMenuOpen,
     isComposerDirty,
   ]);
 
@@ -7262,6 +7445,15 @@ function App() {
       if (!(target instanceof Node)) return;
       if (linkQaScheduleMenuRef.current?.contains(target)) return;
       if (linkQaScheduleButtonRef.current?.contains(target)) return;
+      const active = document.activeElement;
+      if (
+        active === linkQaDateInputRef.current ||
+        active === linkQaTimeInputRef.current ||
+        target === linkQaDateInputRef.current ||
+        target === linkQaTimeInputRef.current
+      ) {
+        return;
+      }
       setLinkQaScheduleMenuOpen(false);
     };
 
@@ -7285,19 +7477,34 @@ function App() {
   }, [linkQaImpactMenuOpen]);
 
   useEffect(() => {
-    if (!linkQaUrgencyMenuOpen) return;
+    if (!linkQaDurationMenuOpen) return;
 
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (linkQaUrgencyMenuRef.current?.contains(target)) return;
-      if (linkQaUrgencyButtonRef.current?.contains(target)) return;
-      setLinkQaUrgencyMenuOpen(false);
+      if (linkQaDurationMenuRef.current?.contains(target)) return;
+      if (linkQaDurationButtonRef.current?.contains(target)) return;
+      setLinkQaDurationMenuOpen(false);
     };
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [linkQaUrgencyMenuOpen]);
+  }, [linkQaDurationMenuOpen]);
+
+  useEffect(() => {
+    if (!linkQaRecurringMenuOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (linkQaRecurringMenuRef.current?.contains(target)) return;
+      if (linkQaRecurringButtonRef.current?.contains(target)) return;
+      setLinkQaRecurringMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [linkQaRecurringMenuOpen]);
 
   useEffect(() => {
     if (!durationMenuOpen) return;
@@ -7366,15 +7573,21 @@ function App() {
       if (linkQaScheduleButtonRef.current?.contains(target)) return;
       if (linkQaImpactMenuRef.current?.contains(target)) return;
       if (linkQaImpactButtonRef.current?.contains(target)) return;
-      if (linkQaUrgencyMenuRef.current?.contains(target)) return;
-      if (linkQaUrgencyButtonRef.current?.contains(target)) return;
-      if (taskToolHint === "Date & Time") {
+      if (linkQaDurationMenuRef.current?.contains(target)) return;
+      if (linkQaDurationButtonRef.current?.contains(target)) return;
+      if (linkQaRecurringMenuRef.current?.contains(target)) return;
+      if (linkQaRecurringButtonRef.current?.contains(target)) return;
+      if (taskToolHint === "Date & Time" || linkQaScheduleMenuOpen) {
         const active = document.activeElement;
         if (
           active === taskDateInputRef.current ||
           active === taskTimeInputRef.current ||
           target === taskDateInputRef.current ||
-          target === taskTimeInputRef.current
+          target === taskTimeInputRef.current ||
+          active === linkQaDateInputRef.current ||
+          active === linkQaTimeInputRef.current ||
+          target === linkQaDateInputRef.current ||
+          target === linkQaTimeInputRef.current
         ) {
           return;
         }
@@ -7384,7 +7597,7 @@ function App() {
 
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [taskToolHint]);
+  }, [taskToolHint, linkQaScheduleMenuOpen]);
 
   useEffect(() => {
     if (!moreMenuOpen) return;
@@ -9439,7 +9652,7 @@ function App() {
                             className="app-composer-link-quick-add-input"
                             value={linkQuickAddTitle}
                             onChange={(e) => setLinkQuickAddTitle(e.target.value)}
-                            placeholder={`Name this ${selectedLinkQuickAddType.label.toLowerCase()}...`}
+                            placeholder={selectedLinkQuickAddType.placeholder}
                             autoComplete="off"
                             onKeyDown={(e) => {
                               if (e.key === "Enter") {
@@ -9452,94 +9665,196 @@ function App() {
                           <div className="app-composer-link-quick-add-toolbar">
                             <div className="app-composer-link-quick-add-tools">
                               <div className="app-composer-link-quick-add-tools-inner">
-                              <div className="app-composer-link-qa-schedule">
+                              {linkQaHasRecurringTool && (
+                              <div className="app-composer-link-qa-recurring">
                                 <ComposerOverlayMenu
-                                  open={linkQaScheduleMenuOpen}
-                                  anchorRef={linkQaScheduleButtonRef}
-                                  menuRef={linkQaScheduleMenuRef}
-                                  align="start"
-                                  className="app-duration-menu app-composer-link-qa-schedule-menu"
-                                  aria-label="Date & Time"
+                                  open={linkQaRecurringMenuOpen}
+                                  anchorRef={linkQaRecurringButtonRef}
+                                  menuRef={linkQaRecurringMenuRef}
+                                  matchWidthRef={composerFieldRef}
+                                  className="app-duration-menu app-recurring-menu"
+                                  aria-label="Repeat Every"
                                 >
-                                  <p className="app-duration-title">Date & Time</p>
-                                  <div className="app-duration-divider" aria-hidden="true" />
-                                  <label className="app-due-date-field">
-                                    <span>Date</span>
-                                    <input
-                                      type="date"
-                                      value={linkQaDate}
-                                      onChange={(e) => setLinkQaDate(e.target.value)}
-                                    />
-                                  </label>
-                                  <div
-                                    className="app-duration-unit app-duration-unit-triple"
-                                    role="group"
-                                    aria-label="Time mode"
-                                  >
+                                  <div className="app-recurring-title-row">
+                                    <p className="app-duration-title">Repeat Every...</p>
                                     <button
                                       type="button"
-                                      className={`app-duration-unit-button${
-                                        linkQaTimeMode === "starts_at" ? " is-active" : ""
-                                      }`}
-                                      aria-pressed={linkQaTimeMode === "starts_at"}
-                                      onClick={() => setLinkQaTimeMode("starts_at")}
+                                      className={`app-recurring-onoff${linkQaRecurringActivated ? " is-on" : ""}`}
+                                      role="switch"
+                                      aria-checked={linkQaRecurringActivated}
+                                      aria-label="Repeat"
+                                      onClick={() =>
+                                        setLinkQaRecurringEnabled(!linkQaRecurringActivated)
+                                      }
                                     >
-                                      Starts
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className={`app-duration-unit-button${
-                                        linkQaTimeMode === "due_at" ? " is-active" : ""
-                                      }`}
-                                      aria-pressed={linkQaTimeMode === "due_at"}
-                                      onClick={() => setLinkQaTimeMode("due_at")}
-                                    >
-                                      Due
+                                      {linkQaRecurringActivated ? "ON" : "OFF"}
                                     </button>
                                   </div>
-                                  <label className="app-due-date-field">
-                                    <span>Time</span>
+                                  <div className="app-duration-divider" aria-hidden="true" />
+                                  <div className="app-duration-stepper">
+                                    <button
+                                      type="button"
+                                      className="app-duration-step"
+                                      aria-label="Decrease repeat interval"
+                                      onClick={() => stepLinkQaRecurring(-1)}
+                                    >
+                                      −
+                                    </button>
                                     <input
-                                      type="time"
-                                      value={
-                                        linkQaTimeMode === "starts_at" ? linkQaStartsAt : linkQaDueAt
+                                      type="text"
+                                      inputMode="numeric"
+                                      pattern="[0-9]*"
+                                      className="app-duration-input"
+                                      value={linkQaRecurringInput}
+                                      aria-label="Repeat interval"
+                                      onChange={(event) =>
+                                        setLinkQaRecurringInput(event.target.value)
                                       }
-                                      onChange={(e) => {
-                                        if (linkQaTimeMode === "starts_at") {
-                                          setLinkQaStartsAt(e.target.value);
-                                        } else {
-                                          setLinkQaDueAt(e.target.value);
+                                      onBlur={() => commitLinkQaRecurringInput(linkQaRecurringInput)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                          event.preventDefault();
+                                          commitLinkQaRecurringInput(linkQaRecurringInput);
                                         }
                                       }}
                                     />
-                                  </label>
+                                    <button
+                                      type="button"
+                                      className="app-duration-step"
+                                      aria-label="Increase repeat interval"
+                                      onClick={() => stepLinkQaRecurring(1)}
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                  <div
+                                    className="app-duration-unit app-duration-unit-quad"
+                                    role="group"
+                                    aria-label="Repeat unit"
+                                  >
+                                    {(
+                                      [
+                                        { id: "day", label: "Days" },
+                                        { id: "week", label: "Weeks" },
+                                        { id: "month", label: "Months" },
+                                        { id: "year", label: "Years" },
+                                      ] as const
+                                    ).map(({ id, label }) => (
+                                      <button
+                                        key={id}
+                                        type="button"
+                                        className={`app-duration-unit-button${
+                                          linkQaRecurringUnit === id ? " is-active" : ""
+                                        }`}
+                                        aria-pressed={linkQaRecurringUnit === id}
+                                        onClick={() => setLinkQaRecurringUnitValue(id)}
+                                      >
+                                        {label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {linkQaRecurringUnit === "week" && (
+                                    <div
+                                      className="app-recurring-weekdays"
+                                      role="group"
+                                      aria-label="Days of the week"
+                                    >
+                                      {WEEKDAY_BUTTONS.map(({ id, label, name }) => {
+                                        const selected = linkQaRecurringWeekdays.includes(id);
+                                        return (
+                                          <button
+                                            key={id}
+                                            type="button"
+                                            className={`app-recurring-weekday-chip${
+                                              selected ? " is-selected" : ""
+                                            }`}
+                                            aria-pressed={selected}
+                                            aria-label={name}
+                                            onClick={() => toggleLinkQaRecurringWeekday(id)}
+                                          >
+                                            {label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  {linkQaRecurringUnit === "month" && (
+                                    <div className="app-recurring-monthday">
+                                      <span className="app-recurring-monthday-label">
+                                        Day of month
+                                      </span>
+                                      <div className="app-duration-stepper app-recurring-monthday-stepper">
+                                        <button
+                                          type="button"
+                                          className="app-duration-step"
+                                          aria-label="Decrease day of month"
+                                          onClick={() =>
+                                            setLinkQaRecurringMonthDay((value) =>
+                                              clampMonthDay(value - 1),
+                                            )
+                                          }
+                                        >
+                                          −
+                                        </button>
+                                        <input
+                                          type="text"
+                                          inputMode="numeric"
+                                          pattern="[0-9]*"
+                                          className="app-duration-input"
+                                          value={String(linkQaRecurringMonthDay)}
+                                          aria-label="Day of month"
+                                          onChange={(event) => {
+                                            const parsed = Number.parseInt(
+                                              event.target.value,
+                                              10,
+                                            );
+                                            if (!Number.isFinite(parsed)) {
+                                              setLinkQaRecurringMonthDay(MIN_MONTH_DAY);
+                                              return;
+                                            }
+                                            setLinkQaRecurringMonthDay(clampMonthDay(parsed));
+                                          }}
+                                        />
+                                        <button
+                                          type="button"
+                                          className="app-duration-step"
+                                          aria-label="Increase day of month"
+                                          onClick={() =>
+                                            setLinkQaRecurringMonthDay((value) =>
+                                              clampMonthDay(value + 1),
+                                            )
+                                          }
+                                        >
+                                          +
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
                                 </ComposerOverlayMenu>
                                 <button
-                                  ref={linkQaScheduleButtonRef}
+                                  ref={linkQaRecurringButtonRef}
                                   type="button"
-                                  className={`app-composer-tool app-composer-tool-schedule${
-                                    linkQaDate || linkQaStartsAt || linkQaDueAt
-                                      ? " is-activated"
-                                      : ""
-                                  }${linkQaScheduleMenuOpen ? " is-open" : ""}`}
-                                  aria-label="Date & Time"
-                                  aria-expanded={linkQaScheduleMenuOpen}
+                                  className={`app-composer-tool app-composer-tool-recurring${
+                                    linkQaRecurringActivated ? " is-activated" : ""
+                                  }${linkQaRecurringMenuOpen ? " is-open" : ""}`}
+                                  aria-label="Repeat"
+                                  aria-expanded={linkQaRecurringMenuOpen}
                                   onClick={() => {
-                                    setLinkQaUrgencyMenuOpen(false);
-                                    setLinkQaImpactMenuOpen(false);
-                                    setLinkQuickAddKindMenuOpen(false);
-                                    setLinkQaScheduleMenuOpen((open) => !open);
+                                    closeLinkQaToolMenus("recurring");
+                                    setLinkQaRecurringMenuOpen((open) => !open);
                                   }}
                                 >
-                    <CalendarIcon />
-                  </button>
+                                  <CycleIcon />
+                                </button>
                               </div>
+                              )}
+                              {linkQaHasScheduleImpactTools && (
                               <div className="app-composer-link-qa-impact">
                                 <ComposerOverlayMenu
                                   open={linkQaImpactMenuOpen}
                                   anchorRef={linkQaImpactButtonRef}
                                   menuRef={linkQaImpactMenuRef}
-                                  align="start"
+                                  matchWidthRef={composerFieldRef}
                                   className="app-impact-menu"
                                   aria-label="Impact"
                                 >
@@ -9596,9 +9911,7 @@ function App() {
                                   aria-label="Impact"
                                   aria-expanded={linkQaImpactMenuOpen}
                                   onClick={() => {
-                                    setLinkQaScheduleMenuOpen(false);
-                                    setLinkQaUrgencyMenuOpen(false);
-                                    setLinkQuickAddKindMenuOpen(false);
+                                    closeLinkQaToolMenus("impact");
                                     setLinkQaImpactActivated(true);
                                     setLinkQaImpactMenuOpen((open) => !open);
                                   }}
@@ -9606,55 +9919,347 @@ function App() {
                                   <ImpactIcon />
                                 </button>
                               </div>
-                              <div className="app-composer-link-qa-urgency">
+                              )}
+                              {linkQaHasDurationTool && (
+                              <div className="app-composer-link-qa-duration">
                                 <ComposerOverlayMenu
-                                  open={linkQaUrgencyMenuOpen}
-                                  anchorRef={linkQaUrgencyButtonRef}
-                                  menuRef={linkQaUrgencyMenuRef}
-                                  align="start"
-                                  className="app-urgency-menu"
-                                  aria-label="Urgency"
+                                  open={linkQaDurationMenuOpen}
+                                  anchorRef={linkQaDurationButtonRef}
+                                  menuRef={linkQaDurationMenuRef}
+                                  matchWidthRef={composerFieldRef}
+                                  className="app-duration-menu"
+                                  aria-label="Estimated Duration"
                                 >
-                                  <p className="app-urgency-title">Urgency</p>
-                                  <div className="app-urgency-divider" aria-hidden="true" />
-                                  {URGENCY_OPTIONS.map((option) => (
+                                  <p className="app-duration-title">Estimated Duration</p>
+                                  <div className="app-duration-divider" aria-hidden="true" />
+                                  <div className="app-duration-unit" role="group" aria-label="Duration unit">
                                     <button
-                                      key={option}
                                       type="button"
-                                      className={`app-attach-menu-item app-urgency-menu-item${
-                                        linkQaUrgency === option ? " is-selected" : ""
+                                      className={`app-duration-unit-button${
+                                        linkQaDurationUnit === "minutes" ? " is-active" : ""
                                       }`}
-                                      role="menuitemradio"
-                                      aria-checked={linkQaUrgency === option}
-                                      onClick={() => {
-                                        setLinkQaUrgency(option);
-                                        setLinkQaUrgencyActivated(true);
-                                        setLinkQaUrgencyMenuOpen(false);
-                                      }}
+                                      aria-pressed={linkQaDurationUnit === "minutes"}
+                                      onClick={() => switchLinkQaDurationUnit("minutes")}
                                     >
-                                      <span>{option}</span>
+                                      Minutes
                                     </button>
-                                  ))}
+                                    <button
+                                      type="button"
+                                      className={`app-duration-unit-button${
+                                        linkQaDurationUnit === "hours" ? " is-active" : ""
+                                      }`}
+                                      aria-pressed={linkQaDurationUnit === "hours"}
+                                      onClick={() => switchLinkQaDurationUnit("hours")}
+                                    >
+                                      Hours
+                                    </button>
+                                  </div>
+                                  <div className="app-duration-stepper">
+                                    <button
+                                      type="button"
+                                      className="app-duration-step"
+                                      aria-label={
+                                        linkQaDurationUnit === "hours"
+                                          ? "Decrease by 0.1 hours"
+                                          : "Decrease by 5 minutes"
+                                      }
+                                      disabled={(linkQaEstDurationMinutes ?? 1) <= 1}
+                                      onClick={() => stepLinkQaDuration(-1)}
+                                    >
+                                      −
+                                    </button>
+                                    <input
+                                      type="text"
+                                      inputMode={linkQaDurationUnit === "hours" ? "decimal" : "numeric"}
+                                      pattern={
+                                        linkQaDurationUnit === "hours"
+                                          ? "[0-9]*[.]?[0-9]*"
+                                          : "[0-9]*"
+                                      }
+                                      className="app-duration-input"
+                                      value={linkQaDurationInput}
+                                      aria-label="Estimated duration"
+                                      onChange={(e) => {
+                                        const next = e.target.value;
+                                        if (linkQaDurationUnit === "hours") {
+                                          if (next === "" || /^\d*\.?\d*$/.test(next)) {
+                                            setLinkQaDurationInput(next);
+                                          }
+                                          return;
+                                        }
+                                        if (next === "" || /^\d*$/.test(next)) {
+                                          if (next !== "" && Number.parseInt(next, 10) === 0) {
+                                            setLinkQaDurationInput("1");
+                                            setLinkQaEstDurationMinutes(1);
+                                            return;
+                                          }
+                                          setLinkQaDurationInput(next);
+                                        }
+                                      }}
+                                      onBlur={() => commitLinkQaDurationInput(linkQaDurationInput)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          e.preventDefault();
+                                          commitLinkQaDurationInput(linkQaDurationInput);
+                                        }
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="app-duration-step"
+                                      aria-label={
+                                        linkQaDurationUnit === "hours"
+                                          ? "Increase by 0.1 hours"
+                                          : "Increase by 5 minutes"
+                                      }
+                                      onClick={() => stepLinkQaDuration(1)}
+                                    >
+                                      +
+                                    </button>
+                                  </div>
                                 </ComposerOverlayMenu>
                                 <button
-                                  ref={linkQaUrgencyButtonRef}
+                                  ref={linkQaDurationButtonRef}
                                   type="button"
-                                  className={`app-composer-tool app-composer-tool-accent${
-                                    linkQaUrgencyActivated ? " is-activated" : ""
-                                  }${linkQaUrgencyMenuOpen ? " is-open" : ""}`}
-                                  aria-label="Urgency"
-                                  aria-expanded={linkQaUrgencyMenuOpen}
+                                  className={`app-composer-tool app-composer-tool-accent app-composer-tool-duration${
+                                    linkQaDurationActivated ? " is-activated" : ""
+                                  }${linkQaDurationMenuOpen ? " is-open" : ""}`}
+                                  aria-label="Time"
+                                  aria-expanded={linkQaDurationMenuOpen}
                                   onClick={() => {
-                                    setLinkQaScheduleMenuOpen(false);
-                                    setLinkQaImpactMenuOpen(false);
-                                    setLinkQuickAddKindMenuOpen(false);
-                                    setLinkQaUrgencyActivated(true);
-                                    setLinkQaUrgencyMenuOpen((open) => !open);
+                                    closeLinkQaToolMenus("duration");
+                                    setLinkQaDurationActivated(true);
+                                    setLinkQaDurationMenuOpen((open) => !open);
                                   }}
                                 >
-                                  <UrgencyIcon />
+                                  <ClockIcon />
                                 </button>
                               </div>
+                              )}
+                              {linkQaHasScheduleImpactTools && (
+                              <div className="app-composer-link-qa-schedule">
+                                <ComposerOverlayMenu
+                                  open={linkQaScheduleMenuOpen}
+                                  anchorRef={linkQaScheduleButtonRef}
+                                  menuRef={linkQaScheduleMenuRef}
+                                  matchWidthRef={composerFieldRef}
+                                  role="dialog"
+                                  className="app-composer-tool-hint is-due-date"
+                                  aria-label="Date & Time"
+                                >
+                                  <p className="app-composer-tool-hint-title">URGENCY</p>
+                                  <div className="app-due-date-fields">
+                                    {(() => {
+                                      const todayKeyValue = dayKey(
+                                        toStartOfDay(new Date(countdownNow)),
+                                      );
+                                      const timeModeOptions = [
+                                        { id: "due_at", label: "Due by" },
+                                        { id: "starts_at", label: "Starts on" },
+                                      ] as const;
+                                      const urgencyOptions = [
+                                        { id: "ASAP", label: "ASAP" },
+                                        { id: "Soon", label: "Soon" },
+                                        { id: "Later", label: "Later" },
+                                        { id: "Future", label: "Future" },
+                                      ] as const;
+                                      const hasTime = Boolean(linkQaTimeValue.trim());
+                                      return (
+                                        <>
+                                          <div className="app-due-date-selector">
+                                            <div className="app-due-date-schedule">
+                                              <div className="app-due-date-schedule-inner">
+                                                <label className="app-due-date-field">
+                                                  <span className="app-due-date-field-label">
+                                                    Date
+                                                  </span>
+                                                  <div className="app-due-date-input-wrap">
+                                                    <input
+                                                      ref={linkQaDateInputRef}
+                                                      type="date"
+                                                      value={linkQaDate}
+                                                      onChange={(event) =>
+                                                        setLinkQaDate(event.target.value)
+                                                      }
+                                                      onInput={(event) =>
+                                                        setLinkQaDate(event.currentTarget.value)
+                                                      }
+                                                      {...bindNativeDateTimePicker(
+                                                        linkQaDatePickerOpenRef,
+                                                        linkQaDatePickerClosingRef,
+                                                      )}
+                                                      aria-label="Date"
+                                                    />
+                                                    {linkQaDate.trim() !== "" && (
+                                                      <button
+                                                        type="button"
+                                                        className="app-due-date-clear"
+                                                        aria-label="Clear date"
+                                                        onClick={(event) => {
+                                                          event.preventDefault();
+                                                          event.stopPropagation();
+                                                          setLinkQaDate("");
+                                                          if (linkQaDateInputRef.current) {
+                                                            linkQaDateInputRef.current.value = "";
+                                                            linkQaDateInputRef.current.blur();
+                                                          }
+                                                          linkQaDatePickerOpenRef.current = false;
+                                                        }}
+                                                      >
+                                                        ×
+                                                      </button>
+                                                    )}
+                                                  </div>
+                                                </label>
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div className="app-due-date-selector">
+                                            <div className="app-due-date-schedule">
+                                              <div className="app-due-date-schedule-inner">
+                                                <label className="app-due-date-field">
+                                                  <span className="app-due-date-field-label">
+                                                    Time
+                                                  </span>
+                                                  <div className="app-due-date-input-wrap">
+                                                    <input
+                                                      ref={linkQaTimeInputRef}
+                                                      type="time"
+                                                      value={linkQaTimeValue}
+                                                      onChange={(event) =>
+                                                        setLinkQaTimeValue(event.target.value)
+                                                      }
+                                                      onInput={(event) =>
+                                                        setLinkQaTimeValue(
+                                                          event.currentTarget.value,
+                                                        )
+                                                      }
+                                                      {...bindNativeDateTimePicker(
+                                                        linkQaTimePickerOpenRef,
+                                                        linkQaTimePickerClosingRef,
+                                                      )}
+                                                      aria-label="Time"
+                                                    />
+                                                    {linkQaTimeValue.trim() !== "" && (
+                                                      <button
+                                                        type="button"
+                                                        className="app-due-date-clear"
+                                                        aria-label="Clear time"
+                                                        onClick={(event) => {
+                                                          event.preventDefault();
+                                                          event.stopPropagation();
+                                                          setLinkQaTimeValue("");
+                                                          if (linkQaTimeInputRef.current) {
+                                                            linkQaTimeInputRef.current.value = "";
+                                                            linkQaTimeInputRef.current.blur();
+                                                          }
+                                                          linkQaTimePickerOpenRef.current = false;
+                                                        }}
+                                                      >
+                                                        ×
+                                                      </button>
+                                                    )}
+                                                  </div>
+                                                </label>
+                                                {hasTime && (
+                                                  <div className="app-due-date-option-row">
+                                                    <div
+                                                      className="app-due-date-urgency-options"
+                                                      role="group"
+                                                      aria-label="Time mode"
+                                                    >
+                                                      {timeModeOptions.map((option) => {
+                                                        const isActive =
+                                                          linkQaTimeMode === option.id;
+                                                        return (
+                                                          <button
+                                                            key={option.id}
+                                                            type="button"
+                                                            className={`app-due-date-urgency-button${
+                                                              isActive ? " is-active" : ""
+                                                            }`}
+                                                            aria-pressed={isActive}
+                                                            onClick={() => {
+                                                              setLinkQaUrgencyActivated(false);
+                                                              if (!linkQaDate.trim()) {
+                                                                setLinkQaDate(todayKeyValue);
+                                                              }
+                                                              setLinkQaTimeModeValue(option.id);
+                                                            }}
+                                                          >
+                                                            {option.label}
+                                                          </button>
+                                                        );
+                                                      })}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div className="app-due-date-selector">
+                                            <div className="app-due-date-option-row">
+                                              <div
+                                                className="app-due-date-urgency-options"
+                                                role="group"
+                                                aria-label="Urgency"
+                                              >
+                                                {urgencyOptions.map((option) => {
+                                                  const isActive =
+                                                    linkQaUrgencyActivated &&
+                                                    linkQaUrgency === option.id &&
+                                                    !linkQaHasScheduleValue;
+                                                  return (
+                                                    <button
+                                                      key={option.id}
+                                                      type="button"
+                                                      className={`app-due-date-urgency-button${
+                                                        isActive ? " is-active" : ""
+                                                      }`}
+                                                      aria-pressed={isActive}
+                                                      onClick={() => {
+                                                        setLinkQaDate("");
+                                                        setLinkQaStartsAt("");
+                                                        setLinkQaDueAt("");
+                                                        if (linkQaDateInputRef.current) {
+                                                          linkQaDateInputRef.current.value = "";
+                                                        }
+                                                        if (linkQaTimeInputRef.current) {
+                                                          linkQaTimeInputRef.current.value = "";
+                                                        }
+                                                        setLinkQaUrgency(option.id);
+                                                        setLinkQaUrgencyActivated(true);
+                                                      }}
+                                                    >
+                                                      {option.label}
+                                                    </button>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                </ComposerOverlayMenu>
+                                <button
+                                  ref={linkQaScheduleButtonRef}
+                                  type="button"
+                                  className={`app-composer-tool app-composer-tool-accent app-composer-tool-schedule${
+                                    linkQaScheduleActive ? " is-activated" : ""
+                                  }${linkQaScheduleMenuOpen ? " is-open" : ""}`}
+                                  aria-label="Date & Time"
+                                  aria-expanded={linkQaScheduleMenuOpen}
+                                  onClick={() => {
+                                    closeLinkQaToolMenus("schedule");
+                                    setLinkQaScheduleMenuOpen((open) => !open);
+                                  }}
+                                >
+                                  <CalendarIcon />
+                                </button>
+                              </div>
+                              )}
                               </div>
                             </div>
                             <div className="app-compose-action app-composer-link-quick-add-type">
@@ -9664,36 +10269,116 @@ function App() {
                                 menuRef={linkQuickAddKindMenuRef}
                                 align="end"
                                 className="app-compose-kind-menu"
-                                aria-label="Collection type"
+                                aria-label="Compose type"
                               >
-                                {linkQuickAddTypeItems.map(({ id, label, Icon }) => (
-                                  <button
-                                    key={id}
-                                    type="button"
-                                    className={`app-attach-menu-item${
-                                      linkQuickAddKind === id ? " is-selected" : ""
-                                    }`}
-                                    role="menuitem"
-                                    onClick={() => {
-                                      setLinkQuickAddKind(id);
-                                      setLinkQuickAddKindMenuOpen(false);
-                                    }}
-                                  >
-                                    <Icon />
-                                    <span>{label}</span>
-                                  </button>
-                                ))}
+                                {isCycleLinkHint
+                                  ? CYCLE_LINK_QUICK_ADD_ITEMS.map(({ id, label, Icon }) => (
+                                      <button
+                                        key={id}
+                                        type="button"
+                                        className={`app-attach-menu-item${
+                                          linkQuickAddKind === id ? " is-selected" : ""
+                                        }`}
+                                        role="menuitem"
+                                        onClick={() => selectLinkQuickAddKind(id)}
+                                      >
+                                        <span className="app-compose-kind-plus" aria-hidden="true">
+                                          +
+                                        </span>
+                                        <Icon />
+                                        <span>{label}</span>
+                                      </button>
+                                    ))
+                                  : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className={`app-attach-menu-item app-compose-kind-menu-span${
+                                          linkQuickAddKind === "collection" ? " is-selected" : ""
+                                        }`}
+                                        role="menuitem"
+                                        onClick={() => selectLinkQuickAddKind("collection")}
+                                      >
+                                        <span className="app-compose-kind-plus" aria-hidden="true">
+                                          +
+                                        </span>
+                                        <COMPOSE_KIND_MENU_TOP.Icon />
+                                        <span>{COMPOSE_KIND_MENU_TOP.label}</span>
+                                      </button>
+                                      <div
+                                        className="app-compose-kind-menu-divider app-compose-kind-menu-divider-half"
+                                        role="separator"
+                                      />
+                                      <div className="app-compose-kind-menu-columns">
+                                        <div className="app-compose-kind-menu-column">
+                                          {COMPOSE_KIND_MENU_LEFT.map(({ id, label, Icon }) => (
+                                            <button
+                                              key={id}
+                                              type="button"
+                                              className={`app-attach-menu-item${
+                                                linkQuickAddKind === id ? " is-selected" : ""
+                                              }`}
+                                              role="menuitem"
+                                              onClick={() => selectLinkQuickAddKind(id)}
+                                            >
+                                              <span className="app-compose-kind-plus" aria-hidden="true">
+                                                +
+                                              </span>
+                                              <Icon />
+                                              <span>{label}</span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                        <div
+                                          className="app-compose-kind-menu-divider app-compose-kind-menu-divider-vert"
+                                          role="separator"
+                                        />
+                                        <div className="app-compose-kind-menu-column">
+                                          {COMPOSE_KIND_MENU_RIGHT.map(({ id, label, Icon }) => (
+                                            <button
+                                              key={id}
+                                              type="button"
+                                              className={`app-attach-menu-item${
+                                                linkQuickAddKind === id ? " is-selected" : ""
+                                              }`}
+                                              role="menuitem"
+                                              onClick={() => selectLinkQuickAddKind(id)}
+                                            >
+                                              <span className="app-compose-kind-plus" aria-hidden="true">
+                                                +
+                                              </span>
+                                              <Icon />
+                                              <span>{label}</span>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                      <div className="app-compose-kind-menu-divider" role="separator" />
+                                      <button
+                                        type="button"
+                                        className={`app-attach-menu-item app-compose-kind-menu-span${
+                                          linkQuickAddKind === "log" ? " is-selected" : ""
+                                        }`}
+                                        role="menuitem"
+                                        onClick={() => selectLinkQuickAddKind("log")}
+                                      >
+                                        <span className="app-compose-kind-plus" aria-hidden="true">
+                                          +
+                                        </span>
+                                        <LOG_COMPOSE_KIND.Icon />
+                                        <span>{LOG_COMPOSE_KIND.label}</span>
+                                      </button>
+                                    </>
+                                  )}
                               </ComposerOverlayMenu>
                               <button
                                 ref={linkQuickAddKindButtonRef}
                                 type="button"
                                 className="app-compose-kind-button"
-                                aria-label="Choose collection type"
+                                aria-label="Choose type"
                                 aria-expanded={linkQuickAddKindMenuOpen}
                                 onClick={() => {
-                                  setLinkQaScheduleMenuOpen(false);
-                                  setLinkQaImpactMenuOpen(false);
-                                  setLinkQaUrgencyMenuOpen(false);
+                                  closeLinkQaToolMenus("kind");
                                   setLinkQuickAddKindMenuOpen((open) => !open);
                                 }}
                               >
@@ -9705,7 +10390,7 @@ function App() {
                                   linkQuickAddTitle.trim() ? " is-ready" : ""
                                 }`}
                                 aria-label={
-                                  linkQuickAddTitle.trim() ? "Add collection" : "Choose collection type"
+                                  linkQuickAddTitle.trim() ? "Add" : "Choose type"
                                 }
                                 aria-expanded={
                                   linkQuickAddTitle.trim() ? undefined : linkQuickAddKindMenuOpen
@@ -9715,9 +10400,7 @@ function App() {
                                     submitLinkQuickAdd();
                                     return;
                                   }
-                                  setLinkQaScheduleMenuOpen(false);
-                                  setLinkQaImpactMenuOpen(false);
-                                  setLinkQaUrgencyMenuOpen(false);
+                                  closeLinkQaToolMenus("kind");
                                   setLinkQuickAddKindMenuOpen((open) => !open);
                                 }}
                               >
