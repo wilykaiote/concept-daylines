@@ -540,25 +540,42 @@ function ListItemIcon() {
   );
 }
 
-function TimelineIcon() {
+function TimelineIcon({ day }: { day?: number }) {
+  const label = String(
+    Number.isFinite(day) ? Math.min(31, Math.max(1, Math.round(day as number))) : new Date().getDate(),
+  );
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect
+        x="3.5"
+        y="4.2"
+        width="17"
+        height="16.6"
+        rx="2.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
       <path
-        d="M2.5 12H6M18 12h3.5"
+        d="M8 2.8v3M16 2.8v3M3.5 8.4h17"
         fill="none"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
       />
-      <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M12 9v3.2L14.2 14"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <text
+        x="12"
+        y="15.15"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill="currentColor"
+        fontSize={label.length === 1 ? 8.2 : 7.1}
+        fontWeight="700"
+        fontFamily="inherit"
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
+        {label}
+      </text>
     </svg>
   );
 }
@@ -1275,13 +1292,12 @@ const COMPOSE_KIND_MENU_RIGHT = COMPOSE_KIND_MENU_RIGHT_IDS.map(
 const LOG_COMPOSE_KIND = COMPOSE_KINDS.find((kind) => kind.id === "log")!;
 
 type ComposeKind = (typeof COMPOSE_KINDS)[number]["id"];
-type LinkRelation = "parent" | "child" | "cycle";
+type LinkRelation = "parent" | "child";
 type LinkPrecedence = "before" | "after";
-const LINK_RELATIONS: LinkRelation[] = ["parent", "child", "cycle"];
+const LINK_RELATIONS: LinkRelation[] = ["parent", "child"];
 const LINK_RELATION_LABEL: Record<LinkRelation, string> = {
   parent: "Parent",
   child: "Child",
-  cycle: "Cycle",
 };
 
 function composeKindFromTaskType(type: string | null | undefined): ComposeKind {
@@ -1320,13 +1336,13 @@ function isLinkingOverlayHint(hint: string | null): boolean {
 function stampCycleLinkOnTask(
   list: ComposerDraft[],
   taskId: string | null,
-  parentId: string | null,
+  cycleId: string | null,
   precedence: LinkPrecedence | null,
   recurring?: string | null,
 ): ComposerDraft[] {
   if (!taskId) return list;
   const existing = list.find((task) => task.id === taskId);
-  const linked = parentId != null && precedence != null;
+  const linked = cycleId != null && precedence != null;
   const seriesIdToStrip =
     linked && existing?.series_id != null ? existing.series_id : null;
   return list
@@ -1340,8 +1356,7 @@ function stampCycleLinkOnTask(
       if (task.id !== taskId) return task;
       return {
         ...task,
-        parent_id: parentId,
-        after_id: linked ? parentId : null,
+        after_id: linked ? cycleId : null,
         after: linked ? precedence : null,
         recurring: linked && recurring !== undefined ? recurring : task.recurring,
         series_id: linked ? null : task.series_id,
@@ -2060,6 +2075,7 @@ function App() {
   const [linkPrecedence, setLinkPrecedence] = useState<LinkPrecedence | null>(null);
   const [pendingParentId, setPendingParentId] = useState<string | null>(null);
   const [pendingChildId, setPendingChildId] = useState<string | null>(null);
+  const [pendingCycleId, setPendingCycleId] = useState<string | null>(null);
   const [durationUnit, setDurationUnit] = useState<"minutes" | "hours">("minutes");
   const [estDurationMinutes, setEstDurationMinutes] = useState<number | null>(15);
   const [durationInput, setDurationInput] = useState("15");
@@ -2313,12 +2329,6 @@ function App() {
     mode: "rest" | "break" | null;
     totalMs: number;
   }>({ mode: null, totalMs: 0 });
-  /** Frozen pack/focus start for active timed Current focus countdown. */
-  const focusTaskCountdownAnchorRef = useRef<{
-    taskId: string;
-    startedAtMs: number;
-    durationMs: number;
-  } | null>(null);
   const [tasksCompact, setTasksCompact] = useState(true);
   const [outsideExpandedByDay, setOutsideExpandedByDay] = useState<
     Record<string, OutsideExpandedFlags>
@@ -2431,8 +2441,6 @@ function App() {
     linkQuickAddTypeItems.find((item) => item.id === linkQuickAddKind) ??
     linkQuickAddTypeItems[0];
   const SelectedLinkQuickAddIcon = selectedLinkQuickAddType.Icon;
-  const selectedLinkId =
-    linkRelation === "child" ? pendingChildId : pendingParentId;
   const DaylineIcon = DAYLINE_TAB.Icon;
   const moreMenuViewIds = new Set<ActiveView>([
     ...TEND_MENU_ITEMS.map((item) => item.id),
@@ -2598,39 +2606,6 @@ function App() {
       todayWindowStartMinutes,
     );
   };
-  const overflowForDay = (dayLayout: (typeof calendarTaskLayout)[number] | undefined) => {
-    const dayOverdue = dayLayout?.overdueTasks ?? [];
-    // Overflow is date-only misses (and forced at-risk) — dated+timed misses go to Overdue.
-    const layoutOverdueIds = new Set(
-      dayOverdue.map((task) => task.id).filter((id): id is string => id != null),
-    );
-    const isToday = dayLayout?.dayKey === todayKeyStr;
-    const overdue = (isToday
-      ? [
-          ...dayOverdue,
-          ...forcedOverflowTasks.filter(
-            (task) => task.id != null && !layoutOverdueIds.has(task.id),
-          ),
-        ]
-      : dayOverdue
-    ).filter(
-      (task) =>
-        task.id == null ||
-        (!leftoverOverflowIds.has(task.id) && !isDatedTimedMiss(task)),
-    );
-    const rows = [...overdue]
-      .sort(compareOverflowTimelineOrder)
-      .map((task) => ({
-        task,
-        overdue: false as const,
-      }));
-    return {
-      rows,
-      tasks: rows.map((row) => row.task),
-      count: rows.length,
-      deferOnly: false,
-    };
-  };
   const packedTodayIds = (() => {
     const ids = new Set<string>();
     for (const block of todayLayoutForOverflow?.blocks ?? []) {
@@ -2642,6 +2617,17 @@ function App() {
     return ids;
   })();
   const packedTodayKey = [...packedTodayIds].sort().join("\0");
+  /** Remaining today window (overtaken, Up next, still-packed at-risk) — not past-ended blocks. */
+  const liveScheduleIds = (() => {
+    const ids = new Set<string>();
+    for (const block of todayLayoutForOverflow?.scheduleBlocks ?? []) {
+      const end = block.packEndMin ?? block.endMin;
+      if (end <= nowMinutes) continue;
+      if (block.taskId) ids.add(block.taskId);
+    }
+    if (layoutAtRiskTask?.id) ids.add(layoutAtRiskTask.id);
+    return ids;
+  })();
   const leftoverOverDueRows = (() => {
     const byId = new Map<string, ComposerDraft>();
     for (const task of tasks) {
@@ -2651,17 +2637,17 @@ function App() {
     const seen = new Set<string>();
     for (const bucket of leftoverOverflow) {
       for (const id of bucket.taskIds) {
-        if (seen.has(id)) continue;
+        if (seen.has(id) || liveScheduleIds.has(id)) continue;
         const task = byId.get(id);
         if (!task) continue;
-        if (packedTodayIds.has(id) && !isDatedTimedMiss(task)) continue;
         seen.add(id);
         list.push(task);
       }
     }
     for (const task of tasks) {
       const id = task.id;
-      if (id == null || seen.has(id) || !isDatedTimedMiss(task)) continue;
+      if (id == null || seen.has(id) || liveScheduleIds.has(id)) continue;
+      if (!isDatedTimedMiss(task)) continue;
       seen.add(id);
       list.push(task);
     }
@@ -2691,9 +2677,60 @@ function App() {
       overdue: true as const,
     }));
   })();
+  const leftoverOverdueIds = new Set(
+    leftoverOverDueRows
+      .map((row) => row.task.id)
+      .filter((id): id is string => id != null),
+  );
+  const overflowForDay = (dayLayout: (typeof calendarTaskLayout)[number] | undefined) => {
+    const dayOverdue = dayLayout?.overdueTasks ?? [];
+    // Overflow is date-only misses (and forced at-risk) — dated+timed misses go to Overdue.
+    const layoutOverdueIds = new Set(
+      dayOverdue.map((task) => task.id).filter((id): id is string => id != null),
+    );
+    const isToday = dayLayout?.dayKey === todayKeyStr;
+    const overdue = (isToday
+      ? [
+          ...dayOverdue,
+          ...forcedOverflowTasks.filter(
+            (task) =>
+              task.id != null &&
+              !layoutOverdueIds.has(task.id) &&
+              !liveScheduleIds.has(task.id) &&
+              !leftoverOverdueIds.has(task.id),
+          ),
+        ]
+      : dayOverdue
+    ).filter(
+      (task) =>
+        task.id == null ||
+        (!leftoverOverflowIds.has(task.id) &&
+          !leftoverOverdueIds.has(task.id) &&
+          !liveScheduleIds.has(task.id) &&
+          !isDatedTimedMiss(task)),
+    );
+    const rows = [...overdue]
+      .sort(compareOverflowTimelineOrder)
+      .map((task) => ({
+        task,
+        overdue: false as const,
+      }));
+    return {
+      rows,
+      tasks: rows.map((row) => row.task),
+      count: rows.length,
+      deferOnly: false,
+    };
+  };
   const todayOverflow = overflowForDay(todayLayoutForOverflow);
   const overflowTasks = todayOverflow.tasks;
   const overflowTaskCount = todayOverflow.count;
+  const exclusiveOffScheduleIds = new Set<string>([
+    ...leftoverOverdueIds,
+    ...overflowTasks
+      .map((task) => task.id)
+      .filter((id): id is string => id != null),
+  ]);
   overflowLiveRef.current = {
     dayKey: todayKeyStr,
     ids: new Set([
@@ -2706,7 +2743,6 @@ function App() {
   const unlockedFocusInOverflow =
     currentFocus != null &&
     currentFocus.dayKey === todayKeyStr &&
-    currentFocus.locked !== true &&
     (overflowTasks.some((task) => task.id === currentFocus.taskId) ||
       leftoverOverDueRows.some((row) => row.task.id === currentFocus.taskId));
   const parentTitleById = (() => {
@@ -2740,7 +2776,11 @@ function App() {
   const selectedScheduleBlocks = (
     selectedDayLayout?.scheduleBlocks ?? selectedDayLayout?.blocks ?? []
   )
-    .filter((block) => !block.overdue)
+    .filter(
+      (block) =>
+        !block.overdue &&
+        (block.taskId == null || !exclusiveOffScheduleIds.has(block.taskId)),
+    )
     .map((block) => ({
       startMin: block.packStartMin ?? block.startMin,
       endMin: block.packEndMin ?? block.endMin,
@@ -2749,7 +2789,11 @@ function App() {
     }));
   const todayLayout = calendarLayoutByKey.get(dayKey(todayStart));
   const todayPlanBlocks = [...(todayLayout?.scheduleBlocks ?? [])]
-    .filter((block) => !block.overdue)
+    .filter(
+      (block) =>
+        !block.overdue &&
+        (block.taskId == null || !exclusiveOffScheduleIds.has(block.taskId)),
+    )
     .sort(
       (a, b) =>
         (a.packStartMin ?? a.startMin) - (b.packStartMin ?? b.startMin) ||
@@ -2807,13 +2851,21 @@ function App() {
       ? (tasks.find((task) => task.id === todayFocusId) ?? null)
       : null;
   const nothingCurrentlyOvertaken = overtakenPlanBlocks.length === 0;
+  const onLiveSchedule = (task: ComposerDraft | null | undefined) => {
+    if (task == null) return null;
+    if (task.id != null && exclusiveOffScheduleIds.has(task.id)) return null;
+    return task;
+  };
   // Focus: overtaken task, else next soft while end-of-day slack remains.
+  // Missed timed that did not fit must not remain Current Focus even if locked.
   const todayFocusTask =
-    overtakenFocusBlock?.task ??
-    (nothingCurrentlyOvertaken && todayEndSlackMin > 0
-      ? firstUpcomingSoft
-      : null) ??
-    pinnedFocusTask ??
+    onLiveSchedule(overtakenFocusBlock?.task) ??
+    onLiveSchedule(
+      nothingCurrentlyOvertaken && todayEndSlackMin > 0
+        ? firstUpcomingSoft
+        : null,
+    ) ??
+    onLiveSchedule(pinnedFocusTask) ??
     null;
   const focusPackedStartMin =
     upNextPlanBlocksAll.length > 0
@@ -2865,29 +2917,31 @@ function App() {
     todayFocusTask?.id != null &&
     !focusLocked &&
     (focusTaskIsTimed || todayEndSlackMin === 0);
-  if (focusTaskCountdownActive && todayFocusTask.id != null) {
-    const durationMs = Math.max(1, taskDurationMinutes(todayFocusTask) * 60_000);
-    const packStartMin =
-      overtakenFocusBlock.packStartMin ?? overtakenFocusBlock.startMin;
-    const packStartMs = todayStart.getTime() + packStartMin * 60_000;
-    const anchor = focusTaskCountdownAnchorRef.current;
-    if (anchor == null || anchor.taskId !== todayFocusTask.id) {
-      focusTaskCountdownAnchorRef.current = {
-        taskId: todayFocusTask.id,
-        startedAtMs: Math.min(packStartMs, countdownNow),
-        durationMs,
-      };
-    } else if (anchor.durationMs !== durationMs) {
-      focusTaskCountdownAnchorRef.current = { ...anchor, durationMs };
-    }
-  } else if (focusTaskCountdownAnchorRef.current != null) {
-    focusTaskCountdownAnchorRef.current = null;
-  }
+  const overtakenPackStartMin =
+    overtakenFocusBlock != null
+      ? (overtakenFocusBlock.packStartMin ?? overtakenFocusBlock.startMin)
+      : null;
+  const overtakenPackEndMin =
+    overtakenFocusBlock != null
+      ? (overtakenFocusBlock.packEndMin ?? overtakenFocusBlock.endMin)
+      : null;
   const focusTaskCountdownMs = (() => {
-    const anchor = focusTaskCountdownAnchorRef.current;
-    if (!focusTaskCountdownActive || anchor == null) return null;
-    return Math.max(0, anchor.durationMs - (countdownNow - anchor.startedAtMs));
+    if (
+      !focusTaskCountdownActive ||
+      overtakenPackEndMin == null
+    ) {
+      return null;
+    }
+    const remaining =
+      todayStart.getTime() + overtakenPackEndMin * 60_000 - countdownNow;
+    return remaining > 0 ? remaining : null;
   })();
+  const focusTaskPackSpanMs =
+    overtakenPackStartMin != null &&
+    overtakenPackEndMin != null &&
+    overtakenPackEndMin > overtakenPackStartMin
+      ? (overtakenPackEndMin - overtakenPackStartMin) * 60_000
+      : null;
   const focusCountdownMs =
     focusRestMode
       ? restCountdownTargetMs - countdownNow
@@ -2897,7 +2951,7 @@ function App() {
           ? restCountdownTargetMs - countdownNow
           : focusTaskCountdownMs;
   const focusCountdownLabel =
-    !focusLocked && focusCountdownMs != null
+    !focusLocked && focusCountdownMs != null && focusCountdownMs > 0
       ? `- ${formatCountdown(focusCountdownMs, { hideZeroHours: true })}`
       : null;
   const focusStatusMode = focusRestMode
@@ -2915,33 +2969,35 @@ function App() {
   } else if (focusStatusCountdownTotalRef.current.mode != null) {
     focusStatusCountdownTotalRef.current = { mode: null, totalMs: 0 };
   }
-  // Timed task: duration. Rest / Break: remaining when that mode began.
+  // Task: packed window length. Rest / Break: remaining when that mode began.
   const focusCountdownTotalMs =
     focusStatusMode != null
       ? focusStatusCountdownTotalRef.current.totalMs
-      : focusTaskCountdownAnchorRef.current != null
-        ? focusTaskCountdownAnchorRef.current.durationMs
-        : null;
+      : focusTaskPackSpanMs;
   const focusCountdownProgress =
     !focusLocked &&
     focusCountdownMs != null &&
+    focusCountdownMs > 0 &&
     focusCountdownTotalMs != null
       ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
       : null;
-  // Overtaken bars: timed always; softs when end-of-day slack is zero.
+  // Overtaken bars: remaining packed window / packed span. Timed always; softs when flush.
   const overtakenCountdownByTaskId = new Map<string, number>();
   if (!focusLocked) {
     for (const block of overtakenPlanBlocks) {
       if (!isTimedTask(block.task) && todayEndSlackMin > 0) continue;
       const taskId = block.task.id;
       if (taskId == null) continue;
-      const durationMs = Math.max(1, taskDurationMinutes(block.task) * 60_000);
       const startMin = block.packStartMin ?? block.startMin;
-      const elapsedMs = countdownNow - (todayStart.getTime() + startMin * 60_000);
-      const remainingMs = Math.max(0, durationMs - elapsedMs);
+      const endMin = block.packEndMin ?? block.endMin;
+      const spanMin = endMin - startMin;
+      if (spanMin <= 0) continue;
+      const remainingMs =
+        todayStart.getTime() + endMin * 60_000 - countdownNow;
+      if (remainingMs <= 0) continue;
       overtakenCountdownByTaskId.set(
         taskId,
-        Math.min(1, Math.max(0, remainingMs / durationMs)),
+        Math.min(1, Math.max(0, remainingMs / (spanMin * 60_000))),
       );
     }
   }
@@ -2968,7 +3024,9 @@ function App() {
       ? 100
       : 0;
   const todayWheelSlices: DayWheelSlice[] = buildDayWheelSlices(
-    todayLayout?.blocks ?? [],
+    (todayLayout?.blocks ?? []).filter(
+      (block) => block.taskId == null || !exclusiveOffScheduleIds.has(block.taskId),
+    ),
   );
   const todaySoftResidentIds = collectSoftTaskIdsOnDay(calendarTaskLayout, todayStart);
   const todaySoftResidentKey = [...todaySoftResidentIds].sort().join(",");
@@ -3372,18 +3430,16 @@ function App() {
   };
 
   const applyLinkFields = (draft: ComposerDraft): ComposerDraft => {
-    const withParent = { ...draft, parent_id: pendingParentId };
-    if (linkPrecedence && selectedLinkId) {
-      return {
-        ...withParent,
-        after_id: selectedLinkId,
-        after: linkPrecedence,
-      };
-    }
+    const cycleSide =
+      pendingCycleId != null
+        ? (linkPrecedence ?? repeatAfterLinkedSide)
+        : null;
+    const hasCycle = pendingCycleId != null && cycleSide != null;
     return {
-      ...withParent,
-      after_id: null,
-      after: null,
+      ...draft,
+      parent_id: pendingParentId,
+      after_id: hasCycle ? pendingCycleId : null,
+      after: hasCycle ? cycleSide : null,
     };
   };
 
@@ -3416,8 +3472,17 @@ function App() {
     );
   };
 
-  const applyParentLinkToEditingTask = (
-    parentId: string | null,
+  const applyParentLinkToEditingTask = (parentId: string | null) => {
+    if (!editingTaskId) return;
+    setTasks((current) =>
+      current.map((task) =>
+        task.id === editingTaskId ? { ...task, parent_id: parentId } : task,
+      ),
+    );
+  };
+
+  const applyCycleLinkToEditingTask = (
+    cycleId: string | null,
     precedence: LinkPrecedence | null = linkPrecedence,
     extraTasks: ComposerDraft[] = [],
   ) => {
@@ -3427,7 +3492,7 @@ function App() {
         stampCycleLinkOnTask(
           extraTasks.length > 0 ? [...extraTasks, ...tasks] : tasks,
           editingTaskId,
-          parentId,
+          cycleId,
           precedence,
           recurring,
         ),
@@ -3437,7 +3502,7 @@ function App() {
           stampCycleLinkOnTask(
             current,
             editingTaskId,
-            parentId,
+            cycleId,
             precedence,
             recurring,
           ),
@@ -3449,7 +3514,7 @@ function App() {
         return;
       }
     }
-    syncComposerCycleDate(parentId, precedence, recurring, extraTasks);
+    syncComposerCycleDate(cycleId, precedence, recurring, extraTasks);
   };
 
   const applyChildLinkToEditingTask = (
@@ -3770,22 +3835,19 @@ function App() {
     if (isLinkPickerType(linkQuickAddKind)) {
       setLinkContainerType(linkQuickAddKind);
     }
-    if (linkRelation === "child") {
+    if (isCycleLinkHint) {
+      const precedence = linkPrecedence ?? "after";
+      setPendingCycleId(draft.id);
+      setLinkPrecedence(precedence);
+      applyCycleLinkToEditingTask(draft.id, precedence, [draft]);
+    } else if (linkRelation === "child") {
       const previousChildId = pendingChildId;
       setPendingChildId(draft.id);
       applyChildLinkToEditingTask(draft.id, previousChildId);
-      setLinkPrecedence(null);
     } else {
-      const precedence =
-        linkRelation === "cycle" ? (linkPrecedence ?? "after") : null;
       setPendingParentId(draft.id);
       setPendingChildId(null);
-      if (linkRelation === "cycle") {
-        setLinkPrecedence(precedence);
-      } else {
-        setLinkPrecedence(null);
-      }
-      applyParentLinkToEditingTask(draft.id, precedence, [draft]);
+      applyParentLinkToEditingTask(draft.id);
     }
     setRecentLinkIds((current) => rememberRecentLinkId(draft.id!, current));
     setLinkQuickAddOpen(false);
@@ -3830,6 +3892,7 @@ function App() {
     setTaskToolHint(null);
     setPendingParentId(null);
     setPendingChildId(null);
+    setPendingCycleId(null);
     setLinkRelation("parent");
     setLinkSearchQuery("");
     setLinkQuickAddOpen(false);
@@ -3922,7 +3985,7 @@ function App() {
       setScheduleToolActivated(true);
       clearComposerMetaAuto("schedule", "urgency");
     }
-    if (isLinkingOverlayHint(title)) {
+    if (title === LINKING_TOOL_HINT) {
       clearComposerMetaAuto("parent");
     }
     taskToolHintAnchorRef.current = anchor;
@@ -3941,11 +4004,7 @@ function App() {
         setLinkContainerType(defaultLinkPickerType(composeKind));
         setLinkQuickAddOpen(false);
         resetLinkQuickAddFields();
-        if (!(editingTaskId != null && pendingParentId != null && linkRelation === "cycle")) {
-          setLinkPrecedence(null);
-        }
       } else if (next === CYCLE_LINK_TOOL_HINT) {
-        setLinkRelation("cycle");
         setLinkSearchQuery("");
         setLinkContainerTypeMenuOpen(false);
         setLinkContainerType("all");
@@ -4046,8 +4105,8 @@ function App() {
   const composerParentTitle = parentTitleFor(pendingParentId);
   const composerHasParent = normalizeOptionalField(composerParentTitle) != null;
   const cycleLinkButtonTitle =
-    linkRelation === "cycle" && pendingParentId != null
-      ? (normalizeOptionalField(composerParentTitle) ?? "Untitled")
+    pendingCycleId != null
+      ? (normalizeOptionalField(parentTitleFor(pendingCycleId)) ?? "Untitled")
       : null;
   const composerIsRecurring = composerRecurring != null;
   const composerTypeLabel =
@@ -4356,11 +4415,15 @@ function App() {
       mode: nextMode,
     });
     setTaskToolHint(null);
-    setPendingParentId(task.after_id ?? task.parent_id);
-    setPendingChildId(null);
     const cyclePrecedence: LinkPrecedence | null =
       task.after === "before" || task.after === "after" ? task.after : null;
-    setLinkRelation(cyclePrecedence != null ? "cycle" : "parent");
+    const cycleId = cyclePrecedence != null ? task.after_id : null;
+    setPendingCycleId(cycleId);
+    setPendingParentId(
+      cycleId != null && task.parent_id === cycleId ? null : task.parent_id,
+    );
+    setPendingChildId(null);
+    setLinkRelation("parent");
     setLinkSearchQuery("");
     setLinkQuickAddOpen(false);
     resetLinkQuickAddFields();
@@ -4714,9 +4777,7 @@ function App() {
     if (!composerSupportsRecurringSeries) return false;
     const existing = tasks.find((task) => task.id === editId);
     const composerCycleScheduled =
-      pendingParentId != null &&
-      (linkPrecedence === "before" || linkPrecedence === "after") &&
-      composerRecurring != null;
+      pendingCycleId != null && composerRecurring != null;
     if (composerCycleScheduled || (existing != null && isCycleScheduled(existing))) {
       return false;
     }
@@ -4882,9 +4943,7 @@ function App() {
     const draft = buildDraftFromComposer();
     if (!draft) return;
     const creatingCycle =
-      pendingParentId != null &&
-      (linkPrecedence === "before" || linkPrecedence === "after") &&
-      parseRecurring(draft.recurring) != null;
+      pendingCycleId != null && parseRecurring(draft.recurring) != null;
     if (
       composerSupportsRecurringSeries &&
       parseRecurring(draft.recurring) != null &&
@@ -4962,7 +5021,7 @@ function App() {
   };
 
   const restampEditingCycleSchedule = (nextRecurring: string | null) => {
-    if (linkRelation !== "cycle" || pendingParentId == null) return;
+    if (pendingCycleId == null) return;
     const precedence = linkPrecedence ?? "after";
     if (editingTaskId) {
       const preview = resolveCycleDates(
@@ -4979,7 +5038,7 @@ function App() {
         return;
       }
     }
-    syncComposerCycleDate(pendingParentId, precedence, nextRecurring);
+    syncComposerCycleDate(pendingCycleId, precedence, nextRecurring);
   };
 
   const commitRecurringInput = (raw: string) => {
@@ -5816,8 +5875,8 @@ function App() {
       sectionKey: `${todayKeyStr}-overdue`,
       rows: leftoverOverDueRows,
       notices: tasksCompact ? overdueSlotNotices : [],
-      label: "OVERDUE",
-      ariaLabel: "Overdue tasks",
+      label: "MISSED",
+      ariaLabel: "Missed tasks",
       showPivot: leftoverOverDueRows.length > 0,
       attachTodayRefs: false,
       deferOnly: false,
@@ -5899,7 +5958,7 @@ function App() {
       clearCurrentFocusStorage();
       return;
     }
-    // Unlocked focus that no longer fits today → release so it returns to overflow.
+    // Focus that no longer fits (Overdue / Overflow only) → release, including locked.
     if (unlockedFocusInOverflow) {
       setCurrentFocus(null);
       clearCurrentFocusStorage();
@@ -7256,7 +7315,7 @@ function App() {
               aria-modal="true"
               aria-label={
                 overflowReschedulePrompt.source === "overdue"
-                  ? "Reschedule all overdue tasks?"
+                  ? "Reschedule all missed tasks?"
                   : "Reschedule all overflow tasks?"
               }
             >
@@ -7270,7 +7329,7 @@ function App() {
               </button>
               <p className="twineline-save-prompt-title">
                 {overflowReschedulePrompt.source === "overdue"
-                  ? "Automatically reschedule all overdue tasks?"
+                  ? "Automatically reschedule all missed tasks?"
                   : "Automatically reschedule all overflow tasks?"}
               </p>
               <div className="twineline-save-prompt-actions">
@@ -8048,6 +8107,9 @@ function App() {
               ).filter((block) => {
                 const id = block.taskId ?? block.key;
                 if (seenTaskIds.has(id)) return false;
+                if (block.taskId && exclusiveOffScheduleIds.has(block.taskId)) {
+                  return false;
+                }
                 seenTaskIds.add(id);
                 return true;
               });
@@ -8270,7 +8332,13 @@ function App() {
                         <span className="calendar-timeline-outside-stub-label">{stub.label}</span>
                   </button>
                 ))}
-                    {view.blocks.map((block) => {
+                    {view.blocks
+                      .filter(
+                        (block) =>
+                          block.taskId == null ||
+                          !exclusiveOffScheduleIds.has(block.taskId),
+                      )
+                      .map((block) => {
                       const scheduleKind = taskScheduleKind(block.task);
                       return (
                       <div
@@ -8330,7 +8398,7 @@ function App() {
                   tabIndex={collapsed && !searchOpen ? 0 : -1}
                   aria-label={DAYLINE_TAB.label}
                 >
-                  <DaylineIcon />
+                  <DaylineIcon day={todayStart.getDate()} />
                 </button>
               );
             }
@@ -9414,22 +9482,44 @@ function App() {
                               key={`${item.kindLabel}:${item.id}`}
                               type="button"
                               className={`app-attach-menu-item${
-                                (linkRelation === "child" && pendingChildId === item.id) ||
-                                (linkRelation !== "child" && pendingParentId === item.id)
+                                (isCycleLinkHint && pendingCycleId === item.id) ||
+                                (!isCycleLinkHint &&
+                                  linkRelation === "child" &&
+                                  pendingChildId === item.id) ||
+                                (!isCycleLinkHint &&
+                                  linkRelation !== "child" &&
+                                  pendingParentId === item.id)
                                   ? " is-selected"
                                   : ""
                               }`}
                               role="option"
                               aria-selected={
-                                (linkRelation === "child" && pendingChildId === item.id) ||
-                                (linkRelation !== "child" && pendingParentId === item.id)
+                                (isCycleLinkHint && pendingCycleId === item.id) ||
+                                (!isCycleLinkHint &&
+                                  linkRelation === "child" &&
+                                  pendingChildId === item.id) ||
+                                (!isCycleLinkHint &&
+                                  linkRelation !== "child" &&
+                                  pendingParentId === item.id)
                               }
                               onClick={() => {
-                                if (linkRelation === "child") {
+                                if (isCycleLinkHint) {
+                                  const next = pendingCycleId === item.id ? null : item.id;
+                                  const nextPrecedence =
+                                    next != null ? (linkPrecedence ?? "after") : null;
+                                  setPendingCycleId(next);
+                                  if (nextPrecedence != null) setLinkPrecedence(nextPrecedence);
+                                  applyCycleLinkToEditingTask(next, nextPrecedence);
+                                  if (next != null) {
+                                    setRecentLinkIds((current) =>
+                                      rememberRecentLinkId(next, current),
+                                    );
+                                    closeTaskToolHint();
+                                  }
+                                } else if (linkRelation === "child") {
                                   const next = pendingChildId === item.id ? null : item.id;
                                   const previousChildId = pendingChildId;
                                   setPendingChildId(next);
-                                  setLinkPrecedence(null);
                                   applyChildLinkToEditingTask(next, previousChildId);
                                   if (next != null) {
                                     setRecentLinkIds((current) =>
@@ -9439,14 +9529,9 @@ function App() {
                                   }
                                 } else {
                                   const next = pendingParentId === item.id ? null : item.id;
-                                  const nextPrecedence =
-                                    linkRelation === "cycle" && next != null
-                                      ? (linkPrecedence ?? "after")
-                                      : null;
                                   setPendingParentId(next);
                                   setPendingChildId(null);
-                                  setLinkPrecedence(nextPrecedence);
-                                  applyParentLinkToEditingTask(next, nextPrecedence);
+                                  applyParentLinkToEditingTask(next);
                                   if (next != null) {
                                     setRecentLinkIds((current) =>
                                       rememberRecentLinkId(next, current),
@@ -9590,8 +9675,8 @@ function App() {
                                     setRepeatAfterLinked(true);
                                     setRepeatAfterLinkedSide(id);
                                     setLinkPrecedence(id);
-                                    if (pendingParentId != null) {
-                                      applyParentLinkToEditingTask(pendingParentId, id);
+                                    if (pendingCycleId != null) {
+                                      applyCycleLinkToEditingTask(pendingCycleId, id);
                                     }
                                   }}
                                 >
@@ -9617,17 +9702,8 @@ function App() {
                                 (LINK_RELATIONS.indexOf(linkRelation) + 1) % LINK_RELATIONS.length
                               ]!;
                             setLinkRelation(next);
-                            if (next === "cycle") {
-                              const precedence = linkPrecedence ?? "after";
-                              setLinkPrecedence(precedence);
-                              if (pendingParentId != null) {
-                                applyParentLinkToEditingTask(pendingParentId, precedence);
-                              }
-                            } else {
-                              setLinkPrecedence(null);
-                              if (next === "parent" && pendingParentId != null) {
-                                applyParentLinkToEditingTask(pendingParentId, null);
-                              }
+                            if (next === "parent" && pendingParentId != null) {
+                              applyParentLinkToEditingTask(pendingParentId);
                             }
                           }}
                         >
@@ -9645,39 +9721,6 @@ function App() {
                             </svg>
                           </span>
                         </button>
-                        {linkRelation === "cycle" && (
-                          <>
-                            <span className="app-composer-link-type-lead">That starts</span>
-                            <button
-                              type="button"
-                              className="app-composer-link-toggle"
-                              aria-label={`That starts ${linkPrecedence === "after" ? "after" : "before"} the link; press to switch`}
-                              onClick={() => {
-                                const next: LinkPrecedence =
-                                  linkPrecedence === "after" ? "before" : "after";
-                                setLinkPrecedence(next);
-                                if (pendingParentId != null) {
-                                  applyParentLinkToEditingTask(pendingParentId, next);
-                                }
-                              }}
-                            >
-                              <span>{linkPrecedence === "after" ? "After" : "Before"}</span>
-                              <span className="app-composer-link-toggle-chevrons" aria-hidden="true">
-                                <svg viewBox="0 0 8 12" focusable="false">
-                                  <path
-                                    d="M1.5 4.2 4 1.7l2.5 2.5M1.5 7.8 4 10.3l2.5-2.5"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.4"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                </svg>
-                              </span>
-                            </button>
-                            <span className="app-composer-link-type-lead">The link is completed</span>
-                          </>
-                        )}
                       </div>
                       </>
                       )}
@@ -9872,8 +9915,8 @@ function App() {
                               onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
-                                setPendingParentId(null);
-                                applyParentLinkToEditingTask(null);
+                                setPendingCycleId(null);
+                                applyCycleLinkToEditingTask(null);
                               }}
                             >
                               <CloseIcon />

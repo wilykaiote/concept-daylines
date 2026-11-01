@@ -359,27 +359,54 @@ function pushDayOverflow(
   byDayKey.set(key, list);
 }
 
-/**
- * Place a timed task on its scheduled day. Missed timed tasks keep their
- * absolute slot on the track; they go to Overdue in the list, not Overflow.
- * Never rolls missed timed tasks onto later days.
- */
-function placeTimedTask(
+/** Pin an on-time timed task at its scheduled clock time. */
+function placeOnTimeTimedTask(
   byDay: Map<string, PackBlock[]>,
   task: ComposerDraft,
-  _now: Date,
-  _getPackEnd: (day: Date) => number,
   getWindowStart: (day: Date) => number,
-  _overdueByDay: Map<string, ComposerDraft[]>,
-  _todayKey: string,
 ) {
   const scheduled = parseTaskDate(task.date);
   if (!scheduled) return;
-
   const windowStart = getWindowStart(scheduled);
   const startMin = resolveTimedStartMin(task, windowStart);
   const endMin = startMin + taskDurationMinutes(task);
   pushBlock(byDay, scheduled, task, startMin, endMin, 0, false);
+}
+
+/**
+ * Missed dated+timed: first-fit today's remaining pack window, else Overdue.
+ * Never leaves a ghost block at the original clock time.
+ */
+function placeMissedTimedTask(
+  byDay: Map<string, PackBlock[]>,
+  task: ComposerDraft,
+  now: Date,
+  getPackEnd: (day: Date) => number,
+  getWindowStart: (day: Date) => number,
+  overdueByDay: Map<string, ComposerDraft[]>,
+  gapMinutes: number,
+) {
+  const today = toStartOfDay(now);
+  const todayKey = dayKey(today);
+  const packEnd = getPackEnd(today);
+  const windowStart = getWindowStart(today);
+  const packStart = softPackStartForDay(today, now, packEnd, windowStart);
+  const minutes = taskDurationMinutes(task);
+  if (packStart < packEnd) {
+    const occupied = inflateOccupied(
+      occupiedIntervalsForDay(byDay, todayKey),
+      gapMinutes,
+      packStart,
+      packEnd,
+    );
+    const free = freeIntervals(packStart, packEnd, occupied);
+    const range = firstFitRange(free, minutes);
+    if (range) {
+      pushBlock(byDay, today, task, range.start, range.end, 0, false);
+      return;
+    }
+  }
+  pushDayOverflow(overdueByDay, todayKey, task);
 }
 
 /** Soft packing cursor: live now on today so softs slide; window start on future days. */
@@ -1030,19 +1057,24 @@ function pinFocusTaskOnToday(
   const windowStart = getWindowStart(today);
   const minutes = Math.max(1, taskDurationMinutes(task));
   const key = todayKey;
+  const packStart = softPackStartForDay(today, now, packEnd, windowStart);
+  const missedTimed =
+    classifyTask(task) === "timed" &&
+    isAnchoredTaskMissed(task, now, packEnd, windowStart);
 
   if (
     frozen != null &&
     frozen.endMin - frozen.startMin === minutes &&
     frozen.startMin >= windowStart &&
-    frozen.endMin <= packEnd
+    frozen.endMin <= packEnd &&
+    (!missedTimed || frozen.startMin >= packStart)
   ) {
     pushBlock(byDay, today, task, frozen.startMin, frozen.endMin, 0, false);
     return true;
   }
 
-  const packStart = softPackStartForDay(today, now, packEnd, windowStart);
   if (packStart >= packEnd) {
+    if (missedTimed) return false;
     pushBlock(byDay, today, task, windowStart, windowStart + minutes, 0, false);
     return true;
   }
@@ -1058,6 +1090,7 @@ function pinFocusTaskOnToday(
     pushBlock(byDay, today, task, range.start, range.end, 0, false);
     return true;
   }
+  if (missedTimed) return false;
   pushBlock(byDay, today, task, packStart, packStart + minutes, 0, false);
   return true;
 }
@@ -1098,11 +1131,25 @@ export function layoutCalendarTasks(
     frozenById.set(placement.taskId, placement);
   }
 
-  const timed: ComposerDraft[] = [];
+  const timedOnTime: ComposerDraft[] = [];
+  const timedMissed: ComposerDraft[] = [];
   const dateOnlyByDay = new Map<string, ComposerDraft[]>();
   const undated: ComposerDraft[] = [];
   const catchUp: ComposerDraft[] = [];
   let focusTask: ComposerDraft | null = null;
+
+  const timedSortKey = (task: ComposerDraft) => {
+    const starts = parseTimeOfDay(task.starts_at);
+    if (starts != null) return starts;
+    const due = parseTimeOfDay(task.due_at);
+    return due != null ? due - taskDurationMinutes(task) : 0;
+  };
+  const compareTimed = (a: ComposerDraft, b: ComposerDraft) => {
+    const dateA = a.date ?? "";
+    const dateB = b.date ?? "";
+    if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+    return timedSortKey(a) - timedSortKey(b);
+  };
 
   for (const task of tasks) {
     if (focusTaskId != null && task.id === focusTaskId) {
@@ -1115,13 +1162,24 @@ export function layoutCalendarTasks(
       continue;
     }
     const scheduled = parseTaskDate(task.date)!;
-    // Past-dated timed/date-only catch up on today as duration blocks.
-    if (scheduled.getTime() < todayStart.getTime()) {
-      catchUp.push(task);
+    if (kind === "timed") {
+      if (
+        isAnchoredTaskMissed(
+          task,
+          now,
+          getPackEnd(scheduled),
+          getWindowStart(scheduled),
+        )
+      ) {
+        timedMissed.push(task);
+      } else {
+        timedOnTime.push(task);
+      }
       continue;
     }
-    if (kind === "timed") {
-      timed.push(task);
+    // Past-dated date-only catch up on today as duration blocks.
+    if (scheduled.getTime() < todayStart.getTime()) {
+      catchUp.push(task);
       continue;
     }
     const key = dayKey(scheduled);
@@ -1130,32 +1188,21 @@ export function layoutCalendarTasks(
     dateOnlyByDay.set(key, list);
   }
 
-  timed.sort((a, b) => {
-    const dateA = a.date ?? "";
-    const dateB = b.date ?? "";
-    if (dateA !== dateB) return dateA < dateB ? -1 : 1;
-    const startA =
-      parseTimeOfDay(a.starts_at) ??
-      (parseTimeOfDay(a.due_at) != null
-        ? (parseTimeOfDay(a.due_at) as number) - taskDurationMinutes(a)
-        : 0);
-    const startB =
-      parseTimeOfDay(b.starts_at) ??
-      (parseTimeOfDay(b.due_at) != null
-        ? (parseTimeOfDay(b.due_at) as number) - taskDurationMinutes(b)
-        : 0);
-    return startA - startB;
-  });
+  timedOnTime.sort(compareTimed);
+  timedMissed.sort(compareTimed);
 
-  for (const task of timed) {
-    placeTimedTask(
+  for (const task of timedOnTime) {
+    placeOnTimeTimedTask(byDay, task, getWindowStart);
+  }
+  for (const task of timedMissed) {
+    placeMissedTimedTask(
       byDay,
       task,
       now,
       getPackEnd,
       getWindowStart,
       overdueByDay,
-      todayKey,
+      gapMinutes,
     );
   }
 
@@ -1179,18 +1226,30 @@ export function layoutCalendarTasks(
         undated.push(focusTask);
       } else {
         const scheduled = parseTaskDate(focusTask.date);
-        if (scheduled && scheduled.getTime() < todayStart.getTime()) {
+        if (kind === "timed") {
+          if (
+            scheduled != null &&
+            isAnchoredTaskMissed(
+              focusTask,
+              now,
+              getPackEnd(scheduled),
+              getWindowStart(scheduled),
+            )
+          ) {
+            placeMissedTimedTask(
+              byDay,
+              focusTask,
+              now,
+              getPackEnd,
+              getWindowStart,
+              overdueByDay,
+              gapMinutes,
+            );
+          } else {
+            placeOnTimeTimedTask(byDay, focusTask, getWindowStart);
+          }
+        } else if (scheduled && scheduled.getTime() < todayStart.getTime()) {
           catchUp.push(focusTask);
-        } else if (kind === "timed") {
-          placeTimedTask(
-            byDay,
-            focusTask,
-            now,
-            getPackEnd,
-            getWindowStart,
-            overdueByDay,
-            todayKey,
-          );
         } else if (scheduled) {
           const key = dayKey(scheduled);
           const list = dateOnlyByDay.get(key) ?? [];
@@ -1249,9 +1308,7 @@ export function layoutCalendarTasks(
     const missDay = scheduled ?? todayStart;
     const kind = classifyTask(task);
     if (isAnchoredTaskMissed(task, now, getPackEnd(missDay), getWindowStart(missDay))) {
-      // Dated+timed misses belong in Overdue, not Overflow.
-      if (kind === "timed") continue;
-      const key = dayKey(missDay);
+      const key = kind === "timed" ? todayKey : dayKey(missDay);
       pushDayOverflow(overdueByDay, key < todayKey ? todayKey : key, task);
       overdueIds.add(task.id);
       continue;
