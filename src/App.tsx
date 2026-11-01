@@ -33,6 +33,13 @@ import {
   type MetaAutoKey,
 } from "./composer";
 import {
+  isCycleLinked,
+  isCycleScheduled,
+  offsetCycleDateKey,
+  resolveCycleDates,
+  rotateCompletedCycleTask,
+} from "./cycleSchedule";
+import {
   clampMonthDay,
   clampRecurringCount,
   completeRecurringOccurrence,
@@ -1309,6 +1316,79 @@ const CYCLE_LINK_QUICK_ADD_ITEMS = [
 function isLinkingOverlayHint(hint: string | null): boolean {
   return hint === LINKING_TOOL_HINT || hint === CYCLE_LINK_TOOL_HINT;
 }
+
+function stampCycleLinkOnTask(
+  list: ComposerDraft[],
+  taskId: string | null,
+  parentId: string | null,
+  precedence: LinkPrecedence | null,
+  recurring?: string | null,
+): ComposerDraft[] {
+  if (!taskId) return list;
+  const existing = list.find((task) => task.id === taskId);
+  const linked = parentId != null && precedence != null;
+  const seriesIdToStrip =
+    linked && existing?.series_id != null ? existing.series_id : null;
+  return list
+    .filter(
+      (task) =>
+        seriesIdToStrip == null ||
+        task.series_id !== seriesIdToStrip ||
+        task.id === taskId,
+    )
+    .map((task) => {
+      if (task.id !== taskId) return task;
+      return {
+        ...task,
+        parent_id: parentId,
+        after_id: linked ? parentId : null,
+        after: linked ? precedence : null,
+        recurring: linked && recurring !== undefined ? recurring : task.recurring,
+        series_id: linked ? null : task.series_id,
+      };
+    });
+}
+
+function stampCycleRecurringOnTask(
+  list: ComposerDraft[],
+  taskId: string | null,
+  recurring: string | null,
+): ComposerDraft[] {
+  if (!taskId) return list;
+  const existing = list.find((task) => task.id === taskId);
+  if (!existing || !isCycleLinked(existing)) return list;
+  const seriesIdToStrip =
+    recurring != null && existing.series_id != null ? existing.series_id : null;
+  return list
+    .filter(
+      (task) =>
+        seriesIdToStrip == null ||
+        task.series_id !== seriesIdToStrip ||
+        task.id === taskId,
+    )
+    .map((task) => {
+      if (task.id !== taskId) return task;
+      return {
+        ...task,
+        recurring,
+        series_id: recurring != null ? null : task.series_id,
+      };
+    });
+}
+
+function cycleDateFromParent(
+  list: ComposerDraft[],
+  parentId: string | null,
+  precedence: LinkPrecedence | null,
+  recurring: string | null,
+): string | null {
+  if (parentId == null || precedence == null) return null;
+  const schedule = parseRecurring(recurring);
+  if (!schedule) return null;
+  const parent = list.find((task) => task.id === parentId);
+  if (parent?.date == null) return null;
+  return offsetCycleDateKey(parent.date, schedule, precedence);
+}
 /** Row balloon first, short pause, then schedule green hold + balloon. */
 const TASK_ROW_POP_MS = 420;
 const SCHEDULE_POP_GAP_MS = 160;
@@ -1933,7 +2013,7 @@ function App() {
   const [durationActivated, setDurationActivated] = useState(false);
   const [recurringMenuOpen, setRecurringMenuOpen] = useState(false);
   const [recurringActivated, setRecurringActivated] = useState(false);
-  const [repeatAfterLinked, setRepeatAfterLinked] = useState(false);
+  const [repeatAfterLinked, setRepeatAfterLinked] = useState(true);
   const [repeatAfterLinkedSide, setRepeatAfterLinkedSide] = useState<"before" | "after">("after");
   const [recurringUnit, setRecurringUnit] = useState<RecurringUnit>(DEFAULT_RECURRING_UNIT);
   const [recurringCount, setRecurringCount] = useState(DEFAULT_RECURRING_COUNT);
@@ -3307,23 +3387,69 @@ function App() {
     };
   };
 
+  const applyComposerCycleDate = (date: string | null) => {
+    if (date == null) return;
+    setTaskDate(date);
+    setComposerAutoRescheduled(true);
+    setComposerMetaAuto((current) => {
+      if (current.has("schedule")) return current;
+      const next = new Set(current);
+      next.add("schedule");
+      return next;
+    });
+    syncScheduleDraftRef({ date });
+  };
+
+  const syncComposerCycleDate = (
+    parentId: string | null,
+    precedence: LinkPrecedence | null,
+    recurring: string | null,
+    extraTasks: ComposerDraft[] = [],
+  ) => {
+    applyComposerCycleDate(
+      cycleDateFromParent(
+        extraTasks.length > 0 ? [...extraTasks, ...tasks] : tasks,
+        parentId,
+        precedence,
+        recurring,
+      ),
+    );
+  };
+
   const applyParentLinkToEditingTask = (
     parentId: string | null,
     precedence: LinkPrecedence | null = linkPrecedence,
+    extraTasks: ComposerDraft[] = [],
   ) => {
-    if (!editingTaskId) return;
-    setTasks((current) =>
-      current.map((task) =>
-        task.id === editingTaskId
-          ? {
-              ...task,
-              parent_id: parentId,
-              after_id: parentId != null && precedence != null ? parentId : null,
-              after: parentId != null && precedence != null ? precedence : null,
-            }
-          : task,
-      ),
-    );
+    const recurring = composerRecurring;
+    if (editingTaskId) {
+      const preview = resolveCycleDates(
+        stampCycleLinkOnTask(
+          extraTasks.length > 0 ? [...extraTasks, ...tasks] : tasks,
+          editingTaskId,
+          parentId,
+          precedence,
+          recurring,
+        ),
+      );
+      setTasks((current) =>
+        resolveCycleDates(
+          stampCycleLinkOnTask(
+            current,
+            editingTaskId,
+            parentId,
+            precedence,
+            recurring,
+          ),
+        ),
+      );
+      const row = preview.find((task) => task.id === editingTaskId);
+      if (row?.date) {
+        applyComposerCycleDate(row.date);
+        return;
+      }
+    }
+    syncComposerCycleDate(parentId, precedence, recurring, extraTasks);
   };
 
   const applyChildLinkToEditingTask = (
@@ -3366,17 +3492,24 @@ function App() {
     const withLinks = applyLinkFields(draft);
     const parentIdForChild = resolvedEditId ?? withLinks.id;
     const schedule = parseRecurring(withLinks.recurring);
+    const cycleScheduled = isCycleScheduled(withLinks);
     const shouldMaterialize =
       options?.materializeSeries === true &&
       schedule != null &&
       withLinks.date != null &&
-      resolvedEditId == null;
-    const seriesId =
-      withLinks.series_id ??
-      (shouldMaterialize || schedule != null ? crypto.randomUUID() : null);
+      resolvedEditId == null &&
+      !cycleScheduled;
+    const seriesId = cycleScheduled
+      ? null
+      : withLinks.series_id ??
+        (shouldMaterialize || schedule != null ? crypto.randomUUID() : null);
     const anchored: ComposerDraft = {
       ...withLinks,
-      series_id: shouldMaterialize || withLinks.series_id != null ? seriesId : withLinks.series_id,
+      series_id: cycleScheduled
+        ? null
+        : shouldMaterialize || withLinks.series_id != null
+          ? seriesId
+          : withLinks.series_id,
     };
     setTasks((current) => {
       let next = current;
@@ -3395,35 +3528,48 @@ function App() {
           if (futures.length > 0) next = [...futures, ...next];
         }
       } else {
-        next = current.map((task) => {
-          if (task.id !== resolvedEditId) return task;
-          return {
-            ...task,
-            title: withLinks.title,
-            type: withLinks.type,
-            est_duration: withLinks.est_duration,
-            urgency: withLinks.urgency,
-            impact: withLinks.impact,
-            date: withLinks.date,
-            starts_at: withLinks.starts_at,
-            due_at: withLinks.due_at,
-            recurring: withLinks.recurring,
-            series_id:
-              withLinks.series_id !== undefined ? withLinks.series_id : task.series_id,
-            parent_id: withLinks.parent_id,
-            after_id: withLinks.after_id,
-            after: withLinks.after,
-            auto_rescheduled: withLinks.auto_rescheduled === true,
-            meta_auto: withLinks.meta_auto ?? null,
-          };
-        });
+        const existing = current.find((task) => task.id === resolvedEditId);
+        const seriesIdToStrip =
+          cycleScheduled && existing?.series_id != null ? existing.series_id : null;
+        next = current
+          .filter(
+            (task) =>
+              seriesIdToStrip == null ||
+              task.series_id !== seriesIdToStrip ||
+              task.id === resolvedEditId,
+          )
+          .map((task) => {
+            if (task.id !== resolvedEditId) return task;
+            return {
+              ...task,
+              title: withLinks.title,
+              type: withLinks.type,
+              est_duration: withLinks.est_duration,
+              urgency: withLinks.urgency,
+              impact: withLinks.impact,
+              date: withLinks.date,
+              starts_at: withLinks.starts_at,
+              due_at: withLinks.due_at,
+              recurring: withLinks.recurring,
+              series_id: cycleScheduled
+                ? null
+                : withLinks.series_id !== undefined
+                  ? withLinks.series_id
+                  : task.series_id,
+              parent_id: withLinks.parent_id,
+              after_id: withLinks.after_id,
+              after: withLinks.after,
+              auto_rescheduled: withLinks.auto_rescheduled === true,
+              meta_auto: withLinks.meta_auto ?? null,
+            };
+          });
       }
       if (pendingChildId && parentIdForChild) {
         next = next.map((task) =>
           task.id === pendingChildId ? { ...task, parent_id: parentIdForChild } : task,
         );
       }
-      return next;
+      return resolveCycleDates(next);
     });
     if (
       resolvedEditId != null &&
@@ -3631,7 +3777,7 @@ function App() {
       setLinkPrecedence(null);
     } else {
       const precedence =
-        linkRelation === "cycle" ? (linkPrecedence ?? "before") : null;
+        linkRelation === "cycle" ? (linkPrecedence ?? "after") : null;
       setPendingParentId(draft.id);
       setPendingChildId(null);
       if (linkRelation === "cycle") {
@@ -3639,7 +3785,7 @@ function App() {
       } else {
         setLinkPrecedence(null);
       }
-      applyParentLinkToEditingTask(draft.id, precedence);
+      applyParentLinkToEditingTask(draft.id, precedence, [draft]);
     }
     setRecentLinkIds((current) => rememberRecentLinkId(draft.id!, current));
     setLinkQuickAddOpen(false);
@@ -3656,7 +3802,7 @@ function App() {
     setDurationActivated(false);
     setRecurringMenuOpen(false);
     setRecurringActivated(false);
-    setRepeatAfterLinked(false);
+    setRepeatAfterLinked(true);
     setRepeatAfterLinkedSide("after");
     setRecurringUnit(DEFAULT_RECURRING_UNIT);
     setRecurringCount(DEFAULT_RECURRING_COUNT);
@@ -3783,8 +3929,8 @@ function App() {
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
     setDurationMenuOpen(false);
-    setRecurringMenuOpen(false);
-        setImpactMenuOpen(false);
+    if (title !== CYCLE_LINK_TOOL_HINT) setRecurringMenuOpen(false);
+    setImpactMenuOpen(false);
     setTaskToolHint((current) => {
       const next = current === title ? null : title;
       if (next === LINKING_TOOL_HINT) {
@@ -3807,7 +3953,7 @@ function App() {
         resetLinkQuickAddFields();
         setLinkQuickAddKind("task");
         setLinkPrecedence(
-          repeatAfterLinked ? repeatAfterLinkedSide : (linkPrecedence ?? "before"),
+          repeatAfterLinked ? repeatAfterLinkedSide : (linkPrecedence ?? "after"),
         );
       }
       return next;
@@ -4011,12 +4157,16 @@ function App() {
     setTasks((current) => {
       const completed = current.find((task) => task.id === id);
       if (!completed) return current;
+      const rotated = rotateCompletedCycleTask(current, id);
+      if (rotated != null) return rotated;
       // Series: drop this occurrence and top up the horizon. Legacy: spawn next.
-      return completeRecurringOccurrence(
-        current,
-        completed,
-        new Date(countdownNowRef.current),
-        recurringMaterializeHorizonDays(),
+      return resolveCycleDates(
+        completeRecurringOccurrence(
+          current,
+          completed,
+          new Date(countdownNowRef.current),
+          recurringMaterializeHorizonDays(),
+        ),
       );
     });
     if (editingTaskId === id) {
@@ -4215,6 +4365,8 @@ function App() {
     setLinkQuickAddOpen(false);
     resetLinkQuickAddFields();
     setLinkPrecedence(cyclePrecedence);
+    setRepeatAfterLinked(true);
+    setRepeatAfterLinkedSide(cyclePrecedence ?? "after");
     setLinkContainerType(defaultLinkPickerType(composeKindFromTaskType(task.type)));
     setAttachMenuOpen(false);
     setComposeKindMenuOpen(false);
@@ -4560,8 +4712,15 @@ function App() {
 
   const shouldAskRecurringSaveScope = (editId: string) => {
     if (!composerSupportsRecurringSeries) return false;
-    if (repeatSettingsChangedVsBaseline()) return true;
     const existing = tasks.find((task) => task.id === editId);
+    const composerCycleScheduled =
+      pendingParentId != null &&
+      (linkPrecedence === "before" || linkPrecedence === "after") &&
+      composerRecurring != null;
+    if (composerCycleScheduled || (existing != null && isCycleScheduled(existing))) {
+      return false;
+    }
+    if (repeatSettingsChangedVsBaseline()) return true;
     if (existing == null) return false;
     return existing.series_id != null || parseRecurring(existing.recurring) != null;
   };
@@ -4617,17 +4776,20 @@ function App() {
     if (editId == null) return;
     const draft = buildDraftFromComposer();
     if (!draft) return;
+    const withLinks = applyLinkFields(draft);
     const existing = tasks.find((task) => task.id === editId);
-    const schedule = parseRecurring(draft.recurring);
-    const anchorDate = draft.date;
-    const seriesId =
-      existing?.series_id ??
-      draft.series_id ??
-      (schedule != null ? crypto.randomUUID() : null);
+    const schedule = parseRecurring(withLinks.recurring);
+    const cycleScheduled = isCycleScheduled(withLinks);
+    const anchorDate = withLinks.date;
+    const seriesId = cycleScheduled
+      ? null
+      : existing?.series_id ??
+        withLinks.series_id ??
+        (schedule != null ? crypto.randomUUID() : null);
     const updated: ComposerDraft = {
-      ...draft,
+      ...withLinks,
       id: editId,
-      series_id: schedule != null ? seriesId : null,
+      series_id: cycleScheduled ? null : schedule != null ? seriesId : null,
     };
     setTasks((current) => {
       let next = current.map((task) => {
@@ -4676,7 +4838,7 @@ function App() {
           );
         }
       }
-      return next;
+      return resolveCycleDates(next);
     });
     if (
       !isContainerComposeKind(composeKind) &&
@@ -4719,9 +4881,14 @@ function App() {
     if (editingTaskIdRef.current != null || editTaskBaselineRef.current != null) return;
     const draft = buildDraftFromComposer();
     if (!draft) return;
+    const creatingCycle =
+      pendingParentId != null &&
+      (linkPrecedence === "before" || linkPrecedence === "after") &&
+      parseRecurring(draft.recurring) != null;
     if (
       composerSupportsRecurringSeries &&
-      parseRecurring(draft.recurring) != null
+      parseRecurring(draft.recurring) != null &&
+      !creatingCycle
     ) {
       const toSave = isRichContainerCompose
         ? { ...draft, est_duration: null }
@@ -4794,6 +4961,27 @@ function App() {
     setRecurringInput(String(clampRecurringCount(count)));
   };
 
+  const restampEditingCycleSchedule = (nextRecurring: string | null) => {
+    if (linkRelation !== "cycle" || pendingParentId == null) return;
+    const precedence = linkPrecedence ?? "after";
+    if (editingTaskId) {
+      const preview = resolveCycleDates(
+        stampCycleRecurringOnTask(tasks, editingTaskId, nextRecurring),
+      );
+      setTasks((current) =>
+        resolveCycleDates(
+          stampCycleRecurringOnTask(current, editingTaskId, nextRecurring),
+        ),
+      );
+      const row = preview.find((task) => task.id === editingTaskId);
+      if (row?.date) {
+        applyComposerCycleDate(row.date);
+        return;
+      }
+    }
+    syncComposerCycleDate(pendingParentId, precedence, nextRecurring);
+  };
+
   const commitRecurringInput = (raw: string) => {
     const parsed = Number.parseInt(raw, 10);
     if (!Number.isFinite(parsed)) {
@@ -4803,12 +4991,28 @@ function App() {
     const next = clampRecurringCount(parsed);
     setRecurringCount(next);
     syncRecurringInput(next);
+    if (recurringActivated) {
+      restampEditingCycleSchedule(
+        formatRecurring(next, recurringUnit, {
+          weekdays: recurringUnit === "week" ? recurringWeekdays : undefined,
+          monthDay: recurringUnit === "month" ? recurringMonthDay : undefined,
+        }),
+      );
+    }
   };
 
   const stepRecurring = (direction: 1 | -1) => {
     const next = clampRecurringCount(recurringCount + direction);
     setRecurringCount(next);
     syncRecurringInput(next);
+    if (recurringActivated) {
+      restampEditingCycleSchedule(
+        formatRecurring(next, recurringUnit, {
+          weekdays: recurringUnit === "week" ? recurringWeekdays : undefined,
+          monthDay: recurringUnit === "month" ? recurringMonthDay : undefined,
+        }),
+      );
+    }
   };
 
   const recurringAnchorDate = () => {
@@ -4820,12 +5024,23 @@ function App() {
   const setRecurringUnitValue = (unit: RecurringUnit) => {
     setRecurringUnit(unit);
     const anchor = recurringAnchorDate();
+    let weekdays = recurringWeekdays;
+    let monthDay = recurringMonthDay;
     if (unit === "week") {
-      setRecurringWeekdays((current) =>
-        current.length > 0 ? current : [anchor.getDay()],
-      );
+      weekdays =
+        recurringWeekdays.length > 0 ? recurringWeekdays : [anchor.getDay()];
+      setRecurringWeekdays(weekdays);
     } else if (unit === "month") {
-      setRecurringMonthDay(clampMonthDay(anchor.getDate()));
+      monthDay = clampMonthDay(anchor.getDate());
+      setRecurringMonthDay(monthDay);
+    }
+    if (recurringActivated) {
+      restampEditingCycleSchedule(
+        formatRecurring(recurringCount, unit, {
+          weekdays: unit === "week" ? weekdays : undefined,
+          monthDay: unit === "month" ? monthDay : undefined,
+        }),
+      );
     }
   };
 
@@ -4848,17 +5063,29 @@ function App() {
 
   const setRecurringEnabled = (enabled: boolean) => {
     setRecurringActivated(enabled);
-    if (!enabled) return;
+    if (!enabled) {
+      restampEditingCycleSchedule(null);
+      return;
+    }
     setRecurringCount((count) => clampRecurringCount(count));
     syncRecurringInput(clampRecurringCount(recurringCount));
     const anchor = recurringAnchorDate();
+    let weekdays = recurringWeekdays;
+    let monthDay = recurringMonthDay;
     if (recurringUnit === "week") {
-      setRecurringWeekdays((current) =>
-        current.length > 0 ? current : [anchor.getDay()],
-      );
+      weekdays =
+        recurringWeekdays.length > 0 ? recurringWeekdays : [anchor.getDay()];
+      setRecurringWeekdays(weekdays);
     } else if (recurringUnit === "month") {
-      setRecurringMonthDay(clampMonthDay(anchor.getDate()));
+      monthDay = clampMonthDay(anchor.getDate());
+      setRecurringMonthDay(monthDay);
     }
+    restampEditingCycleSchedule(
+      formatRecurring(clampRecurringCount(recurringCount), recurringUnit, {
+        weekdays: recurringUnit === "week" ? weekdays : undefined,
+        monthDay: recurringUnit === "month" ? monthDay : undefined,
+      }),
+    );
   };
 
   const stepImpact = (direction: 1 | -1) => {
@@ -5033,11 +5260,12 @@ function App() {
       <button
         ref={attachButtonRef}
         type="button"
-        className="app-composer-icon"
+        className={`app-composer-tool${attachMenuOpen ? " is-open" : ""}`}
         onClick={() => {
           setComposeKindMenuOpen(false);
           setDurationMenuOpen(false);
           setImpactMenuOpen(false);
+          setRecurringMenuOpen(false);
           closeTaskToolHint();
           setAttachMenuOpen((open) => !open);
         }}
@@ -5086,13 +5314,20 @@ function App() {
         overflowToReschedule,
         sourceDay,
       );
+      const resolved = resolveCycleDates(next);
       const movedIds = new Set<string>();
       for (const id of overflowIds) {
         const before = current.find((task) => task.id === id);
-        const after = next.find((task) => task.id === id);
+        const after = resolved.find((task) => task.id === id);
         if (before && after && before.date !== after.date) movedIds.add(id);
       }
-      const dropFreezeIds = new Set([...movedIds, ...releaseBaselineIds]);
+      const cascadeMovedIds = new Set(movedIds);
+      for (const task of resolved) {
+        if (!task.id) continue;
+        const before = current.find((row) => row.id === task.id);
+        if (before && before.date !== task.date) cascadeMovedIds.add(task.id);
+      }
+      const dropFreezeIds = new Set([...cascadeMovedIds, ...releaseBaselineIds]);
       if (dropFreezeIds.size > 0) {
         setTodaySoftPackPlan((plan) => {
           if (plan == null) return plan;
@@ -5149,7 +5384,7 @@ function App() {
         let offset = 0;
         for (const id of prevOrder) {
           if (!movedIds.has(id)) continue;
-          const after = next.find((task) => task.id === id);
+          const after = resolved.find((task) => task.id === id);
           const toDayKey = after?.date ?? null;
           notices.push({
             id: `pivot-${section}-${stamp}-${id}`,
@@ -5174,7 +5409,7 @@ function App() {
           setTimelineNotices((current) => [...current, ...notices]);
         }
       }
-      return next;
+      return resolved;
     });
   };
 
@@ -6727,6 +6962,7 @@ function App() {
       if (target instanceof Element && target.closest(".app-composer-meta-chip")) return;
       if (recurringMenuRef.current?.contains(target)) return;
       if (cycleButtonRef.current?.contains(target)) return;
+      if (taskToolHintMenuRef.current?.contains(target)) return;
       setRecurringMenuOpen(false);
     };
 
@@ -8330,7 +8566,6 @@ function App() {
                 </button>
               )}
               {(() => {
-                const attach = renderComposerAttach();
                 const isFocusKind =
                   composeKind === "task" ||
                   composeKind === "item" ||
@@ -8351,17 +8586,12 @@ function App() {
                 if (isFocusKind) {
                   return renderCurrentFocusControls(
                     editingTaskId != null ? content : null,
-                    <>
-                      {attach}
-                      {deleteTool}
-                    </>,
+                    deleteTool,
                   );
                 }
+                if (deleteTool == null) return null;
                 return (
-                  <div className="task-current-focus-controls">
-                    {attach}
-                    {deleteTool}
-                  </div>
+                  <div className="task-current-focus-controls">{deleteTool}</div>
                 );
               })()}
             </div>
@@ -8742,7 +8972,11 @@ function App() {
                     <>
                       <div className="app-composer-link-header">
                         <span className="app-composer-link-search-label">
-                          {linkQuickAddOpen ? "Quick add" : "Link with"}
+                          {linkQuickAddOpen
+                            ? "Quick add"
+                            : isCycleLinkHint
+                              ? "CYCLE WITH"
+                              : "Link with"}
                         </span>
                         <button
                           type="button"
@@ -9207,7 +9441,7 @@ function App() {
                                   const next = pendingParentId === item.id ? null : item.id;
                                   const nextPrecedence =
                                     linkRelation === "cycle" && next != null
-                                      ? (linkPrecedence ?? "before")
+                                      ? (linkPrecedence ?? "after")
                                       : null;
                                   setPendingParentId(next);
                                   setPendingChildId(null);
@@ -9329,6 +9563,45 @@ function App() {
                           </button>
                         </div>
                       </div>
+                      {isCycleLinkHint && (
+                        <>
+                          <div className="app-duration-divider" aria-hidden="true" />
+                          <div
+                            className={`app-duration-unit app-recurring-linked-mode${repeatAfterLinked ? " is-on" : ""}`}
+                            role="radiogroup"
+                            aria-label="Repeat relative to linked task"
+                          >
+                            {(
+                              [
+                                { id: "before", label: "Before" },
+                                { id: "after", label: "After" },
+                              ] as const
+                            ).map(({ id, label }) => {
+                              const selected =
+                                (linkPrecedence ?? repeatAfterLinkedSide) === id;
+                              return (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  role="radio"
+                                  className={`app-duration-unit-button${selected ? " is-active" : ""}`}
+                                  aria-checked={selected}
+                                  onClick={() => {
+                                    setRepeatAfterLinked(true);
+                                    setRepeatAfterLinkedSide(id);
+                                    setLinkPrecedence(id);
+                                    if (pendingParentId != null) {
+                                      applyParentLinkToEditingTask(pendingParentId, id);
+                                    }
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
                       {!isCycleLinkHint && (
                       <>
                       <div className="app-duration-divider" aria-hidden="true" />
@@ -9345,7 +9618,7 @@ function App() {
                               ]!;
                             setLinkRelation(next);
                             if (next === "cycle") {
-                              const precedence = linkPrecedence ?? "before";
+                              const precedence = linkPrecedence ?? "after";
                               setLinkPrecedence(precedence);
                               if (pendingParentId != null) {
                                 applyParentLinkToEditingTask(pendingParentId, precedence);
@@ -9420,6 +9693,7 @@ function App() {
                     <NotesIcon />
                   </button>
                 )}
+                {renderComposerAttach()}
                 {composerHasRecurringTool && (
                     <div className="app-composer-recurring">
                       <ComposerOverlayMenu
@@ -9565,42 +9839,9 @@ function App() {
                           </div>
                         )}
                         <div className="app-recurring-linked">
-                          <div
-                            className={`app-duration-unit app-recurring-linked-mode${repeatAfterLinked ? " is-on" : ""}`}
-                            role="radiogroup"
-                            aria-label="Repeat relative to linked task"
-                          >
-                            {(
-                              [
-                                { id: "before", label: "Before" },
-                                { id: "after", label: "After" },
-                              ] as const
-                            ).map(({ id, label }) => {
-                              const selected = repeatAfterLinked && repeatAfterLinkedSide === id;
-                              return (
-                                <button
-                                  key={id}
-                                  type="button"
-                                  role="radio"
-                                  className={`app-duration-unit-button${selected ? " is-active" : ""}`}
-                                  aria-checked={selected}
-                                  onClick={() => {
-                                    if (repeatAfterLinked && repeatAfterLinkedSide === id) {
-                                      setRepeatAfterLinked(false);
-                                      return;
-                                    }
-                                    setRepeatAfterLinked(true);
-                                    setRepeatAfterLinkedSide(id);
-                                  }}
-                                >
-                                  {label}
-                                </button>
-                              );
-                            })}
-                          </div>
                           <button
                             type="button"
-                            className="app-recurring-link-cycle"
+                            className={`app-recurring-link-cycle${cycleLinkButtonTitle != null ? " is-selected" : ""}`}
                             id="app-recurring-linked-toggle-label"
                             aria-label={
                               cycleLinkButtonTitle
@@ -9611,11 +9852,33 @@ function App() {
                               openTaskToolHint(cycleButtonRef.current, CYCLE_LINK_TOOL_HINT);
                             }}
                           >
+                            {cycleLinkButtonTitle != null && (
+                              <span className="app-recurring-link-cycle-side">
+                                {(linkPrecedence ?? repeatAfterLinkedSide) === "before"
+                                  ? "Before"
+                                  : "After"}
+                              </span>
+                            )}
                             <span className="app-recurring-link-cycle-label">
                               {cycleLinkButtonTitle ?? "Link or start a cycle"}
                             </span>
                             {cycleLinkButtonTitle == null && <PlusIcon />}
                           </button>
+                          {cycleLinkButtonTitle != null && (
+                            <button
+                              type="button"
+                              className="app-recurring-link-clear"
+                              aria-label="Clear cycle link"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setPendingParentId(null);
+                                applyParentLinkToEditingTask(null);
+                              }}
+                            >
+                              <CloseIcon />
+                            </button>
+                          )}
                         </div>
                       </ComposerOverlayMenu>
                       <button

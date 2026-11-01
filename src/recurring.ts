@@ -181,6 +181,23 @@ export function addRecurringInterval(date: Date, schedule: RecurringSchedule): D
 }
 
 /**
+ * Shift by +/- one interval for simple day/week/month/year math.
+ * Ignores weekday lists and month-day extras (cycle offsets are N units from an anchor).
+ */
+export function shiftRecurringInterval(
+  date: Date,
+  schedule: RecurringSchedule,
+  direction: 1 | -1,
+): Date {
+  const start = toStartOfDay(date);
+  const n = schedule.count * direction;
+  if (schedule.unit === "day") return addDays(start, n);
+  if (schedule.unit === "week") return addDays(start, n * 7);
+  if (schedule.unit === "year") return addYears(start, n);
+  return addMonths(start, n);
+}
+
+/**
  * Occurrence date keys from anchor through `throughDate` (inclusive).
  * Includes the anchor day when it matches the schedule.
  */

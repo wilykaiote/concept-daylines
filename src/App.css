@@ -4847,11 +4847,6 @@
   color: var(--text);
 }
 
-.app-composer-focus-controls .app-composer-icon {
-  width: 28px;
-  height: 28px;
-}
-
 .app-composer-focus-controls .task-current-focus-controls {
   margin-left: auto;
 }
@@ -4905,8 +4900,7 @@
 /* Beat .app-composer svg { 24px } so these match Current focus (16px). */
 .app-composer .app-composer-focus-controls .task-current-focus-tool svg,
 .app-composer .app-composer-focus-controls .task-row-focus-lock svg,
-.app-composer .app-composer-focus-controls .app-composer-pivot-btn svg,
-.app-composer .app-composer-focus-controls .app-composer-icon svg {
+.app-composer .app-composer-focus-controls .app-composer-pivot-btn svg {
   width: 16px;
   height: 16px;
   display: block;
@@ -5885,14 +5879,20 @@
   width: 100%;
 }
 
+.app-recurring-linked .app-recurring-link-cycle {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
 .app-recurring-linked-mode {
   flex: 0 0 auto;
   width: auto;
   grid-template-columns: auto auto;
 }
 
-.app-recurring-linked-mode.is-on {
-  background: color-mix(in srgb, #2f9e5f 14%, var(--bg-raised));
+.app-composer-tool-hint.is-linking .app-recurring-linked-mode {
+  width: 100%;
+  grid-template-columns: 1fr 1fr;
 }
 
 .app-recurring-linked-mode .app-duration-unit-button.is-active {
@@ -5944,6 +5944,50 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.app-recurring-link-cycle.is-selected .app-recurring-link-cycle-label {
+  flex: 0 1 auto;
+  text-align: center;
+}
+
+.app-recurring-link-cycle-side {
+  flex-shrink: 0;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.app-recurring-link-clear {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.app-recurring-link-clear svg,
+.app-composer .app-recurring-link-clear svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.app-recurring-link-clear:hover,
+.app-recurring-link-clear:focus-visible {
+  color: var(--text-h);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.app-recurring-link-clear:focus-visible {
+  outline: 2px solid #2f9e5f;
+  outline-offset: 2px;
 }
 
 .app-recurring-link-cycle svg,
