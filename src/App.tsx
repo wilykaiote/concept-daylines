@@ -2782,17 +2782,28 @@ function App() {
         });
       }
     }
+    const timedMissedTomorrowKey = dayKey(addDays(todayStart, 1));
     for (const task of overflowToReschedule) {
       if (task.id == null) continue;
       const after = next.find((row) => row.id === task.id);
-      if (after?.date == null || after.date === task.date) continue;
+      const timedDated =
+        parseTaskDate(task.date) != null &&
+        (parseTimeOfDay(task.starts_at) != null ||
+          parseTimeOfDay(task.due_at) != null);
+      const destDayKey =
+        after?.date != null && after.date !== task.date
+          ? after.date
+          : timedDated && timedMissedTomorrowKey !== task.date
+            ? timedMissedTomorrowKey
+            : null;
+      if (destDayKey == null) continue;
       const packed = blockByTaskId.get(task.id);
       destById.set(task.id, {
-        destDayKey: after.date,
+        destDayKey,
         startMin:
-          packed != null && packed.dayKey === after.date ? packed.startMin : null,
+          packed != null && packed.dayKey === destDayKey ? packed.startMin : null,
         endMin:
-          packed != null && packed.dayKey === after.date ? packed.endMin : null,
+          packed != null && packed.dayKey === destDayKey ? packed.endMin : null,
         task,
       });
     }
@@ -3206,14 +3217,11 @@ function App() {
     nowMinutes < todayWindowStartMinutes
       ? todayStart.getTime() + todayWindowStartMinutes * 60_000
       : nextDayWindowStartMs;
-  // Soft focus: countdown only when end-of-day slack is gone. Timed: always when overtaken.
-  const focusTaskIsTimed =
-    todayFocusTask != null && isTimedTask(todayFocusTask);
+  // Task countdown starts as soon as now takes over the packed window.
   const focusTaskCountdownActive =
     overtakenFocusBlock != null &&
     todayFocusTask?.id != null &&
-    !focusLocked &&
-    (focusTaskIsTimed || todayEndSlackMin === 0);
+    !focusLocked;
   const overtakenPackStartMin =
     overtakenFocusBlock != null
       ? (overtakenFocusBlock.packStartMin ?? overtakenFocusBlock.startMin)
@@ -3278,11 +3286,10 @@ function App() {
     focusCountdownTotalMs != null
       ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
       : null;
-  // Overtaken bars: remaining packed window / packed span. Timed always; softs when flush.
+  // Overtaken bars: remaining packed window / packed span, timed and soft alike.
   const overtakenCountdownByTaskId = new Map<string, number>();
   if (!focusLocked) {
     for (const block of overtakenPlanBlocks) {
-      if (!isTimedTask(block.task) && todayEndSlackMin > 0) continue;
       const taskId = block.task.id;
       if (taskId == null) continue;
       const startMin = block.packStartMin ?? block.startMin;
@@ -6037,11 +6044,7 @@ function App() {
             const task = block.task;
             const taskId = task.id;
             if (taskId == null) return null;
-            const showTaskCountdown =
-              isTimedTask(task) || todayEndSlackMin === 0;
-            const rowProgress = showTaskCountdown
-              ? (overtakenCountdownByTaskId.get(taskId) ?? null)
-              : null;
+            const rowProgress = overtakenCountdownByTaskId.get(taskId) ?? null;
             return (
               <CompactTaskRow
                 key={taskId}
@@ -8209,11 +8212,9 @@ function App() {
         {activeView === "plans" && (
           <PlansView
             plans={dedupeSeriesClosestToNow(
-              tasks
-                .filter((task) => isPlanTaskType(task.type))
-                .sort(compareSoftPriority),
+              tasks.filter((task) => isPlanTaskType(task.type)),
               new Date(countdownNow),
-            )}
+            ).sort(compareSoftPriority)}
             tasks={tasks}
             now={new Date(countdownNow)}
             onEditPlan={(plan) => {

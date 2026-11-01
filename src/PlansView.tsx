@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ComposerDraft } from "./composer";
+import { compareSoftPriority } from "./calendarTimeline";
 import { NamedCollectionView } from "./NamedCollectionView";
 
 type PlansViewProps = {
@@ -24,7 +25,7 @@ export function PlansView({
       title="Plans"
       subtitle="Plans and their linked tasks"
       emptyText="No plans yet. Name one in the composer."
-      containers={plans}
+      containers={[...plans].sort(compareSoftPriority)}
       tasks={tasks}
       dedupeSeries
       now={now}
