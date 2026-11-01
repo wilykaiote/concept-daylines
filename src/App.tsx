@@ -3217,18 +3217,26 @@ function App() {
     nowMinutes < todayWindowStartMinutes
       ? todayStart.getTime() + todayWindowStartMinutes * 60_000
       : nextDayWindowStartMs;
-  // Task countdown starts as soon as now takes over the packed window.
+  const showUpcomingSoftAsFocus =
+    nothingCurrentlyOvertaken &&
+    todayEndSlackMin > 0 &&
+    firstUpcomingSoft != null &&
+    todayFocusTask?.id === firstUpcomingSoft.id;
+  const focusCountdownBlock =
+    overtakenFocusBlock ??
+    (showUpcomingSoftAsFocus ? firstUpcomingSoftBlock : null);
+  // Task countdown: displayed Current Focus block (overtaken or upcoming-soft preview).
   const focusTaskCountdownActive =
-    overtakenFocusBlock != null &&
+    focusCountdownBlock != null &&
     todayFocusTask?.id != null &&
     !focusLocked;
   const overtakenPackStartMin =
-    overtakenFocusBlock != null
-      ? (overtakenFocusBlock.packStartMin ?? overtakenFocusBlock.startMin)
+    focusCountdownBlock != null
+      ? (focusCountdownBlock.packStartMin ?? focusCountdownBlock.startMin)
       : null;
   const overtakenPackEndMin =
-    overtakenFocusBlock != null
-      ? (overtakenFocusBlock.packEndMin ?? overtakenFocusBlock.endMin)
+    focusCountdownBlock != null
+      ? (focusCountdownBlock.packEndMin ?? focusCountdownBlock.endMin)
       : null;
   const focusTaskCountdownMs = (() => {
     if (
@@ -3286,10 +3294,16 @@ function App() {
     focusCountdownTotalMs != null
       ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
       : null;
-  // Overtaken bars: remaining packed window / packed span, timed and soft alike.
+  // Focus-task bars: remaining packed window / packed span (overtaken + upcoming-soft preview).
   const overtakenCountdownByTaskId = new Map<string, number>();
   if (!focusLocked) {
-    for (const block of overtakenPlanBlocks) {
+    const countdownBlocks =
+      overtakenPlanBlocks.length > 0
+        ? overtakenPlanBlocks
+        : showUpcomingSoftAsFocus && firstUpcomingSoftBlock != null
+          ? [firstUpcomingSoftBlock]
+          : [];
+    for (const block of countdownBlocks) {
       const taskId = block.task.id;
       if (taskId == null) continue;
       const startMin = block.packStartMin ?? block.startMin;
@@ -3313,11 +3327,6 @@ function App() {
   const upNextCountdownLabel: string | null = null;
   const showFocusCountdownOnCurrent = focusCountdownLabel != null;
   const showFocusCountdownBarOnCurrent = focusCountdownProgress != null;
-  const showUpcomingSoftAsFocus =
-    nothingCurrentlyOvertaken &&
-    todayEndSlackMin > 0 &&
-    firstUpcomingSoft != null &&
-    todayFocusTask?.id === firstUpcomingSoft.id;
   const dayElapsedPct = Math.min(
     100,
     Math.max(0, (nowMinutes / MINUTES_PER_DAY) * 100),
