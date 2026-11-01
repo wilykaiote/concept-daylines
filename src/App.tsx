@@ -120,7 +120,7 @@ import {
   type UiSessionViewId,
 } from "./taskStorage";
 import { buildScheduleLayoutForWindow } from "./schedule";
-import { formatTaskScheduleMetaLabel } from "./taskRowMeta";
+import { formatTaskScheduleDatePart, formatTaskScheduleMetaLabel } from "./taskRowMeta";
 import {
   addDays,
   buildDayRange,
@@ -130,6 +130,7 @@ import {
   formatHourLabel,
   formatMinutesLabel,
   layoutCalendarTasks,
+  packMovePreviewRanges,
   taskDurationMinutes,
   minutesFromMidnight,
   MINUTES_PER_DAY,
@@ -138,10 +139,12 @@ import {
   parseTaskDate,
   parseTimeOfDay,
   PX_PER_MINUTE,
+  MIN_BLOCK_HEIGHT_PX,
   isAnchoredTaskMissed,
   rescheduleOverdueTasksForNewDay,
   collectSoftTaskIdsOnDay,
   collectPushedFromTodayWindowTasks,
+  type CalendarTaskBlock,
   type OutsideExpandedFlags,
   type OutsideRegionId,
 } from "./calendarTimeline";
@@ -1519,6 +1522,36 @@ function TwinelineDayScrollLabel({
   );
 }
 
+type MissedMovePreview = {
+  destDayKey: string;
+  startMin: number | null;
+  endMin: number | null;
+  task: ComposerDraft;
+};
+
+function missedMoveGhostBlock(
+  ghost: MissedMovePreview,
+  visibleStartMin: number,
+): CalendarTaskBlock | null {
+  if (ghost.startMin == null || ghost.endMin == null) return null;
+  if (!(ghost.endMin > ghost.startMin)) return null;
+  const startMin = ghost.startMin;
+  const endMin = ghost.endMin;
+  return {
+    key: `move-preview-${ghost.task.id ?? ghost.task.title}`,
+    taskId: ghost.task.id ?? null,
+    title: ghost.task.title,
+    task: ghost.task,
+    startMin,
+    endMin,
+    packStartMin: startMin,
+    packEndMin: endMin,
+    topPx: (startMin - visibleStartMin) * PX_PER_MINUTE,
+    heightPx: Math.max(MIN_BLOCK_HEIGHT_PX, (endMin - startMin) * PX_PER_MINUTE),
+    overdue: false,
+  };
+}
+
 function CompactTaskRow({
   task,
   overdue,
@@ -1531,6 +1564,8 @@ function CompactTaskRow({
   countdownProgress = null,
   countdownBarColor = null,
   countdownElapsedFill = false,
+  moveToDate = null,
+  movePreview = false,
   onComplete,
   onEdit,
   onSetFocus,
@@ -1547,6 +1582,10 @@ function CompactTaskRow({
   countdownBarColor?: string | null;
   /** When true, progress is elapsed (fill grows from left) — At Risk bars. */
   countdownElapsedFill?: boolean;
+  /** Pivot dest `YYYY-MM-DD` for MISSED rows. */
+  moveToDate?: string | null;
+  /** Unfilled dest-day preview (not yet pivoted / not yet today). */
+  movePreview?: boolean;
   onComplete: () => void;
   onEdit: () => void;
   onSetFocus?: () => void;
@@ -1565,11 +1604,13 @@ function CompactTaskRow({
     impactValue != null ? Math.min(100, Math.max(0, (impactValue / IMPACT_MAX) * 100)) : null;
   const durationLabel = formatTaskDurationLabel(task.est_duration);
   const scheduleLabel = formatTaskScheduleMetaLabel(task, now);
-  const scheduleOverdue = isAnchoredTaskMissed(task, now);
+  const moveToDateLabel = formatTaskScheduleDatePart(moveToDate, now);
+  const scheduleOverdue = !movePreview && isAnchoredTaskMissed(task, now);
   const resolvedParentTitle = normalizeOptionalField(parentTitle);
   const hasImpact = impactValue != null && impactPercent != null;
   const hasParent = resolvedParentTitle != null;
-  const topMetaLabel = scheduleLabel ?? (showUrgency ? urgencyLabel : null);
+  const topMetaLabel =
+    moveToDateLabel ?? scheduleLabel ?? (showUrgency ? urgencyLabel : null);
   const hasTopMeta = topMetaLabel != null;
   const isRecurring = parseRecurring(task.recurring) != null;
   const typeLabel =
@@ -1601,7 +1642,7 @@ function CompactTaskRow({
   return (
     <li data-task-id={task.id ?? undefined} className="task-row-shell">
       <div
-        className={`task-row is-${scheduleKind}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${popping ? " is-popping" : ""}${itemCompleted ? " is-item-done" : ""}${showCountdownBar ? " has-countdown" : ""}`}
+        className={`task-row${movePreview ? "" : ` is-${scheduleKind}`}${editing ? " is-editing" : ""}${highlighted ? " is-highlighted" : ""}${overdue ? " is-overdue" : ""}${movePreview ? " is-move-preview" : ""}${popping ? " is-popping" : ""}${itemCompleted ? " is-item-done" : ""}${showCountdownBar ? " has-countdown" : ""}`}
       >
         {showCountdownBar && (
           <div
@@ -1631,7 +1672,12 @@ function CompactTaskRow({
           {(hasTopMeta || hasImpact) && (
             <div className="task-row-top">
               <span className="task-row-top-meta">
-                {scheduleLabel != null ? (
+                {moveToDateLabel != null ? (
+                  <span className="task-row-schedule is-move-to">
+                    <span className="task-row-schedule-prefix">Move To:</span>
+                    <span className="task-row-schedule-dest">{moveToDateLabel}</span>
+                  </span>
+                ) : scheduleLabel != null ? (
                   <span
                     className={`task-row-schedule${scheduleOverdue ? " is-overdue-label" : ""}${scheduleAuto ? " is-auto" : ""}`}
                   >
@@ -1676,9 +1722,9 @@ function CompactTaskRow({
               <div className="task-row-main">
                 <button
                   type="button"
-                  className={`task-complete is-${scheduleKind}${
-                    isItem ? " is-item" : ""
-                  }${completeChecked ? " is-checked" : ""}`}
+                  className={`task-complete${
+                    movePreview ? "" : ` is-${scheduleKind}`
+                  }${isItem ? " is-item" : ""}${completeChecked ? " is-checked" : ""}`}
                   aria-label={
                     isItem
                       ? itemCompleted
@@ -2677,6 +2723,101 @@ function App() {
       overdue: true as const,
     }));
   })();
+  const missedMovePreviewKey = leftoverOverDueRows
+    .map(
+      (row) =>
+        `${row.task.id ?? ""}:${row.task.date ?? ""}:${row.task.starts_at ?? ""}:${row.task.due_at ?? ""}:${row.task.est_duration ?? ""}`,
+    )
+    .join("\0");
+  // leftoverOverDueRows is represented by missedMovePreviewKey (stable when contents match).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const missedMoveToById = useMemo(() => {
+    const overflowToReschedule = leftoverOverDueRows.map((row) => row.task);
+    const destById = new Map<string, MissedMovePreview>();
+    if (overflowToReschedule.length === 0) return destById;
+    const { tasks: next } = rescheduleOverdueTasksForNewDay(
+      tasks,
+      new Date(layoutNowFloorMs),
+      getTargetTimeForDay,
+      taskGapMinutes,
+      getWindowStartTimeForDay,
+      overflowToReschedule,
+      todayStart,
+    );
+    const previewTasks = next.filter(
+      (task) =>
+        !isContainerTaskType(task.type) &&
+        !(task.type === "item" && task.completed_at != null),
+    );
+    const layoutThroughDate = addDays(
+      timelineRangeStart,
+      timelineDayCount - 1 + LAYOUT_THROUGH_BUFFER_DAYS,
+    );
+    const previewLayout = layoutCalendarTasks(
+      previewTasks,
+      new Date(layoutNowFloorMs),
+      getTargetTimeForDay,
+      taskGapMinutes,
+      getWindowStartTimeForDay,
+      baselineIds,
+      pinnedFocusId,
+      [],
+      layoutThroughDate,
+    );
+    const blockByTaskId = new Map<
+      string,
+      { dayKey: string; startMin: number; endMin: number }
+    >();
+    for (const day of previewLayout.days) {
+      for (const block of day.scheduleBlocks) {
+        if (!block.taskId) continue;
+        const startMin = block.packStartMin ?? block.startMin;
+        const endMin = block.packEndMin ?? block.endMin;
+        if (endMin <= startMin) continue;
+        blockByTaskId.set(block.taskId, {
+          dayKey: day.dayKey,
+          startMin,
+          endMin,
+        });
+      }
+    }
+    for (const task of overflowToReschedule) {
+      if (task.id == null) continue;
+      const after = next.find((row) => row.id === task.id);
+      if (after?.date == null || after.date === task.date) continue;
+      const packed = blockByTaskId.get(task.id);
+      destById.set(task.id, {
+        destDayKey: after.date,
+        startMin:
+          packed != null && packed.dayKey === after.date ? packed.startMin : null,
+        endMin:
+          packed != null && packed.dayKey === after.date ? packed.endMin : null,
+        task,
+      });
+    }
+    return destById;
+  }, [
+    missedMovePreviewKey,
+    layoutNowFloorMs,
+    tasks,
+    taskGapMinutes,
+    timePickerOpen,
+    selectedDay,
+    targetTime,
+    windowStartTime,
+    defaultTargetTime,
+    targetTimeOverrides,
+    defaultWindowStartTime,
+    windowStartOverrides,
+    todayKeyStr,
+    baselineIds,
+    pinnedFocusId,
+    timelineRangeStart,
+    timelineDayCount,
+  ]);
+  const missedMoveGhosts = [...missedMoveToById.values()].filter(
+    (preview) => preview.destDayKey > todayKeyStr,
+  );
   const leftoverOverdueIds = new Set(
     leftoverOverDueRows
       .map((row) => row.task.id)
@@ -2725,6 +2866,49 @@ function App() {
   const todayOverflow = overflowForDay(todayLayoutForOverflow);
   const overflowTasks = todayOverflow.tasks;
   const overflowTaskCount = todayOverflow.count;
+  const overflowMovePreviewKey = overflowTasks
+    .map(
+      (task) =>
+        `${task.id ?? ""}:${task.date ?? ""}:${task.starts_at ?? ""}:${task.due_at ?? ""}:${task.est_duration ?? ""}`,
+    )
+    .join("\0");
+  // overflowTasks is represented by overflowMovePreviewKey (stable when contents match).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const overflowMoveToById = useMemo(() => {
+    const destById = new Map<string, string>();
+    if (overflowTasks.length === 0) return destById;
+    const { tasks: next } = rescheduleOverdueTasksForNewDay(
+      tasks,
+      new Date(layoutNowFloorMs),
+      getTargetTimeForDay,
+      taskGapMinutes,
+      getWindowStartTimeForDay,
+      overflowTasks,
+      todayStart,
+    );
+    for (const task of overflowTasks) {
+      if (task.id == null) continue;
+      const after = next.find((row) => row.id === task.id);
+      if (after?.date != null && after.date !== task.date) {
+        destById.set(task.id, after.date);
+      }
+    }
+    return destById;
+  }, [
+    overflowMovePreviewKey,
+    layoutNowFloorMs,
+    tasks,
+    taskGapMinutes,
+    timePickerOpen,
+    selectedDay,
+    targetTime,
+    windowStartTime,
+    defaultTargetTime,
+    targetTimeOverrides,
+    defaultWindowStartTime,
+    windowStartOverrides,
+    todayKeyStr,
+  ]);
   const exclusiveOffScheduleIds = new Set<string>([
     ...leftoverOverdueIds,
     ...overflowTasks
@@ -2762,6 +2946,53 @@ function App() {
       ? `${calendarTaskLayout[0].dayKey}:${calendarTaskLayout[calendarTaskLayout.length - 1].dayKey}`
       : "";
   const calendarLayoutByKey = new Map(calendarTaskLayout.map((day) => [day.dayKey, day]));
+  const missedMovePackedGhosts = (() => {
+    const packed: MissedMovePreview[] = [];
+    const ghostsByDest = new Map<string, ComposerDraft[]>();
+    for (const ghost of missedMoveGhosts) {
+      const list = ghostsByDest.get(ghost.destDayKey) ?? [];
+      list.push(ghost.task);
+      ghostsByDest.set(ghost.destDayKey, list);
+    }
+    for (const [destDayKey, ghostTasks] of ghostsByDest) {
+      const destDate = parseTaskDate(destDayKey);
+      const day = calendarLayoutByKey.get(destDayKey);
+      const windowStart =
+        destDate != null
+          ? packWindowStartMinutes(getWindowStartTimeForDay(destDate))
+          : packWindowStartMinutes("06:00");
+      const packStart = day?.packStartMin ?? windowStart;
+      const packEnd =
+        day?.packEndMin ??
+        (destDate != null
+          ? packWindowEndMinutes(getTargetTimeForDay(destDate), windowStart)
+          : packWindowEndMinutes("22:00", windowStart));
+      const occupied = (day?.scheduleBlocks ?? [])
+        .filter(
+          (block) =>
+            block.taskId == null || !exclusiveOffScheduleIds.has(block.taskId),
+        )
+        .map((block) => ({
+          startMin: block.packStartMin ?? block.startMin,
+          endMin: block.packEndMin ?? block.endMin,
+        }));
+      for (const range of packMovePreviewRanges(
+        occupied,
+        ghostTasks,
+        packStart,
+        packEnd,
+        taskGapMinutes,
+      )) {
+        packed.push({
+          destDayKey,
+          startMin: range.startMin,
+          endMin: range.endMin,
+          task: range.task,
+        });
+      }
+    }
+    return packed;
+  })();
   const selectedDayKey = dayKey(selectedDay);
   const selectedDayLayout = calendarLayoutByKey.get(selectedDayKey);
   const selectedDayTargetTime = getTargetTimeForDay(selectedDay);
@@ -5728,6 +5959,13 @@ function App() {
       popping={isTaskPopping(task.id)}
       now={new Date(countdownNow)}
       parentTitle={parentTitleFor(task.parent_id)}
+      moveToDate={
+        task.id == null
+          ? null
+          : overdue
+            ? (missedMoveToById.get(task.id)?.destDayKey ?? null)
+            : (overflowMoveToById.get(task.id) ?? null)
+      }
       onComplete={() => requestCompleteTask(task.id)}
       onEdit={() => {
         if (task.id) {
@@ -8031,6 +8269,13 @@ function App() {
                       focusedTaskId={focusedTaskId}
                       isTaskHighlighted={isTaskHighlighted}
                       isTaskPopping={isTaskPopping}
+                      previewBlocks={missedMovePackedGhosts
+                        .filter((ghost) => ghost.destDayKey === selectedDayKey)
+                        .map((ghost) => ({
+                          startMin: ghost.startMin as number,
+                          endMin: ghost.endMin as number,
+                          task: ghost.task,
+                        }))}
                       onTaskSelect={(task) => {
                         if (!task.id || isTaskPopping(task.id)) return;
                         selectTimelineTask(task.id);
@@ -8115,6 +8360,22 @@ function App() {
               });
               const dayOverflow = overflowForDay(day);
               const leftoverCount = isTodayGroup ? leftoverOverDueRows.length : 0;
+              const destGhosts = missedMoveGhosts
+                .filter((ghost) => ghost.destDayKey === day.dayKey)
+                .slice()
+                .sort((a, b) => {
+                  const packedA = missedMovePackedGhosts.find(
+                    (row) => row.task.id === a.task.id,
+                  );
+                  const packedB = missedMovePackedGhosts.find(
+                    (row) => row.task.id === b.task.id,
+                  );
+                  return (
+                    (packedA?.startMin ?? Number.POSITIVE_INFINITY) -
+                      (packedB?.startMin ?? Number.POSITIVE_INFINITY) ||
+                    (a.task.title ?? "").localeCompare(b.task.title ?? "")
+                  );
+                });
               const showOverflowToggle =
                 activeView === "dayline" &&
                 !calendarOpen &&
@@ -8125,7 +8386,7 @@ function App() {
                 activeView === "dayline" &&
                 !calendarOpen &&
                 (leftoverCount > 0 || overdueSlotNotices.length > 0);
-              const showUpNext = dayTasks.length > 0;
+              const showUpNext = dayTasks.length > 0 || destGhosts.length > 0;
               return (
                 <section
                   key={day.dayKey}
@@ -8206,6 +8467,31 @@ function App() {
                             }
                           />
                         ))}
+                        {destGhosts.map((ghost) => {
+                          const taskId = ghost.task.id;
+                          return (
+                            <CompactTaskRow
+                              key={`move-preview-${taskId ?? ghost.task.title}`}
+                              task={ghost.task}
+                              overdue={false}
+                              movePreview
+                              editing={editingTaskId === taskId}
+                              highlighted={isTaskHighlighted(taskId)}
+                              popping={isTaskPopping(taskId)}
+                              now={new Date(countdownNow)}
+                              parentTitle={parentTitleFor(ghost.task.parent_id)}
+                              onComplete={() => requestCompleteTask(taskId ?? null)}
+                              onEdit={() => {
+                                if (taskId) {
+                                  setFocusedOverflowTaskIds(null);
+                                  setFocusedTaskId(taskId);
+                                }
+                                editTask(ghost.task);
+                              }}
+                              isCurrentFocus={todayFocusTask?.id === taskId}
+                            />
+                          );
+                        })}
                       </ul>
                     </div>
                   )}
@@ -8224,8 +8510,15 @@ function App() {
         ) : (
           <div className="calendar-timeline">
             {timelineDays.map((day) => {
+              const destGhostBlocks = missedMovePackedGhosts
+                .filter((ghost) => ghost.destDayKey === day.dayKey)
+                .map((ghost) => missedMoveGhostBlock(ghost, day.visibleStartMin))
+                .filter((block): block is CalendarTaskBlock => block != null);
+              const destGhostKeys = new Set(destGhostBlocks.map((block) => block.key));
               const view = buildOutsideCollapsedDayView(
-                day,
+                destGhostBlocks.length === 0
+                  ? day
+                  : { ...day, blocks: [...day.blocks, ...destGhostBlocks] },
                 outsideExpandedByDay[day.dayKey] ?? {},
               );
               const isTodayGroup = day.dayKey === todayKey;
@@ -8335,16 +8628,18 @@ function App() {
                     {view.blocks
                       .filter(
                         (block) =>
+                          destGhostKeys.has(block.key) ||
                           block.taskId == null ||
                           !exclusiveOffScheduleIds.has(block.taskId),
                       )
                       .map((block) => {
+                      const isMovePreview = destGhostKeys.has(block.key);
                       const scheduleKind = taskScheduleKind(block.task);
                       return (
                       <div
                         key={block.key}
                         data-task-id={block.taskId ?? undefined}
-                        className={`calendar-timeline-block is-${scheduleKind}${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${block.overdue ? " is-overdue" : ""}${isTaskPopping(block.taskId) ? " is-popping" : ""}`}
+                        className={`calendar-timeline-block is-${scheduleKind}${editingTaskId === block.taskId ? " is-editing" : ""}${isTaskHighlighted(block.taskId) ? " is-highlighted" : ""}${!isMovePreview && block.overdue ? " is-overdue" : ""}${isTaskPopping(block.taskId) ? " is-popping" : ""}`}
                         style={{ top: block.topPx, height: block.heightPx }}
                       >
                 <button

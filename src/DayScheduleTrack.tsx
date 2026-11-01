@@ -36,6 +36,12 @@ export type DayScheduleTrackProps = {
   isTaskHighlighted?: (taskId: string | null | undefined) => boolean;
   isTaskPopping?: (taskId: string | null | undefined) => boolean;
   onTaskSelect?: (task: ComposerDraft) => void;
+  /** Unfilled MISSED Pivot previews; positioned by absolute day minutes. */
+  previewBlocks?: Array<{
+    startMin: number;
+    endMin: number;
+    task: ComposerDraft;
+  }>;
 };
 
 export function DayScheduleTrack({
@@ -51,6 +57,7 @@ export function DayScheduleTrack({
   isTaskHighlighted,
   isTaskPopping,
   onTaskSelect,
+  previewBlocks = [],
 }: DayScheduleTrackProps) {
   const windowStartPct =
     windowStartMin == null ? null : (windowStartMin / MINUTES_PER_DAY) * 100;
@@ -203,6 +210,62 @@ export function DayScheduleTrack({
               </button>
             );
           })}
+        {previewBlocks.map((preview) => {
+          const span = preview.endMin - preview.startMin;
+          if (!(span > 0)) return null;
+          const taskId = preview.task.id;
+          const highlighted = isTaskHighlighted?.(taskId) ?? false;
+          const popping = isTaskPopping?.(taskId) ?? false;
+          const leftPct = (preview.startMin / MINUTES_PER_DAY) * 100;
+          const widthPct = (span / MINUTES_PER_DAY) * 100;
+          const kind = scheduleBlockKind(preview.task);
+          const classNames = [
+            "twineline-schedule-block",
+            `is-${kind}`,
+            highlighted ? "is-highlighted" : "",
+            popping ? "is-popping" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          const style: CSSProperties = {
+            position: "absolute",
+            left: `${leftPct}%`,
+            width: `${widthPct}%`,
+            top: "50%",
+            transform: "translateY(-50%)",
+            flex: "none",
+            zIndex: 4,
+          };
+          if (!interactive) {
+            return (
+              <div
+                key={`preview-${taskId ?? preview.task.title}`}
+                className={classNames}
+                style={style}
+                title={`${preview.task.title} · ${Math.round(span)}m`}
+              />
+            );
+          }
+          return (
+            <button
+              key={`preview-${taskId ?? preview.task.title}`}
+              type="button"
+              data-schedule-task-id={taskId ?? undefined}
+              className={classNames}
+              style={style}
+              title={`${preview.task.title} · ${Math.round(span)}m`}
+              aria-label={`${preview.task.title}, ${Math.round(span)} minutes`}
+              aria-pressed={
+                isTaskHighlighted?.(taskId) ?? focusedTaskId === taskId
+              }
+              disabled={popping}
+              onClick={() => {
+                if (!taskId || popping) return;
+                onTaskSelect(preview.task);
+              }}
+            />
+          );
+        })}
         </div>
       </div>
     </div>

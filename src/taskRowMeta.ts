@@ -50,20 +50,26 @@ function formatTaskClockLabel(hhmm: string): string | null {
   return `${hour12}:${String(minutes).padStart(2, "0")}${period}`;
 }
 
+export function formatTaskScheduleDatePart(
+  dateValue: string | null | undefined,
+  now: Date,
+): string | null {
+  const date = parseTaskDate(dateValue);
+  if (!date) return null;
+  const today = toStartOfDay(now);
+  const tomorrow = addDays(today, 1);
+  if (sameCalendarDay(date, today)) return "Today";
+  if (sameCalendarDay(date, tomorrow)) return "Tomorrow";
+  return `${TASK_META_MONTHS[date.getMonth()]} ${dayOrdinal(date.getDate())}`;
+}
+
 export function formatTaskScheduleMetaLabel(
   task: Pick<ComposerDraft, "date" | "starts_at" | "due_at"> &
     Pick<Partial<ComposerDraft>, "est_duration">,
   now: Date,
 ): string | null {
-  const date = parseTaskDate(task.date);
-  if (!date) return null;
-
-  const today = toStartOfDay(now);
-  const tomorrow = addDays(today, 1);
-  let datePart: string;
-  if (sameCalendarDay(date, today)) datePart = "Today";
-  else if (sameCalendarDay(date, tomorrow)) datePart = "Tomorrow";
-  else datePart = `${TASK_META_MONTHS[date.getMonth()]} ${dayOrdinal(date.getDate())}`;
+  const datePart = formatTaskScheduleDatePart(task.date, now);
+  if (datePart == null) return null;
 
   const startsAt = normalizeOptionalField(task.starts_at);
   const dueAt = normalizeOptionalField(task.due_at);

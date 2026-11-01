@@ -2170,6 +2170,23 @@
   color: var(--danger);
 }
 
+.task-row-schedule.is-move-to,
+.task-list.is-compact .task-row-schedule.is-move-to,
+.task-overdue-tasks .task-row-schedule.is-move-to {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35em;
+  color: var(--text);
+}
+
+.task-row-schedule-prefix {
+  color: var(--text);
+}
+
+.task-row-schedule-dest {
+  color: var(--danger);
+}
+
 .task-overdue-divider {
   width: 100%;
   height: 1px;
@@ -3293,6 +3310,15 @@
 
 .task-row.is-overdue .task-row-title {
   color: var(--danger);
+}
+
+.task-row.is-move-preview:not(.is-editing):not(.is-highlighted) {
+  border-color: var(--border);
+  background: transparent;
+}
+
+.task-row.is-move-preview:not(.is-editing):not(.is-highlighted) .task-row-title {
+  color: var(--text);
 }
 
 /* Overflow list rows match notice-item chrome (border + transparent fill). */

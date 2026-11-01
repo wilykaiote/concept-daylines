@@ -507,6 +507,72 @@ function consumeFreeWithGap(free: Interval[], placed: Interval, gapMinutes: numb
   return next.filter((hole) => hole.end > hole.start);
 }
 
+export type MovePreviewPackedRange = {
+  task: ComposerDraft;
+  startMin: number;
+  endMin: number;
+};
+
+function hasTimedClock(task: ComposerDraft): boolean {
+  return (
+    parseTimeOfDay(task.starts_at) != null || parseTimeOfDay(task.due_at) != null
+  );
+}
+
+/**
+ * Place dest-day MISSED ghosts onto a day's live occupied map.
+ * Timed pin at clock time (may overlap). Untimed first-fit remaining holes with gap.
+ */
+export function packMovePreviewRanges(
+  occupied: ReadonlyArray<{ startMin: number; endMin: number }>,
+  ghosts: readonly ComposerDraft[],
+  packStart: number,
+  packEnd: number,
+  gapMinutes: number = DEFAULT_TASK_GAP_MINUTES,
+): MovePreviewPackedRange[] {
+  const placed: MovePreviewPackedRange[] = [];
+  if (ghosts.length === 0) return placed;
+
+  const timed: ComposerDraft[] = [];
+  const untimed: ComposerDraft[] = [];
+  for (const ghost of ghosts) {
+    if (hasTimedClock(ghost)) timed.push(ghost);
+    else untimed.push(ghost);
+  }
+  timed.sort(
+    (a, b) =>
+      resolveTimedStartMin(a, packStart) - resolveTimedStartMin(b, packStart),
+  );
+  untimed.sort(compareSoftPriority);
+
+  for (const task of timed) {
+    const startMin = resolveTimedStartMin(task, packStart);
+    const endMin = startMin + taskDurationMinutes(task);
+    if (!(endMin > startMin)) continue;
+    placed.push({ task, startMin, endMin });
+  }
+
+  if (!(packEnd > packStart)) return placed;
+
+  const liveOccupied: Interval[] = occupied
+    .filter((block) => block.endMin > block.startMin)
+    .map((block) => ({ start: block.startMin, end: block.endMin }));
+  const softOccupied: Interval[] = [
+    ...liveOccupied,
+    ...placed.map((row) => ({ start: row.startMin, end: row.endMin })),
+  ];
+  const inflated = inflateOccupied(softOccupied, gapMinutes, packStart, packEnd);
+  let free = freeIntervals(packStart, packEnd, inflated);
+  for (const task of untimed) {
+    const minutes = taskDurationMinutes(task);
+    const range = firstFitRange(free, minutes);
+    if (!range) continue;
+    placed.push({ task, startMin: range.start, endMin: range.end });
+    free = consumeFreeWithGap(free, range, gapMinutes);
+  }
+  return placed;
+}
+
 function packSoftTasks(
   byDay: Map<string, PackBlock[]>,
   dateOnlyByDay: Map<string, ComposerDraft[]>,
