@@ -209,6 +209,45 @@ export function compareSoftPriority(a: ComposerDraft, b: ComposerDraft): number 
   return idA < idB ? -1 : idA > idB ? 1 : 0;
 }
 
+function rootAncestor(
+  task: ComposerDraft,
+  parentById: ReadonlyMap<string, ComposerDraft>,
+): ComposerDraft {
+  const seen = new Set<string>();
+  let current = task;
+  while (current.parent_id) {
+    if (seen.has(current.parent_id)) break;
+    seen.add(current.parent_id);
+    const parent = parentById.get(current.parent_id);
+    if (!parent) break;
+    current = parent;
+  }
+  return current;
+}
+
+export function compareSoftPriorityWithRoot(
+  a: ComposerDraft,
+  b: ComposerDraft,
+  parentById: ReadonlyMap<string, ComposerDraft>,
+): number {
+  const rootDelta = compareSoftPriority(
+    rootAncestor(a, parentById),
+    rootAncestor(b, parentById),
+  );
+  if (rootDelta !== 0) return rootDelta;
+  return compareSoftPriority(a, b);
+}
+
+function parentMapFromTasks(
+  tasks: readonly ComposerDraft[],
+): Map<string, ComposerDraft> {
+  const map = new Map<string, ComposerDraft>();
+  for (const task of tasks) {
+    if (task.id != null) map.set(task.id, task);
+  }
+  return map;
+}
+
 /** Missing parent for undated soft sort — lowest urgency, zero impact. */
 const EMPTY_SOFT_PRIORITY = {
   id: "",
@@ -223,6 +262,11 @@ function compareUndatedSoftPriority(
   b: ComposerDraft,
   parentById: ReadonlyMap<string, ComposerDraft>,
 ): number {
+  const rootDelta = compareSoftPriority(
+    rootAncestor(a, parentById),
+    rootAncestor(b, parentById),
+  );
+  if (rootDelta !== 0) return rootDelta;
   const parentA =
     a.parent_id != null ? parentById.get(a.parent_id) : undefined;
   const parentB =
@@ -529,6 +573,7 @@ export function packMovePreviewRanges(
   packStart: number,
   packEnd: number,
   gapMinutes: number = DEFAULT_TASK_GAP_MINUTES,
+  parentById: ReadonlyMap<string, ComposerDraft> = new Map(),
 ): MovePreviewPackedRange[] {
   const placed: MovePreviewPackedRange[] = [];
   if (ghosts.length === 0) return placed;
@@ -543,7 +588,7 @@ export function packMovePreviewRanges(
     (a, b) =>
       resolveTimedStartMin(a, packStart) - resolveTimedStartMin(b, packStart),
   );
-  untimed.sort(compareSoftPriority);
+  untimed.sort((a, b) => compareSoftPriorityWithRoot(a, b, parentById));
 
   for (const task of timed) {
     const startMin = resolveTimedStartMin(task, packStart);
@@ -597,9 +642,11 @@ function packSoftTasks(
   );
   const dateOnlyQueues = new Map<string, ComposerDraft[]>();
   for (const [key, list] of dateOnlyByDay) {
-    dateOnlyQueues.set(key, [...list].sort(compareSoftPriority));
+    dateOnlyQueues.set(key, [...list].sort((a, b) =>
+      compareSoftPriorityWithRoot(a, b, parentById),
+    ));
   }
-  const catchUpQueue = sortOverdueTasks(catchUp);
+  const catchUpQueue = sortOverdueTasks(catchUp, parentById);
 
   const todayStart = toStartOfDay(now);
   const todayKey = dayKey(todayStart);
@@ -726,7 +773,10 @@ function packSoftTasks(
   // Unplaced undated stay undated (no Overflow / Deferring bucket).
 }
 
-function sortOverdueTasks(tasks: ComposerDraft[]): ComposerDraft[] {
+function sortOverdueTasks(
+  tasks: ComposerDraft[],
+  parentById: ReadonlyMap<string, ComposerDraft> = new Map(),
+): ComposerDraft[] {
   return [...tasks].sort((a, b) => {
     const dateA = a.date ?? "";
     const dateB = b.date ?? "";
@@ -736,7 +786,7 @@ function sortOverdueTasks(tasks: ComposerDraft[]): ComposerDraft[] {
     const timeB =
       parseTimeOfDay(b.starts_at) ?? parseTimeOfDay(b.due_at) ?? Number.POSITIVE_INFINITY;
     if (timeA !== timeB) return timeA - timeB;
-    return compareSoftPriority(a, b);
+    return compareSoftPriorityWithRoot(a, b, parentById);
   });
 }
 
@@ -784,11 +834,14 @@ function kindRescheduleRank(task: ComposerDraft): number {
   return 2;
 }
 
-function sortOverflowForReschedule(tasks: ComposerDraft[]): ComposerDraft[] {
+function sortOverflowForReschedule(
+  tasks: ComposerDraft[],
+  parentById: ReadonlyMap<string, ComposerDraft> = new Map(),
+): ComposerDraft[] {
   return [...tasks].sort((a, b) => {
     const rankDelta = kindRescheduleRank(a) - kindRescheduleRank(b);
     if (rankDelta !== 0) return rankDelta;
-    return compareSoftPriority(a, b);
+    return compareSoftPriorityWithRoot(a, b, parentById);
   });
 }
 
@@ -861,6 +914,7 @@ export function rescheduleOverdueTasksForNewDay(
       ? overflowTasks.filter((task) => task.id != null)
       : defaultOverflow
     ).map((task) => ({ ...task })),
+    parentMapFromTasks(tasks),
   );
   if (toReschedule.length === 0) return empty;
 
@@ -1476,7 +1530,7 @@ export function layoutCalendarTasks(
       blocks,
       scheduleBlocks,
       hourMarkers: buildHourMarkers(visibleStartMin),
-      overdueTasks: sortOverdueTasks(overdueByDay.get(key) ?? []),
+      overdueTasks: sortOverdueTasks(overdueByDay.get(key) ?? [], parentById),
       deferredTasks: [...(deferredByDay.get(key) ?? [])].sort(compareSoftPriority),
     });
   }
@@ -1492,7 +1546,7 @@ export function layoutCalendarTasks(
       blocks: [],
       scheduleBlocks: [],
       hourMarkers: buildHourMarkers(visibleStartMin),
-      overdueTasks: sortOverdueTasks(overdueByDay.get(todayKey) ?? []),
+      overdueTasks: sortOverdueTasks(overdueByDay.get(todayKey) ?? [], parentById),
       deferredTasks: [...(deferredByDay.get(todayKey) ?? [])].sort(compareSoftPriority),
     });
   }
@@ -1530,6 +1584,7 @@ export function layoutCalendarTasks(
 
   const flatOverdue = sortOverdueTasks(
     layouts.flatMap((day) => day.overdueTasks),
+    parentById,
   );
   const flatDeferred = [...(deferredByDay.get(todayKey) ?? [])].sort(
     compareSoftPriority,

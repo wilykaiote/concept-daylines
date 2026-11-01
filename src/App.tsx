@@ -2875,7 +2875,7 @@ function App() {
   // overflowTasks is represented by overflowMovePreviewKey (stable when contents match).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const overflowMoveToById = useMemo(() => {
-    const destById = new Map<string, string>();
+    const destById = new Map<string, MissedMovePreview>();
     if (overflowTasks.length === 0) return destById;
     const { tasks: next } = rescheduleOverdueTasksForNewDay(
       tasks,
@@ -2886,12 +2886,56 @@ function App() {
       overflowTasks,
       todayStart,
     );
+    const previewTasks = next.filter(
+      (task) =>
+        !isContainerTaskType(task.type) &&
+        !(task.type === "item" && task.completed_at != null),
+    );
+    const layoutThroughDate = addDays(
+      timelineRangeStart,
+      timelineDayCount - 1 + LAYOUT_THROUGH_BUFFER_DAYS,
+    );
+    const previewLayout = layoutCalendarTasks(
+      previewTasks,
+      new Date(layoutNowFloorMs),
+      getTargetTimeForDay,
+      taskGapMinutes,
+      getWindowStartTimeForDay,
+      baselineIds,
+      pinnedFocusId,
+      [],
+      layoutThroughDate,
+    );
+    const blockByTaskId = new Map<
+      string,
+      { dayKey: string; startMin: number; endMin: number }
+    >();
+    for (const day of previewLayout.days) {
+      for (const block of day.scheduleBlocks) {
+        if (!block.taskId) continue;
+        const startMin = block.packStartMin ?? block.startMin;
+        const endMin = block.packEndMin ?? block.endMin;
+        if (endMin <= startMin) continue;
+        blockByTaskId.set(block.taskId, {
+          dayKey: day.dayKey,
+          startMin,
+          endMin,
+        });
+      }
+    }
     for (const task of overflowTasks) {
       if (task.id == null) continue;
       const after = next.find((row) => row.id === task.id);
-      if (after?.date != null && after.date !== task.date) {
-        destById.set(task.id, after.date);
-      }
+      if (after?.date == null || after.date === task.date) continue;
+      const packed = blockByTaskId.get(task.id);
+      destById.set(task.id, {
+        destDayKey: after.date,
+        startMin:
+          packed != null && packed.dayKey === after.date ? packed.startMin : null,
+        endMin:
+          packed != null && packed.dayKey === after.date ? packed.endMin : null,
+        task,
+      });
     }
     return destById;
   }, [
@@ -2908,7 +2952,14 @@ function App() {
     defaultWindowStartTime,
     windowStartOverrides,
     todayKeyStr,
+    baselineIds,
+    pinnedFocusId,
+    timelineRangeStart,
+    timelineDayCount,
   ]);
+  const overflowMoveGhosts = [...overflowMoveToById.values()].filter(
+    (preview) => preview.destDayKey > todayKeyStr,
+  );
   const exclusiveOffScheduleIds = new Set<string>([
     ...leftoverOverdueIds,
     ...overflowTasks
@@ -2939,6 +2990,16 @@ function App() {
     }
     return map;
   })();
+  const parentById = (() => {
+    const map = new Map<string, ComposerDraft>();
+    for (const collection of collections) {
+      if (collection.id) map.set(collection.id, collection);
+    }
+    for (const task of tasks) {
+      if (task.id) map.set(task.id, task);
+    }
+    return map;
+  })();
   const parentTitleFor = (parentId: string | null | undefined) =>
     parentId != null ? (parentTitleById.get(parentId) ?? null) : null;
   const calendarLayoutSpanKey =
@@ -2946,11 +3007,14 @@ function App() {
       ? `${calendarTaskLayout[0].dayKey}:${calendarTaskLayout[calendarTaskLayout.length - 1].dayKey}`
       : "";
   const calendarLayoutByKey = new Map(calendarTaskLayout.map((day) => [day.dayKey, day]));
-  const missedMovePackedGhosts = (() => {
+  const movePackedGhosts = (() => {
     const packed: MissedMovePreview[] = [];
     const ghostsByDest = new Map<string, ComposerDraft[]>();
-    for (const ghost of missedMoveGhosts) {
+    for (const ghost of [...missedMoveGhosts, ...overflowMoveGhosts]) {
       const list = ghostsByDest.get(ghost.destDayKey) ?? [];
+      if (ghost.task.id != null && list.some((task) => task.id === ghost.task.id)) {
+        continue;
+      }
       list.push(ghost.task);
       ghostsByDest.set(ghost.destDayKey, list);
     }
@@ -2982,6 +3046,7 @@ function App() {
         packStart,
         packEnd,
         taskGapMinutes,
+        parentById,
       )) {
         packed.push({
           destDayKey,
@@ -5964,7 +6029,7 @@ function App() {
           ? null
           : overdue
             ? (missedMoveToById.get(task.id)?.destDayKey ?? null)
-            : (overflowMoveToById.get(task.id) ?? null)
+            : (overflowMoveToById.get(task.id)?.destDayKey ?? null)
       }
       onComplete={() => requestCompleteTask(task.id)}
       onEdit={() => {
@@ -8269,7 +8334,7 @@ function App() {
                       focusedTaskId={focusedTaskId}
                       isTaskHighlighted={isTaskHighlighted}
                       isTaskPopping={isTaskPopping}
-                      previewBlocks={missedMovePackedGhosts
+                      previewBlocks={movePackedGhosts
                         .filter((ghost) => ghost.destDayKey === selectedDayKey)
                         .map((ghost) => ({
                           startMin: ghost.startMin as number,
@@ -8360,14 +8425,20 @@ function App() {
               });
               const dayOverflow = overflowForDay(day);
               const leftoverCount = isTodayGroup ? leftoverOverDueRows.length : 0;
-              const destGhosts = missedMoveGhosts
-                .filter((ghost) => ghost.destDayKey === day.dayKey)
-                .slice()
+              const destGhostSeen = new Set<string>();
+              const destGhosts = [...missedMoveGhosts, ...overflowMoveGhosts]
+                .filter((ghost) => {
+                  if (ghost.destDayKey !== day.dayKey) return false;
+                  const id = ghost.task.id ?? ghost.task.title;
+                  if (destGhostSeen.has(id)) return false;
+                  destGhostSeen.add(id);
+                  return true;
+                })
                 .sort((a, b) => {
-                  const packedA = missedMovePackedGhosts.find(
+                  const packedA = movePackedGhosts.find(
                     (row) => row.task.id === a.task.id,
                   );
-                  const packedB = missedMovePackedGhosts.find(
+                  const packedB = movePackedGhosts.find(
                     (row) => row.task.id === b.task.id,
                   );
                   return (
@@ -8510,7 +8581,7 @@ function App() {
         ) : (
           <div className="calendar-timeline">
             {timelineDays.map((day) => {
-              const destGhostBlocks = missedMovePackedGhosts
+              const destGhostBlocks = movePackedGhosts
                 .filter((ghost) => ghost.destDayKey === day.dayKey)
                 .map((ghost) => missedMoveGhostBlock(ghost, day.visibleStartMin))
                 .filter((block): block is CalendarTaskBlock => block != null);
