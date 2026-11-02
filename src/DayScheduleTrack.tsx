@@ -42,6 +42,8 @@ export type DayScheduleTrackProps = {
     endMin: number;
     task: ComposerDraft;
   }>;
+  /** Date-only chips wait until live undated are gone. Default: all eligible. */
+  canOvertakeTask?: (task: ComposerDraft) => boolean;
 };
 
 export function DayScheduleTrack({
@@ -58,6 +60,7 @@ export function DayScheduleTrack({
   isTaskPopping,
   onTaskSelect,
   previewBlocks = [],
+  canOvertakeTask,
 }: DayScheduleTrackProps) {
   const windowStartPct =
     windowStartMin == null ? null : (windowStartMin / MINUTES_PER_DAY) * 100;
@@ -140,7 +143,9 @@ export function DayScheduleTrack({
             const popping = isTaskPopping?.(taskId) ?? false;
             const fillPct = blockElapsedPct(segment);
             const isPast = nowMin != null && nowMin >= segment.endMin;
-            const isBeingOvertaken = fillPct > 0 && !isPast;
+            const overtakeEligible = canOvertakeTask?.(segment.task) ?? true;
+            const isBeingOvertaken =
+              overtakeEligible && fillPct > 0 && !isPast;
             const elapsedFillColor =
               nowMin != null ? daySkyColorAtMinutes(nowMin) : null;
             const classNames = [
