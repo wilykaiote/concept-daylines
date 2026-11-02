@@ -629,12 +629,11 @@ function packSoftTasks(
   deferredByDay: Map<string, ComposerDraft[]>,
   gapMinutes: number,
   todaySoftBaselineIds: ReadonlySet<string>,
-  _frozenPlacements: ReadonlyMap<string, SoftPackPlacement>,
+  frozenPlacements: ReadonlyMap<string, SoftPackPlacement>,
   layoutThrough: Date | null = null,
   parentById: ReadonlyMap<string, ComposerDraft> = new Map(),
   catchUp: ComposerDraft[] = [],
 ) {
-  void _frozenPlacements;
   // Baseline no longer soft-fills today; dated-today softs use Overflow instead.
   void todaySoftBaselineIds;
   const undatedQueue = [...undated].sort((a, b) =>
@@ -650,12 +649,47 @@ function packSoftTasks(
 
   const todayStart = toStartOfDay(now);
   const todayKey = dayKey(todayStart);
+  const nowMin = minutesFromMidnight(now);
   const throughCap = layoutThrough != null ? toStartOfDay(layoutThrough) : null;
   let day = todayStart;
   let guard = 0;
   const gap = Math.max(0, gapMinutes);
   // deferredByDay kept for API compat; undated no longer spill into Overflow/Deferring.
   void deferredByDay;
+
+  const pinOrDropFrozen = (task: ComposerDraft): "pinned" | "ended" | "none" => {
+    if (task.id == null) return "none";
+    const frozen = frozenPlacements.get(task.id);
+    if (!frozen) return "none";
+    if (frozen.endMin <= nowMin) return "ended";
+    pushBlock(
+      byDay,
+      todayStart,
+      task,
+      frozen.startMin,
+      frozen.endMin,
+      0,
+      false,
+    );
+    return "pinned";
+  };
+  const dropFrozenFromQueue = (queue: ComposerDraft[]): ComposerDraft[] => {
+    const rest: ComposerDraft[] = [];
+    for (const task of queue) {
+      if (pinOrDropFrozen(task) === "none") rest.push(task);
+    }
+    return rest;
+  };
+  {
+    const todayDateOnly = dateOnlyQueues.get(todayKey) ?? [];
+    dateOnlyQueues.set(todayKey, dropFrozenFromQueue(todayDateOnly));
+    const catchUpRest = dropFrozenFromQueue(catchUpQueue);
+    catchUpQueue.length = 0;
+    catchUpQueue.push(...catchUpRest);
+    const undatedRest = dropFrozenFromQueue(undatedQueue);
+    undatedQueue.length = 0;
+    undatedQueue.push(...undatedRest);
+  }
 
   const drainCatchUpToTodayOverflow = () => {
     while (catchUpQueue.length > 0) {
@@ -713,8 +747,6 @@ function packSoftTasks(
       day = addDays(day, 1);
       continue;
     }
-
-    // Freeze pins intentionally ignored — softs slide from live packStart around timed.
 
     const sameDayQueue = dateOnlyQueues.get(key) ?? [];
 
@@ -1427,6 +1459,12 @@ export function layoutCalendarTasks(
     const scheduled = parseTaskDate(task.date);
     const missDay = scheduled ?? todayStart;
     const kind = classifyTask(task);
+    const frozen = frozenById.get(task.id);
+    if (frozen != null && frozen.endMin <= nowMin) {
+      // Ended frozen softs are not re-placed. Date-only → MISSED in App;
+      // undated stay off the live bar for Overflow spill.
+      continue;
+    }
     if (isAnchoredTaskMissed(task, now, getPackEnd(missDay), getWindowStart(missDay))) {
       const key = kind === "timed" ? todayKey : dayKey(missDay);
       pushDayOverflow(overdueByDay, key < todayKey ? todayKey : key, task);

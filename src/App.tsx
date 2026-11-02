@@ -2572,6 +2572,12 @@ function App() {
       timelineRangeStart,
       timelineDayCount - 1 + LAYOUT_THROUGH_BUFFER_DAYS,
     );
+    const frozenSoftPlacements =
+      todaySoftPackPlan != null &&
+      todaySoftPackPlan.dayKey === todayKeyStr &&
+      todaySoftPackPlan.windowSig === appliedTodayWindowSig
+        ? todaySoftPackPlan.placements
+        : [];
     return layoutCalendarTasks(
       tasksForCalendar,
       new Date(layoutNowFloorMs),
@@ -2580,7 +2586,7 @@ function App() {
       layoutGetWindowStart,
       baselineIds,
       pinnedFocusId,
-      [],
+      frozenSoftPlacements,
       layoutThroughDate,
     );
   }, [
@@ -2599,6 +2605,9 @@ function App() {
     windowStartOverrides,
     timelineRangeStart,
     timelineDayCount,
+    todaySoftPackPlan,
+    todayKeyStr,
+    appliedTodayWindowSig,
   ]);
   const calendarTaskLayout = calendarTasksLayout.days;
   const todayLayoutForOverflow = calendarTaskLayout.find(
@@ -2691,10 +2700,29 @@ function App() {
         list.push(task);
       }
     }
+    const fullyEatenDatedIds = new Set<string>();
+    for (const block of todayLayoutForOverflow?.scheduleBlocks ?? []) {
+      const end = block.packEndMin ?? block.endMin;
+      if (end > nowMinutes || block.taskId == null) continue;
+      if (isUndatedTask(block.task)) continue;
+      fullyEatenDatedIds.add(block.taskId);
+    }
+    if (
+      todaySoftPackPlan != null &&
+      todaySoftPackPlan.dayKey === todayKeyStr &&
+      todaySoftPackPlan.windowSig === appliedTodayWindowSig
+    ) {
+      for (const row of todaySoftPackPlan.placements) {
+        if (row.endMin > nowMinutes) continue;
+        const task = byId.get(row.taskId);
+        if (!task || isUndatedTask(task)) continue;
+        fullyEatenDatedIds.add(row.taskId);
+      }
+    }
     for (const task of tasks) {
       const id = task.id;
       if (id == null || seen.has(id) || liveScheduleIds.has(id)) continue;
-      if (!isDatedTimedMiss(task)) continue;
+      if (!isDatedTimedMiss(task) && !fullyEatenDatedIds.has(id)) continue;
       seen.add(id);
       list.push(task);
     }
@@ -2835,6 +2863,34 @@ function App() {
       .map((row) => row.task.id)
       .filter((id): id is string => id != null),
   );
+  const fullyEatenUndatedTasks: ComposerDraft[] = [];
+  {
+    const seenUndated = new Set<string>();
+    const considerUndated = (task: ComposerDraft | undefined) => {
+      if (task?.id == null || seenUndated.has(task.id)) return;
+      if (!isUndatedTask(task)) return;
+      seenUndated.add(task.id);
+      fullyEatenUndatedTasks.push(task);
+    };
+    for (const block of todayLayoutForOverflow?.scheduleBlocks ?? []) {
+      const end = block.packEndMin ?? block.endMin;
+      if (end > nowMinutes) continue;
+      considerUndated(block.task);
+    }
+    if (
+      todaySoftPackPlan != null &&
+      todaySoftPackPlan.dayKey === todayKeyStr &&
+      todaySoftPackPlan.windowSig === appliedTodayWindowSig
+    ) {
+      const byId = new Map(
+        tasks.filter((task) => task.id != null).map((task) => [task.id as string, task]),
+      );
+      for (const row of todaySoftPackPlan.placements) {
+        if (row.endMin > nowMinutes) continue;
+        considerUndated(byId.get(row.taskId));
+      }
+    }
+  }
   const overflowForDay = (dayLayout: (typeof calendarTaskLayout)[number] | undefined) => {
     const dayOverdue = dayLayout?.overdueTasks ?? [];
     // Overflow is date-only misses (and forced at-risk) — dated+timed misses go to Overdue.
@@ -2846,6 +2902,13 @@ function App() {
       ? [
           ...dayOverdue,
           ...forcedOverflowTasks.filter(
+            (task) =>
+              task.id != null &&
+              !layoutOverdueIds.has(task.id) &&
+              !liveScheduleIds.has(task.id) &&
+              !leftoverOverdueIds.has(task.id),
+          ),
+          ...fullyEatenUndatedTasks.filter(
             (task) =>
               task.id != null &&
               !layoutOverdueIds.has(task.id) &&
@@ -3159,11 +3222,12 @@ function App() {
     atRiskTask != null && spillDurationMin > 0
       ? Math.min(1, Math.max(0, spillRemainingMin / spillDurationMin))
       : null;
-  /** Packed spill soft that has entirely passed the window → Overflow. */
+  /** Packed undated spill that entirely passed the window → Overflow. Date-only → MISSED. */
   const spillReadyForOverflowIds =
     spillCandidateTask?.id != null &&
     !forcedOverflowIds.has(spillCandidateTask.id) &&
-    pastWindowMin >= spillDurationMin
+    pastWindowMin >= spillDurationMin &&
+    isUndatedTask(spillCandidateTask)
       ? [spillCandidateTask.id]
       : [];
   const pinnedFocusTask =
@@ -6579,6 +6643,21 @@ function App() {
       tasks.map((task) => task.id).filter((id): id is string => typeof id === "string"),
     );
     const placements = nextPlacements.filter((row) => livingIds.has(row.taskId));
+    const seenPlacementIds = new Set(placements.map((row) => row.taskId));
+    if (
+      todaySoftPackPlan != null &&
+      todaySoftPackPlan.dayKey === todayKeyStr &&
+      todaySoftPackPlan.windowSig === appliedTodayWindowSig
+    ) {
+      for (const row of todaySoftPackPlan.placements) {
+        if (seenPlacementIds.has(row.taskId) || !livingIds.has(row.taskId)) {
+          continue;
+        }
+        if (row.endMin > nowMinutes) continue;
+        placements.push(row);
+        seenPlacementIds.add(row.taskId);
+      }
+    }
     if (
       todaySoftPackPlan == null ||
       todaySoftPackPlan.dayKey !== todayKeyStr ||
@@ -6613,6 +6692,7 @@ function App() {
     calendarTasksLayout.todaySoftPlacements,
     tasks,
     todaySoftPackPlan,
+    nowMinutes,
   ]);
 
   const todayKey = dayKey(todayStart);
