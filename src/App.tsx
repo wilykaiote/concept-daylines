@@ -3107,11 +3107,14 @@ function App() {
         (a.packStartMin ?? a.startMin) - (b.packStartMin ?? b.startMin) ||
         (a.packEndMin ?? a.endMin) - (b.packEndMin ?? b.endMin),
     );
-  // Overtaken = plan window contains now (not day-history of past ends).
+  // Overtaken = now is strictly inside the packed chip (second-precision).
   const overtakenPlanBlocks = todayPlanBlocks.filter((block) => {
-    const start = block.packStartMin ?? block.startMin;
-    const end = block.packEndMin ?? block.endMin;
-    return start <= nowMinutes && end > nowMinutes;
+    const startMs =
+      todayStart.getTime() +
+      (block.packStartMin ?? block.startMin) * 60_000;
+    const endMs =
+      todayStart.getTime() + (block.packEndMin ?? block.endMin) * 60_000;
+    return startMs < countdownNow && countdownNow < endMs;
   });
   const overtakenFocusBlock = overtakenPlanBlocks[0] ?? null;
   const upNextPlanBlocksAll = todayPlanBlocks.filter((block) => {
@@ -3195,10 +3198,11 @@ function App() {
   });
   // Rest is the first mode of every day until today's task window begins,
   // and again when Current focus / Up next are empty (Overflow may still have work).
+  // Never Rest while a live chip is being overtaken.
   const beforeTaskWindow = nowMinutes < todayWindowStartMinutes;
   const focusRestMode =
-    beforeTaskWindow ||
-    (nothingCurrentlyOvertaken && upNextPlanBlocksAll.length === 0);
+    nothingCurrentlyOvertaken &&
+    (beforeTaskWindow || upNextPlanBlocksAll.length === 0);
   // Break: end slack gone and nothing overtaken (gap before next / idle flush day).
   const focusBreakMode =
     !beforeTaskWindow &&
@@ -3222,38 +3226,37 @@ function App() {
     todayEndSlackMin > 0 &&
     firstUpcomingSoft != null &&
     todayFocusTask?.id === firstUpcomingSoft.id;
-  const focusCountdownBlock =
-    overtakenFocusBlock ??
-    (showUpcomingSoftAsFocus ? firstUpcomingSoftBlock : null);
-  // Task countdown: displayed Current Focus block (overtaken or upcoming-soft preview).
+  // Task countdown only while a live chip is being overtaken (not upcoming-soft).
   const focusTaskCountdownActive =
-    focusCountdownBlock != null &&
-    todayFocusTask?.id != null &&
-    !focusLocked;
+    overtakenFocusBlock != null && todayFocusTask?.id != null;
   const overtakenPackStartMin =
-    focusCountdownBlock != null
-      ? (focusCountdownBlock.packStartMin ?? focusCountdownBlock.startMin)
+    overtakenFocusBlock != null
+      ? (overtakenFocusBlock.packStartMin ?? overtakenFocusBlock.startMin)
       : null;
   const overtakenPackEndMin =
-    focusCountdownBlock != null
-      ? (focusCountdownBlock.packEndMin ?? focusCountdownBlock.endMin)
+    overtakenFocusBlock != null
+      ? (overtakenFocusBlock.packEndMin ?? overtakenFocusBlock.endMin)
+      : null;
+  const overtakenPackStartMs =
+    overtakenPackStartMin != null
+      ? todayStart.getTime() + overtakenPackStartMin * 60_000
+      : null;
+  const overtakenPackEndMs =
+    overtakenPackEndMin != null
+      ? todayStart.getTime() + overtakenPackEndMin * 60_000
       : null;
   const focusTaskCountdownMs = (() => {
-    if (
-      !focusTaskCountdownActive ||
-      overtakenPackEndMin == null
-    ) {
+    if (!focusTaskCountdownActive || overtakenPackEndMs == null) {
       return null;
     }
-    const remaining =
-      todayStart.getTime() + overtakenPackEndMin * 60_000 - countdownNow;
+    const remaining = overtakenPackEndMs - countdownNow;
     return remaining > 0 ? remaining : null;
   })();
   const focusTaskPackSpanMs =
-    overtakenPackStartMin != null &&
-    overtakenPackEndMin != null &&
-    overtakenPackEndMin > overtakenPackStartMin
-      ? (overtakenPackEndMin - overtakenPackStartMin) * 60_000
+    overtakenPackStartMs != null &&
+    overtakenPackEndMs != null &&
+    overtakenPackEndMs > overtakenPackStartMs
+      ? overtakenPackEndMs - overtakenPackStartMs
       : null;
   const focusCountdownMs =
     focusRestMode
@@ -3263,14 +3266,18 @@ function App() {
         : focusBreakMode
           ? restCountdownTargetMs - countdownNow
           : focusTaskCountdownMs;
-  const focusCountdownLabel =
-    !focusLocked && focusCountdownMs != null && focusCountdownMs > 0
-      ? `- ${formatCountdown(focusCountdownMs, { hideZeroHours: true })}`
-      : null;
   const focusStatusMode = focusRestMode
     ? ("rest" as const)
     : focusBreakMode
       ? ("break" as const)
+      : null;
+  const hideLockedStatusCountdown =
+    focusLocked && focusStatusMode != null;
+  const focusCountdownLabel =
+    !hideLockedStatusCountdown &&
+    focusCountdownMs != null &&
+    focusCountdownMs > 0
+      ? `- ${formatCountdown(focusCountdownMs, { hideZeroHours: true })}`
       : null;
   if (focusStatusMode != null && focusCountdownMs != null && focusCountdownMs > 0) {
     if (focusStatusCountdownTotalRef.current.mode !== focusStatusMode) {
@@ -3288,36 +3295,30 @@ function App() {
       ? focusStatusCountdownTotalRef.current.totalMs
       : focusTaskPackSpanMs;
   const focusCountdownProgress =
-    !focusLocked &&
+    !hideLockedStatusCountdown &&
     focusCountdownMs != null &&
     focusCountdownMs > 0 &&
     focusCountdownTotalMs != null
       ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
       : null;
-  // Focus-task bars: remaining packed window / packed span (overtaken + upcoming-soft preview).
+  // Focus-task bars: remaining packed window / packed span (overtaken chips only).
   const overtakenCountdownByTaskId = new Map<string, number>();
-  if (!focusLocked) {
-    const countdownBlocks =
-      overtakenPlanBlocks.length > 0
-        ? overtakenPlanBlocks
-        : showUpcomingSoftAsFocus && firstUpcomingSoftBlock != null
-          ? [firstUpcomingSoftBlock]
-          : [];
-    for (const block of countdownBlocks) {
-      const taskId = block.task.id;
-      if (taskId == null) continue;
-      const startMin = block.packStartMin ?? block.startMin;
-      const endMin = block.packEndMin ?? block.endMin;
-      const spanMin = endMin - startMin;
-      if (spanMin <= 0) continue;
-      const remainingMs =
-        todayStart.getTime() + endMin * 60_000 - countdownNow;
-      if (remainingMs <= 0) continue;
-      overtakenCountdownByTaskId.set(
-        taskId,
-        Math.min(1, Math.max(0, remainingMs / (spanMin * 60_000))),
-      );
-    }
+  for (const block of overtakenPlanBlocks) {
+    const taskId = block.task.id;
+    if (taskId == null) continue;
+    const startMs =
+      todayStart.getTime() +
+      (block.packStartMin ?? block.startMin) * 60_000;
+    const endMs =
+      todayStart.getTime() + (block.packEndMin ?? block.endMin) * 60_000;
+    const spanMs = endMs - startMs;
+    if (spanMs <= 0) continue;
+    const remainingMs = endMs - countdownNow;
+    if (remainingMs <= 0) continue;
+    overtakenCountdownByTaskId.set(
+      taskId,
+      Math.min(1, Math.max(0, remainingMs / spanMs)),
+    );
   }
 
   const nowSkyColor = daySkyColorAtMinutes(nowMinutes);
