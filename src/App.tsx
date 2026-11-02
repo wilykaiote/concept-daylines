@@ -2365,8 +2365,6 @@ function App() {
     mode: "rest" | "break" | null;
     totalMs: number;
   }>({ mode: null, totalMs: 0 });
-  /** First eligible overtaken frame per task — duration clock starts here. */
-  const focusTaskTakeoverStartedAtRef = useRef(new Map<string, number>());
   const [tasksCompact, setTasksCompact] = useState(true);
   const [outsideExpandedByDay, setOutsideExpandedByDay] = useState<
     Record<string, OutsideExpandedFlags>
@@ -3240,25 +3238,24 @@ function App() {
   // Task countdown only while a live chip is being overtaken (not upcoming-soft).
   const focusTaskCountdownActive =
     overtakenFocusBlock != null && todayFocusTask?.id != null;
-  const nextTakeoverStartedAt = new Map<string, number>();
-  for (const block of overtakenPlanBlocks) {
-    const taskId = block.task.id;
-    if (taskId == null) continue;
-    nextTakeoverStartedAt.set(
-      taskId,
-      focusTaskTakeoverStartedAtRef.current.get(taskId) ?? countdownNow,
-    );
-  }
-  focusTaskTakeoverStartedAtRef.current = nextTakeoverStartedAt;
   const focusTaskDurationMs =
     overtakenFocusBlock != null
       ? taskDurationMinutes(overtakenFocusBlock.task) * 60_000
       : null;
   const focusTaskCountdownMs = (() => {
-    if (!focusTaskCountdownActive || todayFocusTask?.id == null) return null;
-    const startedAt = nextTakeoverStartedAt.get(todayFocusTask.id);
-    if (startedAt == null || focusTaskDurationMs == null) return null;
-    const remaining = focusTaskDurationMs - (countdownNow - startedAt);
+    if (
+      !focusTaskCountdownActive ||
+      overtakenFocusBlock == null ||
+      focusTaskDurationMs == null
+    ) {
+      return null;
+    }
+    const packStartMs =
+      todayStart.getTime() +
+      (overtakenFocusBlock.packStartMin ?? overtakenFocusBlock.startMin) *
+        60_000;
+    const remaining =
+      focusTaskDurationMs - (countdownNow - packStartMs);
     return remaining > 0 ? remaining : null;
   })();
   const focusCountdownMs =
@@ -3304,16 +3301,17 @@ function App() {
     focusCountdownTotalMs != null
       ? Math.min(1, Math.max(0, focusCountdownMs / focusCountdownTotalMs))
       : null;
-  // Focus-task bars: remaining duration / est duration (overtaken chips only).
+  // Focus-task bars: remaining duration / est duration from packed chip start.
   const overtakenCountdownByTaskId = new Map<string, number>();
   for (const block of overtakenPlanBlocks) {
     const taskId = block.task.id;
     if (taskId == null) continue;
-    const startedAt = nextTakeoverStartedAt.get(taskId);
-    if (startedAt == null) continue;
     const durationMs = taskDurationMinutes(block.task) * 60_000;
     if (durationMs <= 0) continue;
-    const remainingMs = durationMs - (countdownNow - startedAt);
+    const packStartMs =
+      todayStart.getTime() +
+      (block.packStartMin ?? block.startMin) * 60_000;
+    const remainingMs = durationMs - (countdownNow - packStartMs);
     if (remainingMs <= 0) continue;
     overtakenCountdownByTaskId.set(
       taskId,
