@@ -418,39 +418,15 @@ function placeOnTimeTimedTask(
 }
 
 /**
- * Missed dated+timed: first-fit today's remaining pack window, else Overdue.
- * Never leaves a ghost block at the original clock time.
+ * Missed dated+timed: straight to Overdue/MISSED.
+ * Never re-packs into today's soft holes or leaves a ghost at the original clock.
  */
 function placeMissedTimedTask(
-  byDay: Map<string, PackBlock[]>,
   task: ComposerDraft,
   now: Date,
-  getPackEnd: (day: Date) => number,
-  getWindowStart: (day: Date) => number,
   overdueByDay: Map<string, ComposerDraft[]>,
-  gapMinutes: number,
 ) {
-  const today = toStartOfDay(now);
-  const todayKey = dayKey(today);
-  const packEnd = getPackEnd(today);
-  const windowStart = getWindowStart(today);
-  const packStart = softPackStartForDay(today, now, packEnd, windowStart);
-  const minutes = taskDurationMinutes(task);
-  if (packStart < packEnd) {
-    const occupied = inflateOccupied(
-      occupiedIntervalsForDay(byDay, todayKey),
-      gapMinutes,
-      packStart,
-      packEnd,
-    );
-    const free = freeIntervals(packStart, packEnd, occupied);
-    const range = firstFitRange(free, minutes);
-    if (range) {
-      pushBlock(byDay, today, task, range.start, range.end, 0, false);
-      return;
-    }
-  }
-  pushDayOverflow(overdueByDay, todayKey, task);
+  pushDayOverflow(overdueByDay, dayKey(toStartOfDay(now)), task);
 }
 
 /** Soft packing cursor: live now on today so softs slide; window start on future days. */
@@ -564,8 +540,8 @@ function hasTimedClock(task: ComposerDraft): boolean {
 }
 
 /**
- * Place dest-day MISSED ghosts onto a day's live occupied map.
- * Timed pin at clock time (may overlap). Untimed first-fit remaining holes with gap.
+ * Place dest-day MISSED/OVERFLOW ghosts onto a day's live occupied map.
+ * Timed pin at clock (may overlap). Date-only first-fit, then undated — same soft order as live packing.
  */
 export function packMovePreviewRanges(
   occupied: ReadonlyArray<{ startMin: number; endMin: number }>,
@@ -579,16 +555,19 @@ export function packMovePreviewRanges(
   if (ghosts.length === 0) return placed;
 
   const timed: ComposerDraft[] = [];
-  const untimed: ComposerDraft[] = [];
+  const dateOnly: ComposerDraft[] = [];
+  const undated: ComposerDraft[] = [];
   for (const ghost of ghosts) {
     if (hasTimedClock(ghost)) timed.push(ghost);
-    else untimed.push(ghost);
+    else if (parseTaskDate(ghost.date) != null) dateOnly.push(ghost);
+    else undated.push(ghost);
   }
   timed.sort(
     (a, b) =>
       resolveTimedStartMin(a, packStart) - resolveTimedStartMin(b, packStart),
   );
-  untimed.sort((a, b) => compareSoftPriorityWithRoot(a, b, parentById));
+  dateOnly.sort((a, b) => compareSoftPriorityWithRoot(a, b, parentById));
+  undated.sort((a, b) => compareSoftPriorityWithRoot(a, b, parentById));
 
   for (const task of timed) {
     const startMin = resolveTimedStartMin(task, packStart);
@@ -608,7 +587,7 @@ export function packMovePreviewRanges(
   ];
   const inflated = inflateOccupied(softOccupied, gapMinutes, packStart, packEnd);
   let free = freeIntervals(packStart, packEnd, inflated);
-  for (const task of untimed) {
+  for (const task of [...dateOnly, ...undated]) {
     const minutes = taskDurationMinutes(task);
     const range = firstFitRange(free, minutes);
     if (!range) continue;
@@ -1347,15 +1326,7 @@ export function layoutCalendarTasks(
     placeOnTimeTimedTask(byDay, task, getWindowStart);
   }
   for (const task of timedMissed) {
-    placeMissedTimedTask(
-      byDay,
-      task,
-      now,
-      getPackEnd,
-      getWindowStart,
-      overdueByDay,
-      gapMinutes,
-    );
+    placeMissedTimedTask(task, now, overdueByDay);
   }
 
   if (focusTask) {
@@ -1388,15 +1359,7 @@ export function layoutCalendarTasks(
               getWindowStart(scheduled),
             )
           ) {
-            placeMissedTimedTask(
-              byDay,
-              focusTask,
-              now,
-              getPackEnd,
-              getWindowStart,
-              overdueByDay,
-              gapMinutes,
-            );
+            placeMissedTimedTask(focusTask, now, overdueByDay);
           } else {
             placeOnTimeTimedTask(byDay, focusTask, getWindowStart);
           }

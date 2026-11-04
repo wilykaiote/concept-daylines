@@ -3084,16 +3084,19 @@ function App() {
   const calendarLayoutByKey = new Map(calendarTaskLayout.map((day) => [day.dayKey, day]));
   const movePackedGhosts = (() => {
     const packed: MissedMovePreview[] = [];
-    const ghostsByDest = new Map<string, ComposerDraft[]>();
+    const ghostsByDest = new Map<string, MissedMovePreview[]>();
     for (const ghost of [...missedMoveGhosts, ...overflowMoveGhosts]) {
       const list = ghostsByDest.get(ghost.destDayKey) ?? [];
-      if (ghost.task.id != null && list.some((task) => task.id === ghost.task.id)) {
+      if (
+        ghost.task.id != null &&
+        list.some((row) => row.task.id === ghost.task.id)
+      ) {
         continue;
       }
-      list.push(ghost.task);
+      list.push(ghost);
       ghostsByDest.set(ghost.destDayKey, list);
     }
-    for (const [destDayKey, ghostTasks] of ghostsByDest) {
+    for (const [destDayKey, destGhosts] of ghostsByDest) {
       const destDate = parseTaskDate(destDayKey);
       const day = calendarLayoutByKey.get(destDayKey);
       const windowStart =
@@ -3106,7 +3109,7 @@ function App() {
         (destDate != null
           ? packWindowEndMinutes(getTargetTimeForDay(destDate), windowStart)
           : packWindowEndMinutes("22:00", windowStart));
-      const occupied = (day?.scheduleBlocks ?? [])
+      const liveOccupied = (day?.scheduleBlocks ?? [])
         .filter(
           (block) =>
             block.taskId == null || !exclusiveOffScheduleIds.has(block.taskId),
@@ -3115,9 +3118,35 @@ function App() {
           startMin: block.packStartMin ?? block.startMin,
           endMin: block.packEndMin ?? block.endMin,
         }));
+      const pivotPlaced: MissedMovePreview[] = [];
+      const needsFit: ComposerDraft[] = [];
+      for (const ghost of destGhosts) {
+        if (
+          ghost.startMin != null &&
+          ghost.endMin != null &&
+          ghost.endMin > ghost.startMin
+        ) {
+          pivotPlaced.push({
+            destDayKey,
+            startMin: ghost.startMin,
+            endMin: ghost.endMin,
+            task: ghost.task,
+          });
+        } else {
+          needsFit.push(ghost.task);
+        }
+      }
+      packed.push(...pivotPlaced);
+      const occupied = [
+        ...liveOccupied,
+        ...pivotPlaced.map((row) => ({
+          startMin: row.startMin as number,
+          endMin: row.endMin as number,
+        })),
+      ];
       for (const range of packMovePreviewRanges(
         occupied,
-        ghostTasks,
+        needsFit,
         packStart,
         packEnd,
         taskGapMinutes,
